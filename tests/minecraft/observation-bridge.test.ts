@@ -47,6 +47,17 @@ test('player entity appearance maps identity and position', () => {
   )
 })
 
+test('player info without a spawned entity is not treated as a positioned player', () => {
+  assert.equal(
+    bridge.playerSeen({
+      username: 'Boss',
+      uuid: 'player-uuid',
+      entity: undefined
+    }),
+    null
+  )
+})
+
 test('chat and health are normalized without raw provider data', () => {
   assert.deepEqual(bridge.chat('Boss', '跟我來'), {
     type: 'player_chat',
