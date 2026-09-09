@@ -43,6 +43,7 @@ test(
       ['-Xms256M', '-Xmx768M', '-jar', serverJar, 'nogui'],
       { cwd: serverDirectory, stdio: ['pipe', 'pipe', 'pipe'] }
     )
+    const serverLog = attachProcessLog(server)
     let boss: Bot | null = null
     const adapter = new MineflayerAdapter({
       host: '127.0.0.1',
@@ -123,11 +124,17 @@ test(
 
     const healthCount = events.filter(event => event.type === 'health_changed').length
     server.stdin.write('damage Moxue_Test 1 minecraft:generic\n')
-    await waitUntil(
-      () => events.filter(event => event.type === 'health_changed').length > healthCount,
-      15_000,
-      'health_changed after damage'
-    )
+    try {
+      await waitUntil(
+        () => events.filter(event => event.type === 'health_changed').length > healthCount,
+        15_000,
+        'health_changed after damage'
+      )
+    } catch (error) {
+      throw new Error(
+        `${asError(error).message}\n\nMinecraft server tail:\n${serverLog.tail()}\n\nRecent runtime events:\n${JSON.stringify(events.slice(-20), null, 2)}`
+      )
+    }
 
     await waitUntil(
       () => Boolean(boss?.players.Moxue_Test?.entity?.position),
@@ -170,6 +177,18 @@ test(
     assert.equal(events.some(event => event.type === 'adapter_error'), false)
   }
 )
+
+function attachProcessLog(server: ChildProcessWithoutNullStreams): { tail(): string } {
+  let output = ''
+  const capture = (chunk: Buffer) => {
+    output = `${output}${chunk.toString('utf8')}`.slice(-20_000)
+  }
+  server.stdout.on('data', capture)
+  server.stderr.on('data', capture)
+  return {
+    tail: () => output.slice(-5000)
+  }
+}
 
 async function waitForServerReady(server: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
   let output = ''
@@ -247,4 +266,8 @@ function waitForExit(server: ChildProcessWithoutNullStreams): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolveDelay => setTimeout(resolveDelay, ms))
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
 }
