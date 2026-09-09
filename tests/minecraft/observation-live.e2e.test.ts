@@ -122,6 +122,9 @@ test(
       'inventory_changed after give'
     )
 
+    // A newly spawned vanilla player has a short server-side invulnerability window.
+    // Keep the damage type unchanged so this test isolates timing rather than changing two variables.
+    await delay(4000)
     const healthCount = events.filter(event => event.type === 'health_changed').length
     server.stdin.write('damage Moxue_Test 1 minecraft:generic\n')
     try {
