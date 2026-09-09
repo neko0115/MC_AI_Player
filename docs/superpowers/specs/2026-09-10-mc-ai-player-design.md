@@ -279,18 +279,135 @@ Default bind: `127.0.0.1`.
 
 If configured to bind a non-loopback interface, startup requires a bearer token.
 
-## 11. Deployment
+## 11. Deployment and platform matrix
 
-Primary runtime:
+### 11.1 Windows is the primary development and E2E environment
 
-- Node.js 24 LTS.
-- TypeScript.
-- Linux x64 and Linux ARM64.
-- Raspberry Pi OS 64-bit / other glibc ARM64 target after compatibility probe.
-- Mini PC Linux target.
-- No GUI required.
+The initial development machine may be Windows x64. Windows is expected to host the easiest interactive test setup:
 
-Resource budgets are measured rather than guessed. Phase 6 defines CPU, RSS, event-loop lag, pathfinding time, and memory growth acceptance limits from baseline hardware measurements.
+```text
+Windows x64 development machine
+├─ Node.js 24
+├─ MC_AI_Player
+├─ controlled Minecraft Java test server
+├─ human Minecraft Java client
+├─ test/telemetry/debug tooling
+└─ optional AI provider connectivity
+```
+
+Windows support is therefore required for development, unit/integration testing, observation tests, deterministic gameplay tests, reasoning-isolation tests, and cooperative E2E tests.
+
+Linux x64 remains a required CI/release target so Windows-specific assumptions cannot become architectural dependencies.
+
+### 11.2 Raspberry Pi 3 Model B is the minimum hardware experiment target
+
+Known target hardware supplied for this project:
+
+```text
+Raspberry Pi 3 Model B
+architecture: aarch64 / ARM64 userspace target
+RAM: 1 GB
+OS target: Raspberry Pi OS 64-bit
+power for release benchmark: stable 5 V / >=2.5 A; 5 V / 3 A preferred
+```
+
+The Pi 3B is deliberately treated as a constrained minimum target, not as the machine on which all development must occur. A failure to meet the Pi 3B performance gate does not invalidate the architecture; it becomes a documented minimum-hardware limitation and triggers profiling before any hardware recommendation is changed.
+
+### 11.3 The Raspberry Pi does not run the Minecraft GUI client
+
+Normal MC_AI_Player deployment is headless:
+
+```text
+Raspberry Pi OS 64-bit
+Node.js 24
+MC_AI_Player
+Mineflayer
+mineflayer-pathfinder
+MC memory
+```
+
+The Pi does **not** require:
+
+- Minecraft Launcher;
+- a graphical Minecraft Java client;
+- a desktop session;
+- OCR;
+- screenshot capture;
+- local game rendering.
+
+Mineflayer itself is the Minecraft network client. The Minecraft server sees MC_AI_Player as a connected player.
+
+A real Microsoft/Minecraft account may be required for production connection to an online-mode server. Authentication is a credential/runtime concern and never requires storing account secrets in the repository. Controlled early tests may use a private test server configuration that avoids coupling Phase 0-2 to production authentication.
+
+### 11.4 Pi 3B performance gate
+
+The hardware gate must measure, not assume, viability. Required scenarios are:
+
+- connected idle;
+- player follow;
+- 32-block navigation;
+- 64-block navigation;
+- bounded resource search;
+- gather resource;
+- return home;
+- inventory/chest operation;
+- AI decision request using a remote provider;
+- SQLite memory read/write;
+- reconnect;
+- at least one sustained cooperative session.
+
+Collect at minimum:
+
+```text
+process RSS
+CPU utilization
+event-loop lag
+path calculation duration
+path replan count
+GC pauses when observable
+network latency/reconnect time
+memory growth per hour
+swap activity
+throttling/undervoltage state
+```
+
+Initial engineering budgets for the Pi 3B are targets to validate, not claims of measured performance:
+
+```text
+normal RSS target: < 500 MB
+short peak RSS target: < 700 MB
+sustained swap thrashing: forbidden
+normal event-loop lag target: < 100 ms for the large majority of samples
+unbounded memory growth: forbidden
+```
+
+If pathfinding exceeds the hardware budget, tune deterministic parameters before changing architecture:
+
+- path segment length;
+- `searchRadius`;
+- `tickTimeout`;
+- `thinkTimeout`;
+- Minecraft view distance;
+- WorldStateCache radius;
+- replan frequency.
+
+Long routes should be decomposed into bounded local path segments rather than requesting one enormous path search.
+
+### 11.5 Power integrity is part of the benchmark
+
+A Pi benchmark taken while the board is undervoltage-throttled is invalid evidence. Before recording release performance, verify stable supply and no active undervoltage/throttling condition.
+
+### 11.6 Required platform evidence
+
+```text
+Windows x64     required: development + E2E
+Linux x64       required: CI/release validation
+Linux ARM64     required: build/runtime validation
+Pi 3B ARM64     required: minimum-hardware experiment gate
+Mini PC         required before recommending it as production host
+```
+
+The detailed platform execution steps live in `docs/superpowers/plans/2026-09-10-windows-pi-validation.md`.
 
 ## 12. Validation phases
 
@@ -313,7 +430,7 @@ Connect a real high-reasoning provider only after Reasoning Isolation regression
 Validate human instruction -> goal -> deterministic execution -> return/report cycles.
 
 ### Phase 6 — Low-power deployment
-Profile x64 mini PC and ARM64 Raspberry Pi-class hardware.
+Run the platform plan on Windows x64, Linux x64, generic Linux ARM64, the known Pi 3B target, and the intended mini PC. Pi testing is headless and never requires Minecraft rendering on the Pi.
 
 ### Phase 7 — Soak and chaos
 Long-duration sessions plus server restart, disconnect, stuck pathfinder, death, full inventory, absent target, and AI failure injection.
@@ -332,6 +449,7 @@ Required before any DC_BOT integration work:
 - DC_BOT database dependency: zero.
 - Discord token access: zero.
 - OCR required for baseline gameplay: zero.
+- Minecraft GUI/Launcher required on runtime host: zero.
 - Free-text command parsing: zero.
 - Raw model text actuator reachability: zero.
 - Reasoning-to-player-chat leakage: zero.
@@ -340,9 +458,11 @@ Required before any DC_BOT integration work:
 - Deterministic gameplay works with fake/no AI provider: pass.
 - Memory restart persistence: pass.
 - Reconnect: pass.
+- Windows x64 cooperative E2E: pass.
 - Cooperative scenario >=30 minutes: pass.
 - Long soak/chaos suite: pass.
-- ARM64 deployment profile: pass or an explicitly documented hardware blocker.
+- Linux ARM64 runtime validation: pass.
+- Pi 3B benchmark captured with valid power/throttling state: pass or an explicitly documented minimum-hardware blocker.
 - Mock Moxue adapter: pass.
 - DC_BOT modifications before the gate: zero.
 
