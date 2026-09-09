@@ -16,7 +16,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   platform-probe:
@@ -38,6 +38,18 @@ jobs:
           name: package-lock-${{ matrix.os }}
           path: package-lock.json
           if-no-files-found: error
+      - name: Commit canonical lockfile
+        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: lock phase0 dependencies"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
       - name: Run platform probe test
         run: npm test -- tests/contracts/platform-probe.test.ts
       - name: Typecheck
