@@ -1,0 +1,33 @@
+name: Phase 0 Bootstrap
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  platform-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm install
+      - name: Run platform probe test
+        run: npm test -- tests/contracts/platform-probe.test.ts
+      - name: Typecheck
+        run: npm run typecheck
