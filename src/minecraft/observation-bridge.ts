@@ -23,7 +23,7 @@ export interface ObservationBotView {
 export interface ObservationPlayerView {
   username: string
   uuid?: string
-  entity?: { position: VecLike } | null
+  entity?: { position: VecLike } | null | undefined
 }
 
 export class ObservationBridge {
