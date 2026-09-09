@@ -23,7 +23,7 @@ export interface ObservationBotView {
 export interface ObservationPlayerView {
   username: string
   uuid?: string
-  entity: { position: VecLike }
+  entity?: { position: VecLike } | null
 }
 
 export class ObservationBridge {
@@ -44,7 +44,10 @@ export class ObservationBridge {
     }
   }
 
-  playerSeen(player: ObservationPlayerView): RuntimeEvent {
+  playerSeen(player: ObservationPlayerView): RuntimeEvent | null {
+    if (!player.entity) {
+      return null
+    }
     const id = player.uuid?.trim()
     return {
       type: 'player_seen',
