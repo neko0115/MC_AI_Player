@@ -9,6 +9,7 @@ on:
       - package-lock.json
       - tsconfig.json
       - scripts/**
+      - src/**
       - tests/**
       - .github/workflows/phase0.yml
   pull_request:
@@ -19,7 +20,7 @@ permissions:
   contents: read
 
 jobs:
-  platform-probe:
+  phase0-tests:
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +37,7 @@ jobs:
         run: npm ci
       - name: Run platform probe
         run: npm run probe
-      - name: Run platform probe test
-        run: npm test -- tests/contracts/platform-probe.test.ts
+      - name: Run tests
+        run: npm test
       - name: Typecheck
         run: npm run typecheck
