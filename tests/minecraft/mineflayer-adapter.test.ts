@@ -20,6 +20,7 @@ class FakeBot extends EventEmitter {
   readonly entity = { position: { x: 0, y: 64, z: 0 } }
   readonly inventory = new FakeInventory()
   readonly players = {}
+  readonly username = 'Moxue_Test'
   health = 20
   food = 20
   clearControlStatesCount = 0
@@ -39,6 +40,7 @@ class DeferredInventoryBot extends EventEmitter {
   readonly game = { dimension: 'overworld' }
   readonly entity = { position: { x: 0, y: 64, z: 0 } }
   readonly players = {}
+  readonly username = 'Moxue_Test'
   inventory: FakeInventory | undefined
   health = 20
   food = 20
@@ -185,4 +187,48 @@ test('inventory listener waits until spawn when Mineflayer injects inventory lat
   bot.inventory.emit('updateSlot', 9, null, { name: 'oak_log', count: 3, slot: 9 })
 
   assert.deepEqual(seen, ['connected', 'spawned', 'inventory_changed'])
+})
+
+test('player info without entity waits for player entitySpawn before emitting player_seen', async () => {
+  const bot = new FakeBot()
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: () => bot as unknown as Bot,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 10
+    }
+  )
+  const seen: Array<{ type: string; name?: string }> = []
+  adapter.onEvent(event => {
+    seen.push({
+      type: event.type,
+      ...(event.type === 'player_seen' ? { name: event.player.name } : {})
+    })
+  })
+
+  await adapter.connect()
+  assert.doesNotThrow(() => {
+    bot.emit('playerJoined', {
+      username: 'Boss',
+      uuid: 'player-uuid',
+      entity: undefined
+    })
+  })
+  assert.equal(seen.some(event => event.type === 'player_seen'), false)
+
+  bot.emit('entitySpawn', {
+    type: 'player',
+    username: 'Boss',
+    uuid: 'player-uuid',
+    position: { x: 3, y: 64, z: 4 }
+  })
+
+  assert.deepEqual(seen, [{ type: 'player_seen', name: 'Boss' }])
 })
