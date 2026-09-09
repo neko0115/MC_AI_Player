@@ -9,7 +9,8 @@
   "scripts": {
     "test": "tsx --test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "probe": "tsx scripts/probe-platform.ts"
+    "probe": "tsx scripts/probe-platform.ts",
+    "fetch:test-server": "tsx scripts/fetch-test-server.ts"
   },
   "dependencies": {
     "mineflayer": "4.39.0",
