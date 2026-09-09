@@ -35,6 +35,21 @@ class FakeBot extends EventEmitter {
   }
 }
 
+class DeferredInventoryBot extends EventEmitter {
+  readonly game = { dimension: 'overworld' }
+  readonly entity = { position: { x: 0, y: 64, z: 0 } }
+  readonly players = {}
+  inventory: FakeInventory | undefined
+  health = 20
+  food = 20
+
+  clearControlStates() {}
+
+  quit() {
+    this.emit('end', 'operator-disconnect')
+  }
+}
+
 test('config accepts explicit offline test connection settings', () => {
   const config = loadMinecraftConfig({
     MC_HOST: '127.0.0.1',
@@ -140,4 +155,34 @@ test('observation-only adapter emits normalized events and never initiates movem
 
   await adapter.disconnect()
   assert.equal(bot.quitCount, 1)
+})
+
+test('inventory listener waits until spawn when Mineflayer injects inventory later', async () => {
+  const bot = new DeferredInventoryBot()
+  const factory: MineflayerBotFactory = () => bot as unknown as Bot
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: factory,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 10
+    }
+  )
+  const seen: string[] = []
+  adapter.onEvent(event => seen.push(event.type))
+
+  await assert.doesNotReject(adapter.connect())
+
+  bot.inventory = new FakeInventory()
+  bot.emit('login')
+  bot.emit('spawn')
+  bot.inventory.emit('updateSlot', 9, null, { name: 'oak_log', count: 3, slot: 9 })
+
+  assert.deepEqual(seen, ['connected', 'spawned', 'inventory_changed'])
 })
