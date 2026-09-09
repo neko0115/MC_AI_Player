@@ -61,6 +61,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
   private readonly schedule: (callback: () => void, delayMs: number) => TimerHandle
   private readonly cancelSchedule: (handle: TimerHandle) => void
   private readonly bridge: ObservationBridge
+  private readonly inventoryListeners = new WeakSet<Bot>()
   private bot: Bot | null = null
   private reconnectTimer: TimerHandle | null = null
   private operatorDisconnect = false
@@ -142,6 +143,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
 
     bot.on('spawn', () => {
       if (this.bot !== bot) return
+      this.attachInventoryListener(bot)
       this.emit(this.bridge.spawned(bot))
     })
 
@@ -165,11 +167,6 @@ export class MineflayerAdapter implements MinecraftAdapter {
       this.emit(this.bridge.health(bot))
     })
 
-    bot.inventory.on('updateSlot', () => {
-      if (this.bot !== bot) return
-      this.emit(this.bridge.inventory(bot))
-    })
-
     bot.on('kicked', reason => {
       if (this.bot !== bot) return
       this.emit(this.bridge.kicked(reason))
@@ -188,6 +185,21 @@ export class MineflayerAdapter implements MinecraftAdapter {
         this.scheduleReconnect()
       }
     })
+  }
+
+  private attachInventoryListener(bot: Bot): void {
+    if (this.inventoryListeners.has(bot)) {
+      return
+    }
+    const inventory = bot.inventory as Bot['inventory'] | undefined
+    if (!inventory) {
+      return
+    }
+    inventory.on('updateSlot', () => {
+      if (this.bot !== bot) return
+      this.emit(this.bridge.inventory(bot))
+    })
+    this.inventoryListeners.add(bot)
   }
 
   private scheduleReconnect(): void {
