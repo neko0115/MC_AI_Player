@@ -149,12 +149,28 @@ export class MineflayerAdapter implements MinecraftAdapter {
 
     bot.on('playerJoined', player => {
       if (this.bot !== bot) return
-      this.emit(this.bridge.playerSeen(player))
+      this.emitPlayerIfPositioned(player)
     })
 
     bot.on('playerUpdated', player => {
       if (this.bot !== bot) return
-      this.emit(this.bridge.playerSeen(player))
+      this.emitPlayerIfPositioned(player)
+    })
+
+    bot.on('entitySpawn', entity => {
+      if (
+        this.bot !== bot ||
+        entity.type !== 'player' ||
+        !entity.username ||
+        entity.username === bot.username
+      ) {
+        return
+      }
+      this.emitPlayerIfPositioned({
+        username: entity.username,
+        ...(entity.uuid ? { uuid: entity.uuid } : {}),
+        entity
+      })
     })
 
     bot.on('chat', (username, message) => {
@@ -185,6 +201,13 @@ export class MineflayerAdapter implements MinecraftAdapter {
         this.scheduleReconnect()
       }
     })
+  }
+
+  private emitPlayerIfPositioned(player: Parameters<ObservationBridge['playerSeen']>[0]): void {
+    const event = this.bridge.playerSeen(player)
+    if (event !== null) {
+      this.emit(event)
+    }
   }
 
   private attachInventoryListener(bot: Bot): void {
