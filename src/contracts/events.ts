@@ -32,6 +32,14 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('disconnected'), at: AtSchema, reason: z.string().max(500).optional() }).strict(),
   z
     .object({
+      type: z.literal('adapter_error'),
+      at: AtSchema,
+      code: z.enum(['kicked', 'error', 'reconnect_exhausted']),
+      message: z.string().max(500).optional()
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('spawned'),
       at: AtSchema,
       dimension: z.string().trim().min(1).max(128),
