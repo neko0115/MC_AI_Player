@@ -16,7 +16,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   platform-probe:
@@ -30,26 +30,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install dependencies
-        run: npm install
-      - name: Upload generated lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-lock-${{ matrix.os }}
-          path: package-lock.json
-          if-no-files-found: error
-      - name: Commit canonical lockfile
-        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: lock phase0 dependencies"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run platform probe
+        run: npm run probe
       - name: Run platform probe test
         run: npm test -- tests/contracts/platform-probe.test.ts
       - name: Typecheck
