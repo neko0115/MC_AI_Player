@@ -22,7 +22,7 @@ test('fake and Gemini decision providers explicitly declare a safe structured re
   const gemini = new GeminiDecisionProvider({
     interactions: {
       async create() {
-        return { steps: [] }
+        return { status: 'requires_action', steps: [] }
       }
     },
     model: 'gemini-3.8-flash'
