@@ -74,6 +74,7 @@ function provider(
 
 test('Gemini provider requests one forced decision function with high thinking and no thought summaries', async () => {
   const current = provider({
+    status: 'requires_action',
     steps: [
       {
         type: 'thought',
@@ -137,11 +138,7 @@ test('only requires_action interaction status may yield a gameplay function call
     'incomplete',
     'in_progress'
   ] as const) {
-    const response = {
-      status,
-      steps: [validCall]
-    } as unknown as GeminiInteractionResponse
-    const current = provider(response)
+    const current = provider({ status, steps: [validCall] })
 
     assert.deepEqual(
       await current.provider.decide({ context: context() }),
@@ -157,6 +154,7 @@ test('only requires_action interaction status may yield a gameplay function call
 
 test('thought steps are ignored, but any model text step makes the provider fail closed', async () => {
   const current = provider({
+    status: 'requires_action',
     steps: [
       { type: 'thought', summary: [{ type: 'text', text: 'private thought' }] },
       {
@@ -200,7 +198,7 @@ test('provider requires exactly one submit_decision function call', async () => 
       'unexpected_function_call'
     ]
   ] as const) {
-    const current = provider({ steps })
+    const current = provider({ status: 'requires_action', steps })
     assert.deepEqual(await current.provider.decide({ context: context() }), {
       kind: 'invalid',
       provider: 'gemini',
@@ -211,6 +209,7 @@ test('provider requires exactly one submit_decision function call', async () => 
 
 test('missing function arguments fail closed instead of inventing an empty object', async () => {
   const current = provider({
+    status: 'requires_action',
     steps: [{ type: 'function_call', id: '1', name: 'submit_decision' }]
   })
 
@@ -228,6 +227,7 @@ test('provider returns a detached arguments object rather than an SDK-owned refe
     args: { resource: 'oak_log', quantity: 2 }
   }
   const response: GeminiInteractionResponse = {
+    status: 'requires_action',
     steps: [{
       type: 'function_call',
       id: '1',
