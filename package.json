@@ -13,6 +13,7 @@
     "fetch:test-server": "tsx scripts/fetch-test-server.ts"
   },
   "dependencies": {
+    "better-sqlite3": "12.11.1",
     "mineflayer": "4.39.0",
     "mineflayer-pathfinder": "2.4.5",
     "zod": "4.5.4"
