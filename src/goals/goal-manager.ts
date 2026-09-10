@@ -22,7 +22,7 @@ interface GoalManagerDependencies {
 export class GoalManager {
   private readonly records = new Map<string, GoalRecord>()
   private readonly queue: string[] = []
-  private readonly events?: RuntimeEventBus
+  private readonly events: RuntimeEventBus | undefined
   private readonly nextGoalId: () => string
   private readonly now: () => number
   private activeGoalId: string | null = null
