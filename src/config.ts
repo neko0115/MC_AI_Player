@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+
 export type MinecraftAuth = 'offline' | 'microsoft'
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 export type AiProviderName = 'fake' | 'gemini'
@@ -145,7 +147,9 @@ function parseIntegerSetting(
 }
 
 function isLoopbackHost(host: string): boolean {
-  return host === 'localhost' || host === '::1' || host.startsWith('127.')
+  if (host === 'localhost' || host === '::1') return true
+  if (isIP(host) !== 4) return false
+  return Number(host.split('.')[0]) === 127
 }
 
 function isLogLevel(value: string): value is LogLevel {
