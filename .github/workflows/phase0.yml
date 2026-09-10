@@ -7,11 +7,13 @@ on:
     paths:
       - package.json
       - package-lock.json
+      - .env.example
       - tsconfig.json
       - scripts/**
       - src/**
       - tests/**
       - .github/workflows/phase0.yml
+      - .github/workflows/task13-gemini-provider.yml
   pull_request:
     branches:
       - main
