@@ -122,6 +122,39 @@ test('Gemini provider requests one forced decision function with high thinking a
   assert.equal(sent.request.input.includes('test-server:survival-v1'), true)
 })
 
+test('only requires_action interaction status may yield a gameplay function call', async () => {
+  const validCall = {
+    type: 'function_call',
+    id: 'fc-status',
+    name: 'submit_decision',
+    arguments: { version: 1, intent: 'stay', args: {} }
+  }
+
+  for (const status of [
+    'completed',
+    'failed',
+    'cancelled',
+    'incomplete',
+    'in_progress'
+  ] as const) {
+    const response = {
+      status,
+      steps: [validCall]
+    } as unknown as GeminiInteractionResponse
+    const current = provider(response)
+
+    assert.deepEqual(
+      await current.provider.decide({ context: context() }),
+      {
+        kind: 'invalid',
+        provider: 'gemini',
+        code: 'interaction_status_invalid'
+      },
+      status
+    )
+  }
+})
+
 test('thought steps are ignored, but any model text step makes the provider fail closed', async () => {
   const current = provider({
     steps: [
