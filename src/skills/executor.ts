@@ -15,7 +15,7 @@ interface ActiveExecution {
 }
 
 export class SkillExecutor {
-  private readonly events?: RuntimeEventBus
+  private readonly events: RuntimeEventBus | undefined
   private readonly now: () => number
   private active: ActiveExecution | null = null
 
