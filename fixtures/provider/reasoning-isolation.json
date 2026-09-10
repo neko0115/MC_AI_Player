@@ -1,0 +1,59 @@
+[
+  {
+    "name": "think-tag-plus-json",
+    "response": {
+      "kind": "raw_text",
+      "text": "<think>I should gather wood first.</think>{\"version\":1,\"intent\":\"gather_resource\",\"args\":{\"resource\":\"oak_log\",\"quantity\":16}}"
+    },
+    "expected": "rejected"
+  },
+  {
+    "name": "self-talk-prefix",
+    "response": {
+      "kind": "raw_text",
+      "text": "I think first I should inspect the area. {\"version\":1,\"intent\":\"stay\",\"args\":{}}"
+    },
+    "expected": "rejected"
+  },
+  {
+    "name": "self-talk-suffix",
+    "response": {
+      "kind": "raw_text",
+      "text": "{\"version\":1,\"intent\":\"stay\",\"args\":{}} done"
+    },
+    "expected": "rejected"
+  },
+  {
+    "name": "multiple-json-decisions",
+    "response": {
+      "kind": "raw_text",
+      "text": "{\"version\":1,\"intent\":\"stay\",\"args\":{}}{\"version\":1,\"intent\":\"go_to\",\"args\":{\"x\":1,\"y\":64,\"z\":1}}"
+    },
+    "expected": "rejected"
+  },
+  {
+    "name": "pure-json-returned-as-text-is-still-invalid",
+    "response": {
+      "kind": "raw_text",
+      "text": "{\"version\":1,\"intent\":\"stay\",\"args\":{}}"
+    },
+    "expected": "rejected"
+  },
+  {
+    "name": "separate-reasoning-and-function-arguments",
+    "response": {
+      "kind": "structured",
+      "mode": "function_call",
+      "reasoning": "PRIVATE_REASONING_SENTINEL_DO_NOT_LEAK",
+      "value": {
+        "version": 1,
+        "intent": "gather_resource",
+        "args": {
+          "resource": "oak_log",
+          "quantity": 16
+        }
+      }
+    },
+    "expected": "accepted"
+  }
+]
