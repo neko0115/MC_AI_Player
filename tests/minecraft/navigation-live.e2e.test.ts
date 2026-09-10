@@ -291,7 +291,7 @@ test(
     await withTimeout(adapter.disconnect(), 10_000, 'phase F adapter disconnect')
     assert.deepEqual(
       await withTimeout(movementDuringDisconnect, 10_000, 'phase F movement cleanup'),
-      { status: 'failed', code: 'path_stopped' }
+      { status: 'failed', code: 'disconnected' }
     )
     await waitUntil(
       () => events.filter(event => event.type === 'disconnected').length > disconnectCount,
