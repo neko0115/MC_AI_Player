@@ -38,6 +38,7 @@ type DatabaseConstructor = new (filename: string) => DatabaseLike
 
 interface MemoryRow {
   id: string
+  world_key: string
   type: string
   content: string
   dimension: string | null
@@ -61,6 +62,7 @@ interface SqliteRepositoryOptions {
 }
 
 interface NormalizedMemoryInput {
+  readonly worldKey: string
   readonly type: MinecraftMemoryType
   readonly content: string
   readonly dimension: string | null
@@ -73,7 +75,7 @@ interface NormalizedMemoryInput {
 const require = createRequire(import.meta.url)
 const Database = require('better-sqlite3') as DatabaseConstructor
 const DEFAULT_SEARCH_LIMIT = 8
-const MEMORY_SCHEMA_VERSION = '1'
+const MEMORY_SCHEMA_VERSION = '2'
 
 export class SqliteMemoryRepository implements MinecraftMemoryRepository {
   private readonly db: DatabaseLike
@@ -89,8 +91,14 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
     }
     this.now = options.now ?? Date.now
     this.db = new Database(filename)
-    this.configureDatabase(filename)
-    this.createSchema()
+    try {
+      this.configureDatabase(filename)
+      this.createSchema()
+    } catch (error) {
+      this.closed = true
+      this.db.close()
+      throw error
+    }
   }
 
   remember(input: MinecraftMemoryInput): MinecraftMemory {
@@ -120,12 +128,13 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
       const id = randomUUID()
       this.db.prepare(`
         INSERT INTO memories (
-          id, type, content, dimension, x, y, z,
+          id, world_key, type, content, dimension, x, y, z,
           importance, observed_at, created_at, updated_at,
           reinforcement_count, fingerprint
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
       `).run(
         id,
+        normalized.worldKey,
         normalized.type,
         normalized.content,
         normalized.dimension,
@@ -154,8 +163,8 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
   search(query: MemorySearchQuery): MinecraftMemory[] {
     this.assertOpen()
     const parsed = MemorySearchQuerySchema.parse(query)
-    const where: string[] = []
-    const params: SqlValue[] = []
+    const where: string[] = ['m.world_key = ?']
+    const params: SqlValue[] = [normalizeWorldKey(parsed.worldKey)]
 
     if (parsed.text !== undefined) {
       where.push('instr(lower(m.content), lower(?)) > 0')
@@ -203,7 +212,7 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
     const sql = `
       SELECT m.*
       FROM memories m
-      ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+      WHERE ${where.join(' AND ')}
       ORDER BY m.importance DESC,
                m.observed_at DESC,
                m.updated_at DESC,
@@ -250,6 +259,7 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
 
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
+        world_key TEXT NOT NULL,
         type TEXT NOT NULL,
         content TEXT NOT NULL,
         dimension TEXT,
@@ -270,10 +280,11 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
         PRIMARY KEY (memory_id, tag)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
-      CREATE INDEX IF NOT EXISTS idx_memories_dimension ON memories(dimension);
-      CREATE INDEX IF NOT EXISTS idx_memories_rank
-        ON memories(importance DESC, observed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memories_world_key ON memories(world_key);
+      CREATE INDEX IF NOT EXISTS idx_memories_world_type ON memories(world_key, type);
+      CREATE INDEX IF NOT EXISTS idx_memories_world_dimension ON memories(world_key, dimension);
+      CREATE INDEX IF NOT EXISTS idx_memories_world_rank
+        ON memories(world_key, importance DESC, observed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag, memory_id);
     `)
 
@@ -311,6 +322,7 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
 
     return {
       id: row.id,
+      worldKey: row.world_key,
       type,
       content: row.content,
       dimension: row.dimension,
@@ -336,6 +348,7 @@ export class SqliteMemoryRepository implements MinecraftMemoryRepository {
 function normalizeMemoryInput(input: MinecraftMemoryInput): NormalizedMemoryInput {
   const parsed = MinecraftMemoryInputSchema.parse(input)
   return {
+    worldKey: normalizeWorldKey(parsed.worldKey),
     type: parsed.type,
     content: parsed.content.trim(),
     dimension: parsed.dimension === undefined ? null : normalizeDimension(parsed.dimension),
@@ -344,6 +357,10 @@ function normalizeMemoryInput(input: MinecraftMemoryInput): NormalizedMemoryInpu
     importance: parsed.importance ?? 0.5,
     observedAt: parsed.observedAt
   }
+}
+
+function normalizeWorldKey(value: string): string {
+  return value.trim()
 }
 
 function normalizeDimension(value: string): string {
@@ -357,6 +374,7 @@ function normalizeTags(tags: readonly string[]): string[] {
 function fingerprintOf(input: NormalizedMemoryInput): string {
   return createHash('sha256')
     .update(JSON.stringify({
+      worldKey: input.worldKey,
       type: input.type,
       content: input.content,
       dimension: input.dimension,
@@ -374,6 +392,7 @@ function requireMemoryRow(value: unknown): MemoryRow {
   if (!isObject(value)) throw new Error('invalid memory row returned by sqlite')
   const row: MemoryRow = {
     id: requireString(value.id, 'id'),
+    world_key: requireString(value.world_key, 'world_key'),
     type: requireString(value.type, 'type'),
     content: requireString(value.content, 'content'),
     dimension: nullableString(value.dimension, 'dimension'),
