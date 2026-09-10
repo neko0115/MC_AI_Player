@@ -79,7 +79,9 @@ function runtime() {
   const goals = new ActuatingGoalManager(executor)
   const events = new RuntimeEventBus()
   const emitted: unknown[] = []
-  events.subscribe(event => emitted.push(structuredClone(event)))
+  events.subscribe(event => {
+    emitted.push(structuredClone(event))
+  })
   const gate = new DecisionGate({ safety: new SafetyPolicy(), events })
   return {
     executor,
