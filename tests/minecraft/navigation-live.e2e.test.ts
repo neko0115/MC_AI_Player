@@ -164,9 +164,16 @@ test(
     mark('phase B: stay while Boss moves')
     command(server, 'tp Boss_Test -48 80 25')
     await waitUntil(() => distanceToSelf(boss, { x: -48, z: 25 }) < 3, 10_000, 'Boss stay-test position')
-    const stayStart = observedPlayerPosition(boss, 'Moxue_Test')
     const stayController = new AbortController()
     const stay = adapter.holdPosition(stayController.signal)
+    await waitForObservedPlayerStable(
+      boss,
+      'Moxue_Test',
+      scaledDuration(750, 300),
+      0.1,
+      5_000
+    )
+    const stayStart = observedPlayerPosition(boss, 'Moxue_Test')
     await moveBossRoute(boss, scaledDuration(60_000, 1_000), [
       { x: -48, z: 25 },
       { x: -40, z: 25 },
@@ -367,6 +374,32 @@ async function waitForWall(bot: Bot, timeoutMs: number): Promise<void> {
     position.z = 5
     return bot.blockAt(position)?.name === 'stone'
   }, timeoutMs, 'protected wall')
+}
+
+async function waitForObservedPlayerStable(
+  bot: Bot,
+  player: string,
+  stableMs: number,
+  tolerance: number,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let anchor = observedPlayerPosition(bot, player)
+  let stableSince = Date.now()
+
+  while (Date.now() < deadline) {
+    const current = observedPlayerPosition(bot, player)
+    const drift = Math.hypot(current.x - anchor.x, current.z - anchor.z)
+    if (drift > tolerance) {
+      anchor = current
+      stableSince = Date.now()
+    } else if (Date.now() - stableSince >= stableMs) {
+      return
+    }
+    await delay(50)
+  }
+
+  throw new Error(`Timed out waiting for ${player} to remain stable for ${stableMs}ms`)
 }
 
 function observedPlayerPosition(bot: Bot, player: string): { x: number; y: number; z: number } {
