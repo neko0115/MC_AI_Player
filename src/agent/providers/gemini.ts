@@ -48,6 +48,7 @@ export type GeminiInteractionStep =
     }
 
 export interface GeminiInteractionResponse {
+  readonly status: string
   readonly steps?: readonly GeminiInteractionStep[]
 }
 
@@ -200,7 +201,10 @@ export function createGeminiDecisionProvider(
       )
 
       return {
-        steps: interaction.steps.map(normalizeSdkStep)
+        status: interaction.status,
+        ...(Array.isArray(interaction.steps)
+          ? { steps: interaction.steps.map(normalizeSdkStep) }
+          : {})
       }
     }
   }
@@ -242,6 +246,10 @@ function buildInteractionRequest(
 }
 
 function extractDecisionFunctionCall(response: GeminiInteractionResponse): ProviderResult {
+  if (response.status !== 'requires_action') {
+    return invalid('interaction_status_invalid')
+  }
+
   if (!Array.isArray(response.steps)) {
     return {
       kind: 'invalid',
