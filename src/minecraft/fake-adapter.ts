@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
-import { RuntimeEventSchema, type RuntimeEvent } from '../contracts/events.js'
-import type { MinecraftAdapter, MinecraftEventListener } from './adapter.js'
+import { RuntimeEventSchema, type Position, type RuntimeEvent } from '../contracts/events.js'
+import type { SkillResult } from '../contracts/skills.js'
+import type {
+  MinecraftAdapter,
+  MinecraftEventListener,
+  NavigationOptions
+} from './adapter.js'
 
 const FixtureSchema = z.array(RuntimeEventSchema)
 
@@ -40,6 +45,33 @@ export class FakeMinecraftAdapter implements MinecraftAdapter {
     this.emit({ type: 'disconnected', at: Date.now(), reason: 'fake-adapter-disconnect' })
   }
 
+  async goTo(
+    _position: Position,
+    _options: NavigationOptions,
+    signal: AbortSignal
+  ): Promise<SkillResult> {
+    return signal.aborted
+      ? { status: 'cancelled', code: abortCode(signal) }
+      : { status: 'succeeded', code: 'fake_reached' }
+  }
+
+  async followPlayer(
+    _player: string,
+    _range: number,
+    signal: AbortSignal
+  ): Promise<SkillResult> {
+    return signal.aborted
+      ? { status: 'cancelled', code: abortCode(signal) }
+      : { status: 'succeeded', code: 'fake_following' }
+  }
+
+  async holdPosition(signal: AbortSignal): Promise<SkillResult> {
+    await this.stopMotion()
+    return signal.aborted
+      ? { status: 'cancelled', code: abortCode(signal) }
+      : { status: 'succeeded', code: 'fake_holding' }
+  }
+
   async stopMotion(): Promise<void> {
     this.stopMotionCount += 1
   }
@@ -49,4 +81,10 @@ export class FakeMinecraftAdapter implements MinecraftAdapter {
       listener(structuredClone(event))
     }
   }
+}
+
+function abortCode(signal: AbortSignal): string {
+  return typeof signal.reason === 'string' && signal.reason.trim()
+    ? signal.reason.trim().replace(/\s+/g, '_').slice(0, 128)
+    : 'cancelled'
 }
