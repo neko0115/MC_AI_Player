@@ -1,0 +1,68 @@
+name: Task 14 Control API and Composition Gate
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+    paths:
+      - package.json
+      - package-lock.json
+      - .env.example
+      - src/config.ts
+      - src/api/**
+      - src/main.ts
+      - src/runtime/goal-execution-loop.ts
+      - src/minecraft/runtime-bundle.ts
+      - src/goals/**
+      - src/skills/**
+      - src/state/**
+      - src/telemetry/**
+      - tests/api/**
+      - tests/runtime/**
+      - tests/minecraft/gameplay-capabilities.test.ts
+      - tests/main.test.ts
+      - .github/workflows/phase0.yml
+      - .github/workflows/task14-control-api.yml
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task14-control-api-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  control-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Run Control API and composition tests
+        run: >-
+          npm test --
+          tests/api/control-config.test.ts
+          tests/api/control-server.test.ts
+          tests/runtime/goal-execution-loop.test.ts
+          tests/minecraft/gameplay-capabilities.test.ts
+          tests/main.test.ts
+      - name: Verify startup and environment contracts
+        run: >-
+          node -e "const fs=require('node:fs'); const p=require('./package.json'); if(p.scripts?.start!=='tsx src/main.ts') throw new Error('start script drift'); const e=fs.readFileSync('.env.example','utf8'); for(const k of ['MC_CONTROL_HOST=127.0.0.1','MC_CONTROL_PORT=8766','MC_CONTROL_TOKEN=','MC_CONTROL_MAX_BODY_BYTES=16384']) if(!e.includes(k)) throw new Error('missing '+k)"
+      - name: Typecheck application boundary
+        run: npm run typecheck
