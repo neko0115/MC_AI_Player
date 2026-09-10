@@ -1,0 +1,47 @@
+name: Task 11 SQLite Driver Probe
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+    paths:
+      - scripts/probe-sqlite-driver.mjs
+      - .github/workflows/task11-sqlite-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task11-sqlite-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sqlite-driver-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            arch: x64
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            arch: arm64
+    name: sqlite-driver-probe (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked project dependencies
+        run: npm ci
+      - name: Install sqlite candidate without changing the lockfile
+        run: npm install --no-save --package-lock=false better-sqlite3@12.11.1
+      - name: Probe native sqlite load and round trip
+        run: node scripts/probe-sqlite-driver.mjs
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
