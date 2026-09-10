@@ -203,6 +203,15 @@ export class MineflayerAdapter implements MinecraftAdapter {
       runtime.pathfinder.stop()
     }
 
+    let resolveDisconnected: ((result: SkillResult) => void) | null = null
+    const onEnd = () => {
+      resolveDisconnected?.({ status: 'failed', code: 'disconnected' })
+    }
+    const disconnected = new Promise<SkillResult>(resolve => {
+      resolveDisconnected = resolve
+      bot.once('end', onEnd)
+    })
+
     signal.addEventListener('abort', onAbort, { once: true })
     bot.on('path_reset', onPathReset)
 
@@ -212,23 +221,29 @@ export class MineflayerAdapter implements MinecraftAdapter {
     } catch (error) {
       signal.removeEventListener('abort', onAbort)
       bot.off('path_reset', onPathReset)
-      return mapPathfinderFailure(error, signal, stuck)
+      bot.off('end', onEnd)
+      return mapPathfinderFailure(error, signal, stuck, this.operatorDisconnect)
     }
 
+    const navigationResult = navigation.then<SkillResult>(
+      () => {
+        if (signal.aborted) {
+          return { status: 'cancelled', code: abortCode(signal) }
+        }
+        if (stuck) {
+          return { status: 'failed', code: 'stuck' }
+        }
+        return { status: 'succeeded', code: 'reached' }
+      },
+      error => mapPathfinderFailure(error, signal, stuck, this.operatorDisconnect)
+    )
+
     try {
-      await navigation
-      if (signal.aborted) {
-        return { status: 'cancelled', code: abortCode(signal) }
-      }
-      if (stuck) {
-        return { status: 'failed', code: 'stuck' }
-      }
-      return { status: 'succeeded', code: 'reached' }
-    } catch (error) {
-      return mapPathfinderFailure(error, signal, stuck)
+      return await Promise.race([navigationResult, disconnected])
     } finally {
       signal.removeEventListener('abort', onAbort)
       bot.off('path_reset', onPathReset)
+      bot.off('end', onEnd)
     }
   }
 
@@ -305,6 +320,8 @@ export class MineflayerAdapter implements MinecraftAdapter {
         if (settled) return
         if (signal.aborted) {
           finish({ status: 'cancelled', code: abortCode(signal) }, false)
+        } else if (this.operatorDisconnect) {
+          finish({ status: 'failed', code: 'disconnected' }, false)
         } else if (stuck) {
           finish({ status: 'failed', code: 'stuck' }, false)
         } else {
@@ -352,12 +369,28 @@ export class MineflayerAdapter implements MinecraftAdapter {
     }
 
     return new Promise<SkillResult>(resolve => {
-      const onAbort = () => {
+      let settled = false
+
+      const cleanup = () => {
         signal.removeEventListener('abort', onAbort)
-        void this.stopMotion()
-        resolve({ status: 'cancelled', code: abortCode(signal) })
+        bot.off('end', onEnd)
       }
+      const finish = (result: SkillResult) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(result)
+      }
+      const onAbort = () => {
+        void this.stopMotion()
+        finish({ status: 'cancelled', code: abortCode(signal) })
+      }
+      const onEnd = () => {
+        finish({ status: 'failed', code: 'disconnected' })
+      }
+
       signal.addEventListener('abort', onAbort, { once: true })
+      bot.on('end', onEnd)
       if (signal.aborted) {
         onAbort()
       }
@@ -570,10 +603,14 @@ function runtimePathfinderOf(bot: Bot): RuntimePathfinder | null {
 function mapPathfinderFailure(
   error: unknown,
   signal: AbortSignal,
-  stuck: boolean
+  stuck: boolean,
+  disconnecting = false
 ): SkillResult {
   if (signal.aborted) {
     return { status: 'cancelled', code: abortCode(signal) }
+  }
+  if (disconnecting) {
+    return { status: 'failed', code: 'disconnected' }
   }
   if (stuck) {
     return { status: 'failed', code: 'stuck' }
