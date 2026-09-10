@@ -1,0 +1,119 @@
+import type { SkillName, SkillResult } from '../contracts/skills.js'
+import type { RuntimeEventBus } from '../telemetry/event-bus.js'
+import type { SkillRegistry } from './registry.js'
+
+interface SkillExecutorDependencies {
+  events?: RuntimeEventBus
+  now?: () => number
+}
+
+interface ActiveExecution {
+  readonly name: SkillName
+  readonly controller: AbortController
+  cancelReason: string | null
+  completion: Promise<SkillResult>
+}
+
+export class SkillExecutor {
+  private readonly events?: RuntimeEventBus
+  private readonly now: () => number
+  private active: ActiveExecution | null = null
+
+  constructor(
+    private readonly registry: SkillRegistry,
+    dependencies: SkillExecutorDependencies = {}
+  ) {
+    this.events = dependencies.events
+    this.now = dependencies.now ?? Date.now
+  }
+
+  execute(name: SkillName, args: unknown): Promise<SkillResult> {
+    if (this.active !== null) {
+      return Promise.resolve({ status: 'failed', code: 'executor_busy' })
+    }
+
+    const definition = this.registry.get(name)
+    if (!definition) {
+      return Promise.resolve({ status: 'failed', code: 'skill_not_registered' })
+    }
+
+    const active: ActiveExecution = {
+      name,
+      controller: new AbortController(),
+      cancelReason: null,
+      completion: Promise.resolve({ status: 'failed', code: 'not_started' })
+    }
+    this.active = active
+    active.completion = this.run(active, definition.execute.bind(definition), args)
+    return active.completion
+  }
+
+  async cancelActive(reason: string): Promise<void> {
+    const active = this.active
+    if (!active) return
+
+    if (!active.controller.signal.aborted) {
+      active.cancelReason = sanitizeCode(reason, 'cancelled')
+      active.controller.abort(active.cancelReason)
+    }
+
+    await active.completion
+  }
+
+  private async run(
+    active: ActiveExecution,
+    execute: (
+      context: { signal: AbortSignal },
+      args: unknown
+    ) => Promise<SkillResult>,
+    args: unknown
+  ): Promise<SkillResult> {
+    await this.events?.publish({
+      type: 'skill_started',
+      at: this.now(),
+      skill: active.name
+    })
+
+    let result: SkillResult
+    try {
+      result = await execute({ signal: active.controller.signal }, args)
+    } catch (error) {
+      result = {
+        status: 'failed',
+        code: sanitizeCode(error instanceof Error ? error.message : String(error), 'skill_exception')
+      }
+    }
+
+    if (active.controller.signal.aborted) {
+      result = {
+        status: 'cancelled',
+        code: active.cancelReason ?? 'cancelled'
+      }
+    }
+
+    if (result.status === 'succeeded') {
+      await this.events?.publish({
+        type: 'skill_completed',
+        at: this.now(),
+        skill: active.name
+      })
+    } else {
+      await this.events?.publish({
+        type: 'skill_failed',
+        at: this.now(),
+        skill: active.name,
+        code: sanitizeCode(result.code, result.status)
+      })
+    }
+
+    if (this.active === active) {
+      this.active = null
+    }
+    return result
+  }
+}
+
+function sanitizeCode(value: string, fallback: string): string {
+  const normalized = value.trim().replace(/\s+/g, '_').slice(0, 128)
+  return normalized || fallback
+}
