@@ -1,0 +1,24 @@
+{
+  "home": { "x": 0, "y": 64, "z": 0 },
+  "inventoryCapacity": 16,
+  "clusters": [
+    [
+      { "blockName": "oak_log", "position": { "x": 4, "y": 64, "z": 0 } },
+      { "blockName": "oak_log", "position": { "x": 5, "y": 64, "z": 0 } }
+    ],
+    [
+      { "blockName": "oak_log", "position": { "x": 12, "y": 64, "z": 0 } },
+      { "blockName": "oak_log", "position": { "x": 13, "y": 64, "z": 0 } }
+    ]
+  ],
+  "protectedBlocks": [
+    { "blockName": "oak_log", "position": { "x": 7, "y": 64, "z": 0 } },
+    { "blockName": "oak_log", "position": { "x": 8, "y": 64, "z": 0 } }
+  ],
+  "protectedRegions": [
+    {
+      "min": { "x": 6, "y": 63, "z": -1 },
+      "max": { "x": 9, "y": 65, "z": 1 }
+    }
+  ]
+}
