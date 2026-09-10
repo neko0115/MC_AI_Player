@@ -1,8 +1,9 @@
-import type {
-  DecisionProvider,
-  DecisionRequest,
-  ProviderResult,
-  StructuredProviderMode
+import {
+  SAFE_GAMEPLAY_PROVIDER_CAPABILITIES,
+  type DecisionProvider,
+  type DecisionRequest,
+  type ProviderResult,
+  type StructuredProviderMode
 } from './provider.js'
 
 export type FakeSdkResponse =
@@ -56,6 +57,7 @@ export function adaptFakeSdkResponse(
 }
 
 export class FakeDecisionProvider<TContext = unknown> implements DecisionProvider<TContext> {
+  readonly capabilities = SAFE_GAMEPLAY_PROVIDER_CAPABILITIES
   private index = 0
 
   constructor(
