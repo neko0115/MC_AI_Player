@@ -41,9 +41,7 @@ export interface ContainerTransactionAdapter {
   ): Promise<SkillResult>
 }
 
-export interface MinecraftAdapter
-  extends SurvivalInventoryAdapter,
-    ContainerTransactionAdapter {
+export interface MinecraftAdapter {
   connect(): Promise<void>
   disconnect(): Promise<void>
   goTo(position: Position, options: NavigationOptions, signal: AbortSignal): Promise<SkillResult>
