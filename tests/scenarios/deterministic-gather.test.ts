@@ -152,7 +152,8 @@ test('direct gather GoalRequest collects allowed logs and returns home without a
   )
   assert.deepEqual(world.position, fixture.home)
   assert.deepEqual(world.navigationTargets.at(-1), fixture.home)
-  assert.equal(Math.max(...world.searchRadii), 24)
+  assert.equal(world.searchRadii[0], 8)
+  assert.equal(world.searchRadii.every(radius => radius <= 24), true)
 })
 
 function state(world: ScenarioWorld): WorldStateSnapshot {
