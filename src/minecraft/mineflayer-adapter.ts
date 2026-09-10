@@ -1,10 +1,9 @@
+import { createRequire } from 'node:module'
 import { createBot, type Bot, type BotOptions } from 'mineflayer'
-import {
+import type {
   Movements,
-  goals,
-  pathfinder,
-  type Pathfinder,
-  type PartiallyComputedPath
+  Pathfinder,
+  PartiallyComputedPath
 } from 'mineflayer-pathfinder'
 import type { MinecraftConfig } from '../config.js'
 import type { Position, RuntimeEvent } from '../contracts/events.js'
@@ -21,6 +20,23 @@ export type MineflayerBotFactory = (options: BotOptions) => Bot
 type RuntimePathfinder = Pathfinder & { searchRadius: number }
 type PathfinderLoader = (bot: Bot) => void
 type MovementsFactory = (bot: Bot) => Movements
+type PathfinderGoal = Parameters<Pathfinder['goto']>[0]
+type MineflayerPlugin = Parameters<Bot['loadPlugin']>[0]
+
+interface PathfinderRuntimeModule {
+  readonly pathfinder: MineflayerPlugin
+  readonly Movements: new (bot: Bot) => Movements
+  readonly goals: {
+    readonly GoalNear: new (x: number, y: number, z: number, range: number) => PathfinderGoal
+    readonly GoalFollow: new (entity: unknown, range: number) => PathfinderGoal
+  }
+}
+
+const require = createRequire(import.meta.url)
+const pathfinderRuntime = require('mineflayer-pathfinder') as PathfinderRuntimeModule
+const pathfinderPlugin = pathfinderRuntime.pathfinder
+const RuntimeMovements = pathfinderRuntime.Movements
+const runtimeGoals = pathfinderRuntime.goals
 
 export interface ReconnectOptions {
   maxAttempts: number
@@ -107,11 +123,11 @@ export class MineflayerAdapter implements MinecraftAdapter {
     this.now = dependencies.now ?? Date.now
     this.bridge = new ObservationBridge(this.now)
     this.loadPathfinder = dependencies.loadPathfinder ?? (bot => {
-      if (!bot.hasPlugin(pathfinder)) {
-        bot.loadPlugin(pathfinder)
+      if (!bot.hasPlugin(pathfinderPlugin)) {
+        bot.loadPlugin(pathfinderPlugin)
       }
     })
-    this.createMovements = dependencies.createMovements ?? (bot => new Movements(bot))
+    this.createMovements = dependencies.createMovements ?? (bot => new RuntimeMovements(bot))
   }
 
   onEvent(listener: MinecraftEventListener): () => void {
@@ -174,7 +190,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
 
     this.hardenMovements(runtime.movements)
     runtime.pathfinder.setMovements(runtime.movements)
-    const goal = new goals.GoalNear(position.x, position.y, position.z, options.range)
+    const goal = new runtimeGoals.GoalNear(position.x, position.y, position.z, options.range)
     let stuck = false
 
     const onAbort = () => {
@@ -244,7 +260,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
 
     this.hardenMovements(runtime.movements)
     runtime.pathfinder.setMovements(runtime.movements)
-    const goal = new goals.GoalFollow(target, range)
+    const goal = new runtimeGoals.GoalFollow(target, range)
 
     return new Promise<SkillResult>(resolve => {
       let settled = false
