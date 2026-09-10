@@ -15,6 +15,10 @@ test('non-loopback control bind requires an explicit bearer token', () => {
     () => loadControlApiConfig({ MC_CONTROL_HOST: '0.0.0.0' }),
     /MC_CONTROL_TOKEN/
   )
+  assert.throws(
+    () => loadControlApiConfig({ MC_CONTROL_HOST: '127.example.com' }),
+    /MC_CONTROL_TOKEN/
+  )
 
   assert.deepEqual(loadControlApiConfig({
     MC_CONTROL_HOST: '0.0.0.0',
