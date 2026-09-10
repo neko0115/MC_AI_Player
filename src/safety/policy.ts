@@ -24,6 +24,23 @@ export type SafetyDecision =
       code: 'minecraft_not_ready' | 'low_health' | 'low_food' | 'emergency_stop'
     }
 
+export interface ResourceMutationPermit {
+  readonly mutateBlocks: true
+  readonly allowedBlockNames: readonly string[]
+}
+
+export type ResourceMutationDecision =
+  | { kind: 'allow'; code: 'allowed'; permit: ResourceMutationPermit }
+  | {
+      kind: 'deny'
+      code:
+        | 'unknown_skill'
+        | 'minecraft_not_ready'
+        | 'capability_not_declared'
+        | 'mutation_skill_not_allowed'
+        | 'invalid_mutation_scope'
+    }
+
 export interface NavigationSafetyPolicy {
   readonly canDig: false
   readonly canPlaceBlocks: false
@@ -39,6 +56,13 @@ const HARDENED_NAVIGATION_POLICY: NavigationSafetyPolicy = {
   canDig: false,
   canPlaceBlocks: false,
   allowPvp: false
+}
+
+const issuedResourceMutationPermits = new WeakSet<object>()
+const BLOCK_NAME_PATTERN = /^[a-z0-9_.:-]+$/
+
+export function isResourceMutationPermit(value: unknown): value is ResourceMutationPermit {
+  return typeof value === 'object' && value !== null && issuedResourceMutationPermits.has(value)
 }
 
 export class SafetyPolicy {
@@ -84,6 +108,36 @@ export class SafetyPolicy {
     return { kind: 'allow', code: 'allowed' }
   }
 
+  issueResourceMutationPermit(
+    skillName: string,
+    allowedBlockNames: readonly string[],
+    metadata: SkillSafetyMetadata,
+    state: WorldStateSnapshot
+  ): ResourceMutationDecision {
+    const skillDecision = this.authorizeSkill(skillName, state)
+    if (skillDecision.kind !== 'allow') {
+      return skillDecision
+    }
+    if (skillName !== 'gather_resource') {
+      return { kind: 'deny', code: 'mutation_skill_not_allowed' }
+    }
+    if (!metadata.capabilities?.includes('break_blocks')) {
+      return { kind: 'deny', code: 'capability_not_declared' }
+    }
+
+    const scope = normalizeMutationScope(allowedBlockNames)
+    if (scope === null) {
+      return { kind: 'deny', code: 'invalid_mutation_scope' }
+    }
+
+    const permit: ResourceMutationPermit = Object.freeze({
+      mutateBlocks: true,
+      allowedBlockNames: Object.freeze(scope)
+    })
+    issuedResourceMutationPermits.add(permit)
+    return { kind: 'allow', code: 'allowed', permit }
+  }
+
   navigationPolicy(): NavigationSafetyPolicy {
     return HARDENED_NAVIGATION_POLICY
   }
@@ -107,6 +161,20 @@ export class SafetyPolicy {
   emergencyStop(_state: WorldStateSnapshot): SafetyDecision {
     return { kind: 'preempt', code: 'emergency_stop' }
   }
+}
+
+function normalizeMutationScope(names: readonly string[]): string[] | null {
+  if (names.length < 1 || names.length > 32) return null
+  const normalized = [...new Set(names.map(name => name.trim()))]
+  if (
+    normalized.length < 1 ||
+    normalized.some(
+      name => name.length < 1 || name.length > 128 || name === '*' || !BLOCK_NAME_PATTERN.test(name)
+    )
+  ) {
+    return null
+  }
+  return normalized
 }
 
 function isSafetyGoal(goal: GoalRequest): boolean {
