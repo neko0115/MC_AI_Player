@@ -7,8 +7,11 @@ import type {
   MinecraftMemoryInput
 } from '../../src/memory/repository.js'
 
+const WORLD_KEY = 'test-server:survival-v1'
+
 function memory(overrides: Partial<MinecraftMemoryInput> = {}): MinecraftMemoryInput {
   return {
+    worldKey: WORLD_KEY,
     type: 'resource',
     content: 'Oak forest east of base',
     dimension: 'overworld',
@@ -26,7 +29,7 @@ test('exact duplicate reinforces one row instead of inserting a duplicate', () =
   try {
     const first = repo.remember(memory())
     const reinforced = repo.remember(memory({ importance: 0.8, observedAt: 200 }))
-    const all = repo.search({ text: 'Oak forest', limit: 10 })
+    const all = repo.search({ worldKey: WORLD_KEY, text: 'Oak forest', limit: 10 })
 
     assert.equal(reinforced.id, first.id)
     assert.equal(reinforced.reinforcementCount, 1)
@@ -34,6 +37,7 @@ test('exact duplicate reinforces one row instead of inserting a duplicate', () =
     assert.equal(reinforced.observedAt, 200)
     assert.equal(all.length, 1)
     assert.equal(all[0]?.id, first.id)
+    assert.equal(all[0]?.worldKey, WORLD_KEY)
   } finally {
     repo.close()
   }
@@ -73,6 +77,7 @@ test('search supports bounded coordinate, dimension, type and tag filters', () =
     }))
 
     const nearby = repo.search({
+      worldKey: WORLD_KEY,
       dimension: 'overworld',
       types: ['storage', 'resource'],
       near: { position: { x: 0, y: 64, z: 0 }, radius: 10 },
@@ -81,7 +86,7 @@ test('search supports bounded coordinate, dimension, type and tag filters', () =
     assert.deepEqual(nearby.map(result => result.type).sort(), ['resource', 'storage'])
     assert.equal(nearby.every(result => result.dimension === 'overworld'), true)
 
-    const tagged = repo.search({ tags: ['wood'], limit: 10 })
+    const tagged = repo.search({ worldKey: WORLD_KEY, tags: ['wood'], limit: 10 })
     assert.deepEqual(tagged.map(result => result.content), ['Nearby oak forest'])
   } finally {
     repo.close()
@@ -95,7 +100,7 @@ test('search ordering is deterministic by importance then recency', () => {
     repo.remember(memory({ content: 'high importance old', importance: 0.9, observedAt: 100 }))
     repo.remember(memory({ content: 'high importance recent', importance: 0.9, observedAt: 200 }))
 
-    const results = repo.search({ types: ['resource'], limit: 10 })
+    const results = repo.search({ worldKey: WORLD_KEY, types: ['resource'], limit: 10 })
     assert.deepEqual(results.map(result => result.content), [
       'high importance recent',
       'high importance old',
@@ -112,13 +117,13 @@ test('text search is bounded and forget removes exactly one memory', () => {
     const forest = repo.remember(memory({ content: 'Dark oak forest by the river' }))
     repo.remember(memory({ content: 'Village wheat farm' }))
 
-    const results = repo.search({ text: 'oak forest', limit: 1 })
+    const results = repo.search({ worldKey: WORLD_KEY, text: 'oak forest', limit: 1 })
     assert.equal(results.length, 1)
     assert.equal(results[0]?.id, forest.id)
 
     assert.equal(repo.forget(forest.id), true)
     assert.equal(repo.forget(forest.id), false)
-    assert.deepEqual(repo.search({ text: 'oak forest', limit: 10 }), [])
+    assert.deepEqual(repo.search({ worldKey: WORLD_KEY, text: 'oak forest', limit: 10 }), [])
   } finally {
     repo.close()
   }
@@ -128,6 +133,7 @@ test('transient world-state shaped objects are rejected by strict memory input v
   const repo = new SqliteMemoryRepository(':memory:')
   try {
     const transient = {
+      worldKey: WORLD_KEY,
       type: 'episode',
       content: 'raw snapshot should not persist',
       observedAt: 100,
@@ -139,7 +145,10 @@ test('transient world-state shaped objects are rejected by strict memory input v
     } as unknown as MinecraftMemoryInput
 
     assert.throws(() => repo.remember(transient))
-    assert.deepEqual(repo.search({ text: 'raw snapshot', limit: 10 }), [])
+    assert.deepEqual(
+      repo.search({ worldKey: WORLD_KEY, text: 'raw snapshot', limit: 10 }),
+      []
+    )
   } finally {
     repo.close()
   }
