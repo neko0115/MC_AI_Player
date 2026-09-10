@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
 import type { Bot } from 'mineflayer'
-import { MineflayerAdapter } from '../../src/minecraft/mineflayer-adapter.js'
+import { createMineflayerRuntimeBundle } from '../../src/minecraft/runtime-bundle.js'
 
 class FakeInventory extends EventEmitter {
   items() {
@@ -25,9 +25,9 @@ class FakeBot extends EventEmitter {
   }
 }
 
-test('MineflayerAdapter exposes only semantic gameplay runtimes, never a raw Bot handle', async () => {
+test('Mineflayer runtime bundle exposes semantic gameplay interfaces, never a raw Bot handle', async () => {
   const bot = new FakeBot()
-  const adapter = new MineflayerAdapter(
+  const runtime = createMineflayerRuntimeBundle(
     {
       host: 'localhost',
       port: 25565,
@@ -36,21 +36,23 @@ test('MineflayerAdapter exposes only semantic gameplay runtimes, never a raw Bot
       logLevel: 'info'
     },
     {
-      createBot: () => bot as unknown as Bot,
-      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 }
+      createBot: () => bot as unknown as Bot
     }
   )
 
-  const runtimes = adapter.createGameplayRuntimes()
-  assert.deepEqual(Object.keys(runtimes).sort(), ['gathering', 'inventory'])
-  assert.equal('bot' in runtimes, false)
-  assert.deepEqual(runtimes.inventory.inventoryItems(), [])
-  assert.equal(runtimes.gathering.currentPosition(), null)
+  assert.deepEqual(Object.keys(runtime).sort(), ['adapter', 'gathering', 'inventory'])
+  assert.equal('bot' in runtime, false)
+  assert.deepEqual(runtime.inventory.inventoryItems(), [])
+  assert.equal(runtime.gathering.currentPosition(), null)
 
-  await adapter.connect()
+  await runtime.adapter.connect()
   bot.emit('login')
   bot.emit('spawn')
 
-  assert.deepEqual(runtimes.inventory.inventoryItems(), [{ name: 'bread', count: 2 }])
-  assert.deepEqual(runtimes.gathering.currentPosition(), { x: 4, y: 64, z: -2 })
+  assert.deepEqual(runtime.inventory.inventoryItems(), [{ name: 'bread', count: 2 }])
+  assert.deepEqual(runtime.gathering.currentPosition(), { x: 4, y: 64, z: -2 })
+
+  bot.emit('end', 'network-lost')
+  assert.deepEqual(runtime.inventory.inventoryItems(), [])
+  assert.equal(runtime.gathering.currentPosition(), null)
 })
