@@ -44,13 +44,13 @@ test('chat renderer sanitizes player-visible target text and bounds final messag
   assert.ok(message.length <= 180)
 })
 
-test('failure chat uses only bounded structured failure codes', () => {
+test('failure chat never echoes arbitrary failure detail', () => {
   const message = renderer.render({
     kind: 'goal_failed',
     intent: 'go_to',
     code: 'no_path\nSECRET_NETWORK_DETAIL'
   })
 
-  assert.equal(message, '這次沒有完成（no_path_SECRET_NETWORK_DETAIL）。')
-  assert.equal(message.includes('\n'), false)
+  assert.equal(message, '這次沒有完成。')
+  assert.equal(message.includes('SECRET_NETWORK_DETAIL'), false)
 })
