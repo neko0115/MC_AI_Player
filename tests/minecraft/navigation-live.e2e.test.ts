@@ -12,7 +12,8 @@ import { MineflayerAdapter } from '../../src/minecraft/mineflayer-adapter.js'
 const liveEnabled = process.env.MC_NAV_LIVE_E2E === '1'
 const version = process.env.MC_TEST_VERSION || '1.21.1'
 const port = Number(process.env.MC_NAV_TEST_PORT || '25571')
-const MIN_SEQUENCE_MS = 600_000
+const durationScale = positiveNumber(process.env.MC_NAV_DURATION_SCALE, 1)
+const minSequenceMs = positiveNumber(process.env.MC_NAV_MIN_SEQUENCE_MS, 600_000)
 
 test(
   'safe navigation completes a ten-minute live vanilla-server sequence without digging',
@@ -73,7 +74,7 @@ test(
         boss?.clearControlStates()
       } catch {}
       try {
-        await adapter.disconnect()
+        await withTimeout(adapter.disconnect(), 10_000, 'cleanup adapter disconnect')
       } catch {}
       try {
         boss?.quit('test-cleanup')
@@ -87,6 +88,7 @@ test(
       }
     })
 
+    mark('setup: waiting for Minecraft server')
     await waitForServerReady(server, () => serverOutput, 90_000)
 
     await adapter.connect()
@@ -142,26 +144,30 @@ test(
     const sequenceStartedAt = Date.now()
     const wallBefore = wallSnapshot(boss)
 
-    // Phase A: follow for three minutes on a bounded moving route.
+    mark('phase A: follow moving Boss')
     const firstFollowController = new AbortController()
     const firstFollow = adapter.followPlayer('Boss_Test', 3, firstFollowController.signal)
-    await moveBossRoute(boss, 180_000)
+    await moveBossRoute(boss, scaledDuration(180_000, 3_000))
     boss.clearControlStates()
     await waitUntil(
       () => playerDistance(boss, 'Moxue_Test') <= 5,
       20_000,
-      'Moxue catches Boss after three-minute follow'
+      'Moxue catches Boss after phase A follow'
     )
     firstFollowController.abort('follow_three_min_complete')
-    assertCancelled(await firstFollow, 'follow_three_min_complete')
+    assertCancelled(
+      await withTimeout(firstFollow, 10_000, 'phase A follow cancellation'),
+      'follow_three_min_complete'
+    )
+    mark('phase A: complete')
 
-    // Phase B: stay for one minute while Boss moves elsewhere.
+    mark('phase B: stay while Boss moves')
     command(server, 'tp Boss_Test -48 80 25')
     await waitUntil(() => distanceToSelf(boss, { x: -48, z: 25 }) < 3, 10_000, 'Boss stay-test position')
     const stayStart = observedPlayerPosition(boss, 'Moxue_Test')
     const stayController = new AbortController()
     const stay = adapter.holdPosition(stayController.signal)
-    await moveBossRoute(boss, 60_000, [
+    await moveBossRoute(boss, scaledDuration(60_000, 1_000), [
       { x: -48, z: 25 },
       { x: -40, z: 25 },
       { x: -40, z: 33 },
@@ -171,9 +177,13 @@ test(
     const stayDrift = Math.hypot(stayEnd.x - stayStart.x, stayEnd.z - stayStart.z)
     assert.ok(stayDrift < 0.75, `stay drifted horizontally by ${stayDrift}`)
     stayController.abort('stay_one_min_complete')
-    assertCancelled(await stay, 'stay_one_min_complete')
+    assertCancelled(
+      await withTimeout(stay, 10_000, 'phase B stay cancellation'),
+      'stay_one_min_complete'
+    )
+    mark('phase B: complete')
 
-    // Phase C: go_to three nearby points, crossing a protected wall only through its opening.
+    mark('phase C: go_to three points with protected wall')
     command(server, 'tp Moxue_Test -20 80 -10')
     await waitUntil(
       () => distanceToObservedPlayer(boss, 'Moxue_Test', { x: -20, z: -10 }) < 3,
@@ -187,10 +197,15 @@ test(
       { x: -20, y: 80, z: -10 }
     ]
     for (const point of points) {
-      const result = await adapter.goTo(
-        point,
-        { range: 1, canDig: false },
-        new AbortController().signal
+      mark(`phase C: go_to ${point.x},${point.z}`)
+      const result = await withTimeout(
+        adapter.goTo(
+          point,
+          { range: 1, canDig: false },
+          new AbortController().signal
+        ),
+        60_000,
+        `phase C go_to ${point.x},${point.z}`
       )
       assert.deepEqual(result, { status: 'succeeded', code: 'reached' })
       await waitUntil(
@@ -200,18 +215,23 @@ test(
       )
     }
     assert.deepEqual(wallSnapshot(boss), wallBefore)
+    mark('phase C: complete')
 
-    // Phase D: interrupt a long go_to with the semantic stop path.
+    mark('phase D: interrupt go_to with stop')
     const interruptedGoTo = adapter.goTo(
       { x: 45, y: 80, z: -10 },
       { range: 1, canDig: false },
       new AbortController().signal
     )
-    await delay(1_000)
-    await adapter.stopMotion()
-    assert.deepEqual(await interruptedGoTo, { status: 'failed', code: 'path_stopped' })
+    await delay(scaledDuration(1_000, 500))
+    await withTimeout(adapter.stopMotion(), 10_000, 'phase D stopMotion')
+    assert.deepEqual(
+      await withTimeout(interruptedGoTo, 10_000, 'phase D interrupted go_to'),
+      { status: 'failed', code: 'path_stopped' }
+    )
+    mark('phase D: complete')
 
-    // Phase E: follow a continuously moving player and keep the full sequence active for >=10 minutes.
+    mark('phase E: follow continuously moving Boss')
     command(server, 'tp Moxue_Test -35 80 20')
     command(server, 'tp Boss_Test -30 80 20')
     await waitUntil(
@@ -223,8 +243,11 @@ test(
 
     const movingFollowController = new AbortController()
     const movingFollow = adapter.followPlayer('Boss_Test', 3, movingFollowController.signal)
-    const remainingToTenMinutes = Math.max(60_000, MIN_SEQUENCE_MS - (Date.now() - sequenceStartedAt))
-    await moveBossRoute(boss, remainingToTenMinutes)
+    const remainingToMinimum = Math.max(
+      scaledDuration(60_000, 5_000),
+      minSequenceMs - (Date.now() - sequenceStartedAt)
+    )
+    await moveBossRoute(boss, remainingToMinimum)
     boss.clearControlStates()
     await waitUntil(
       () => playerDistance(boss, 'Moxue_Test') <= 5,
@@ -232,15 +255,19 @@ test(
       'Moxue catches moving Boss before final stop'
     )
     movingFollowController.abort('moving_follow_complete')
-    assertCancelled(await movingFollow, 'moving_follow_complete')
+    assertCancelled(
+      await withTimeout(movingFollow, 10_000, 'phase E moving follow cancellation'),
+      'moving_follow_complete'
+    )
 
     assert.ok(
-      Date.now() - sequenceStartedAt >= MIN_SEQUENCE_MS,
-      'navigation sequence must run for at least ten minutes'
+      Date.now() - sequenceStartedAt >= minSequenceMs,
+      `navigation sequence must run for at least ${minSequenceMs} ms`
     )
     assert.deepEqual(wallSnapshot(boss), wallBefore)
+    mark('phase E: complete')
 
-    // Phase F: disconnect while movement is active and prove it cleans up.
+    mark('phase F: disconnect during movement')
     command(server, 'tp Moxue_Test -35 80 -30')
     await waitUntil(
       () => distanceToObservedPlayer(boss, 'Moxue_Test', { x: -35, z: -30 }) < 3,
@@ -253,9 +280,12 @@ test(
       { range: 1, canDig: false },
       new AbortController().signal
     )
-    await delay(1_000)
-    await adapter.disconnect()
-    assert.deepEqual(await movementDuringDisconnect, { status: 'failed', code: 'path_stopped' })
+    await delay(scaledDuration(1_000, 500))
+    await withTimeout(adapter.disconnect(), 10_000, 'phase F adapter disconnect')
+    assert.deepEqual(
+      await withTimeout(movementDuringDisconnect, 10_000, 'phase F movement cleanup'),
+      { status: 'failed', code: 'path_stopped' }
+    )
     await waitUntil(
       () => events.filter(event => event.type === 'disconnected').length > disconnectCount,
       15_000,
@@ -264,6 +294,7 @@ test(
 
     assert.equal(events.some(event => event.type === 'adapter_error'), false)
     assert.deepEqual(wallSnapshot(boss), wallBefore)
+    mark('phase F: complete')
   }
 )
 
@@ -300,7 +331,7 @@ async function moveBossRoute(
       lookTarget.x = waypoint.x
       lookTarget.y = current.y
       lookTarget.z = waypoint.z
-      await bot.lookAt(lookTarget, true)
+      await withTimeout(bot.lookAt(lookTarget, true), 5_000, 'Boss lookAt route waypoint')
       bot.setControlState('forward', true)
       await delay(Math.min(200, Math.max(1, deadline - Date.now())))
       bot.setControlState('forward', false)
@@ -423,9 +454,44 @@ async function waitUntil(
   throw new Error(`Timed out waiting for ${label}`)
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(() => {
+      rejectPromise(new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`))
+    }, timeoutMs)
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolvePromise(value)
+      },
+      error => {
+        clearTimeout(timer)
+        rejectPromise(error)
+      }
+    )
+  })
+}
+
 function waitForExit(server: ChildProcessWithoutNullStreams): Promise<void> {
   if (server.exitCode !== null) return Promise.resolve()
   return new Promise(resolveExit => server.once('exit', () => resolveExit()))
+}
+
+function scaledDuration(fullDurationMs: number, minimumMs: number): number {
+  return Math.max(minimumMs, Math.round(fullDurationMs * durationScale))
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new RangeError(`expected positive finite number, got ${value}`)
+  }
+  return parsed
+}
+
+function mark(label: string): void {
+  console.log(`[navigation-live] ${label}`)
 }
 
 function delay(ms: number): Promise<void> {
