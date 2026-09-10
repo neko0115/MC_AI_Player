@@ -3,9 +3,12 @@ import { z } from 'zod'
 import { RuntimeEventSchema, type Position, type RuntimeEvent } from '../contracts/events.js'
 import type { SkillResult } from '../contracts/skills.js'
 import type {
+  EquipmentSlot,
+  InventoryStack,
   MinecraftAdapter,
   MinecraftEventListener,
-  NavigationOptions
+  NavigationOptions,
+  ResolvedStorageTarget
 } from './adapter.js'
 
 const FixtureSchema = z.array(RuntimeEventSchema)
@@ -70,6 +73,38 @@ export class FakeMinecraftAdapter implements MinecraftAdapter {
     return signal.aborted
       ? { status: 'cancelled', code: abortCode(signal) }
       : { status: 'succeeded', code: 'fake_holding' }
+  }
+
+  inventoryItems(): readonly InventoryStack[] {
+    return []
+  }
+
+  async consumeInventoryItem(_item: string, signal: AbortSignal): Promise<SkillResult> {
+    return signal.aborted
+      ? { status: 'cancelled', code: abortCode(signal) }
+      : { status: 'failed', code: 'fake_inventory_not_configured' }
+  }
+
+  async equipInventoryItem(
+    _item: string,
+    _destination: EquipmentSlot | undefined,
+    signal: AbortSignal
+  ): Promise<SkillResult> {
+    return signal.aborted
+      ? { status: 'cancelled', code: abortCode(signal) }
+      : { status: 'failed', code: 'fake_inventory_not_configured' }
+  }
+
+  async transferContainerItem(
+    _target: ResolvedStorageTarget,
+    _direction: 'deposit' | 'withdraw',
+    _item: string,
+    _quantity: number,
+    signal: AbortSignal
+  ): Promise<SkillResult> {
+    return signal.aborted
+      ? { status: 'cancelled', code: abortCode(signal) }
+      : { status: 'failed', code: 'fake_container_not_configured' }
   }
 
   async stopMotion(): Promise<void> {
