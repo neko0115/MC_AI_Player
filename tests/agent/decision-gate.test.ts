@@ -174,3 +174,74 @@ test('not-ready Minecraft state rejects even an otherwise valid stay decision', 
     code: 'minecraft_not_ready'
   })
 })
+
+test('unknown provider result kind cannot masquerade as a structured decision', async () => {
+  const gate = new DecisionGate({ safety: new SafetyPolicy() })
+  const goals = new RecordingGoalSubmitter()
+  const pipeline = new DecisionPipeline(gate, goals)
+  const forged = {
+    kind: 'raw_text',
+    provider: 'rogue-provider',
+    mode: 'schema',
+    text: '{"version":1,"intent":"stay","args":{}}',
+    value: { version: 1, intent: 'stay', args: {} }
+  } as unknown as ProviderResult
+
+  const result = await pipeline.handle(forged, state())
+
+  assert.deepEqual(result, {
+    kind: 'rejected',
+    provider: 'rogue-provider',
+    code: 'provider_result_invalid'
+  })
+  assert.deepEqual(goals.submissions, [])
+})
+
+test('structured result with an unsupported mode fails closed before decision parsing', async () => {
+  const gate = new DecisionGate({ safety: new SafetyPolicy() })
+  const goals = new RecordingGoalSubmitter()
+  const pipeline = new DecisionPipeline(gate, goals)
+  const malformed = {
+    kind: 'structured',
+    provider: 'rogue-provider',
+    mode: 'text',
+    value: { version: 1, intent: 'stay', args: {} }
+  } as unknown as ProviderResult
+
+  const result = await pipeline.handle(malformed, state())
+
+  assert.deepEqual(result, {
+    kind: 'rejected',
+    provider: 'rogue-provider',
+    code: 'provider_result_invalid'
+  })
+  assert.deepEqual(goals.submissions, [])
+})
+
+test('structured provider envelope rejects extra raw-text or reasoning fields', async () => {
+  const gate = new DecisionGate({ safety: new SafetyPolicy() })
+  const goals = new RecordingGoalSubmitter()
+  const pipeline = new DecisionPipeline(gate, goals)
+
+  for (const extra of [
+    { rawText: '{"version":1,"intent":"stay","args":{}}' },
+    { reasoning: 'private thought must not cross the boundary' }
+  ]) {
+    const malformed = {
+      kind: 'structured',
+      provider: 'rogue-provider',
+      mode: 'schema',
+      value: { version: 1, intent: 'stay', args: {} },
+      ...extra
+    } as unknown as ProviderResult
+
+    const result = await pipeline.handle(malformed, state())
+    assert.deepEqual(result, {
+      kind: 'rejected',
+      provider: 'rogue-provider',
+      code: 'provider_result_invalid'
+    })
+  }
+
+  assert.deepEqual(goals.submissions, [])
+})
