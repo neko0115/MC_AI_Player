@@ -23,12 +23,14 @@ export const MemoryPositionSchema = z
   })
   .strict()
 
+const WorldKeySchema = z.string().trim().min(1).max(256)
 const ContentSchema = z.string().trim().min(1).max(2000)
 const DimensionSchema = z.string().trim().min(1).max(128)
 const TagSchema = z.string().trim().min(1).max(64)
 
 export const MinecraftMemoryInputSchema = z
   .object({
+    worldKey: WorldKeySchema,
     type: MinecraftMemoryTypeSchema,
     content: ContentSchema,
     dimension: DimensionSchema.optional(),
@@ -43,6 +45,7 @@ export type MinecraftMemoryInput = z.input<typeof MinecraftMemoryInputSchema>
 
 export interface MinecraftMemory {
   readonly id: string
+  readonly worldKey: string
   readonly type: MinecraftMemoryType
   readonly content: string
   readonly dimension: string | null
@@ -57,6 +60,7 @@ export interface MinecraftMemory {
 
 export const MemorySearchQuerySchema = z
   .object({
+    worldKey: WorldKeySchema,
     text: z.string().trim().min(1).max(500).optional(),
     types: z.array(MinecraftMemoryTypeSchema).min(1).max(9).optional(),
     dimension: DimensionSchema.optional(),
