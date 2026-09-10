@@ -1,4 +1,5 @@
-import { resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AiConfig, MinecraftConfig } from './config.js'
 import {
@@ -217,10 +218,12 @@ function registerProductionSkills(
 }
 
 function createDefaultMemory(filename: string): MinecraftMemoryRepository {
+  ensureParentDirectory(filename)
   return new SqliteMemoryRepository(filename)
 }
 
 function createDefaultRecorder(filename: string): ApplicationRecorderPort {
+  ensureParentDirectory(filename)
   return new JsonlEventRecorder(filename, {
     maxFileBytes: DEFAULT_EVENT_LOG_MAX_BYTES,
     logger: {
@@ -229,6 +232,10 @@ function createDefaultRecorder(filename: string): ApplicationRecorderPort {
       }
     }
   })
+}
+
+function ensureParentDirectory(filename: string): void {
+  mkdirSync(dirname(resolve(filename)), { recursive: true })
 }
 
 function createDefaultDecisionProvider(config: AiConfig): DecisionProvider {
