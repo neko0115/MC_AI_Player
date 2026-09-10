@@ -44,9 +44,19 @@ jobs:
         run: npm run fetch:test-server
         env:
           MC_TEST_VERSION: '1.21.1'
-      - name: Run ten-minute navigation scenario
+      - name: Run bounded navigation smoke
         run: npm test -- tests/minecraft/navigation-live.e2e.test.ts
         env:
           MC_NAV_LIVE_E2E: '1'
           MC_TEST_VERSION: '1.21.1'
           MC_NAV_TEST_PORT: '25571'
+          MC_NAV_DURATION_SCALE: '0.02'
+          MC_NAV_MIN_SEQUENCE_MS: '30000'
+      - name: Run ten-minute navigation scenario
+        run: npm test -- tests/minecraft/navigation-live.e2e.test.ts
+        env:
+          MC_NAV_LIVE_E2E: '1'
+          MC_TEST_VERSION: '1.21.1'
+          MC_NAV_TEST_PORT: '25572'
+          MC_NAV_DURATION_SCALE: '1'
+          MC_NAV_MIN_SEQUENCE_MS: '600000'
