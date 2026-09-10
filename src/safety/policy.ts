@@ -13,11 +13,15 @@ export interface SafetyThresholds {
   readonly minFoodForNonCritical: number
 }
 
-export type SafetyDecision =
+export type SkillAuthorizationDecision =
   | { kind: 'allow'; code: 'allowed' }
+  | { kind: 'deny'; code: 'unknown_skill' | 'minecraft_not_ready' }
+
+export type SafetyDecision =
+  | SkillAuthorizationDecision
   | {
       kind: 'deny'
-      code: 'unknown_skill' | 'minecraft_not_ready' | 'capability_not_declared' | 'pvp_disabled'
+      code: 'capability_not_declared' | 'pvp_disabled'
     }
   | {
       kind: 'preempt'
@@ -76,7 +80,7 @@ export class SafetyPolicy {
     validateThresholds(this.thresholds)
   }
 
-  authorizeSkill(skillName: string, state: WorldStateSnapshot): SafetyDecision {
+  authorizeSkill(skillName: string, state: WorldStateSnapshot): SkillAuthorizationDecision {
     if (!SkillNameSchema.safeParse(skillName).success) {
       return { kind: 'deny', code: 'unknown_skill' }
     }
