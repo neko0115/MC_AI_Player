@@ -78,6 +78,13 @@ export class GoalManager {
     return record ? cloneRecord(record) : undefined
   }
 
+  async preemptActive(reason: string): Promise<boolean> {
+    const active = this.activeRecord()
+    if (!active || active.status !== 'running') return false
+    await this.cancelActiveGoal(reason)
+    return true
+  }
+
   async completeGoal(goalId: string, result: SkillResult): Promise<void> {
     const record = this.records.get(goalId)
     if (!record || record.status !== 'running' || this.activeGoalId !== goalId) {
