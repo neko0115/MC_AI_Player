@@ -8,7 +8,42 @@ export interface NavigationOptions {
   readonly canDig: false
 }
 
-export interface MinecraftAdapter {
+export interface InventoryStack {
+  readonly name: string
+  readonly count: number
+}
+
+export type EquipmentSlot = 'hand' | 'off-hand' | 'head' | 'torso' | 'legs' | 'feet'
+
+export interface SurvivalInventoryAdapter {
+  inventoryItems(): readonly InventoryStack[]
+  consumeInventoryItem(item: string, signal: AbortSignal): Promise<SkillResult>
+  equipInventoryItem(
+    item: string,
+    destination: EquipmentSlot | undefined,
+    signal: AbortSignal
+  ): Promise<SkillResult>
+}
+
+export interface ResolvedStorageTarget {
+  readonly id: string
+  readonly position: Position
+  readonly expectedBlockNames: readonly string[]
+}
+
+export interface ContainerTransactionAdapter {
+  transferContainerItem(
+    target: ResolvedStorageTarget,
+    direction: 'deposit' | 'withdraw',
+    item: string,
+    quantity: number,
+    signal: AbortSignal
+  ): Promise<SkillResult>
+}
+
+export interface MinecraftAdapter
+  extends SurvivalInventoryAdapter,
+    ContainerTransactionAdapter {
   connect(): Promise<void>
   disconnect(): Promise<void>
   goTo(position: Position, options: NavigationOptions, signal: AbortSignal): Promise<SkillResult>
