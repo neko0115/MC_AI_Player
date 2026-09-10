@@ -19,6 +19,7 @@ class FakePathfinder {
   movements: unknown = null
   stopCount = 0
   lastDynamic = false
+  rejectGotoOnStop = true
   private rejectGoto: ((error: Error) => void) | null = null
   gotoMode: 'resolve' | 'pending' = 'resolve'
 
@@ -42,6 +43,7 @@ class FakePathfinder {
   stop() {
     this.stopCount += 1
     this.goal = null
+    if (!this.rejectGotoOnStop) return
     const reject = this.rejectGoto
     this.rejectGoto = null
     if (reject) {
@@ -192,6 +194,38 @@ test('pathfinder stuck becomes a structured failure and emits a stuck event', as
   assert.ok(seen.includes('stuck'))
 })
 
+test('disconnect settles pending goTo even when pathfinder stop does not reject goto', async () => {
+  const harness = createNavigationHarness()
+  await spawnHarness(harness)
+  harness.bot.pathfinder.gotoMode = 'pending'
+  harness.bot.pathfinder.rejectGotoOnStop = false
+
+  const running = harness.adapter.goTo(
+    { x: 30, y: 64, z: 30 },
+    { range: 1, canDig: false },
+    new AbortController().signal
+  )
+  await harness.adapter.disconnect()
+
+  assert.deepEqual(await settleWithin(running, 100), {
+    status: 'failed',
+    code: 'disconnected'
+  })
+})
+
+test('disconnect settles holdPosition instead of leaving a pending stay promise', async () => {
+  const harness = createNavigationHarness()
+  await spawnHarness(harness)
+
+  const holding = harness.adapter.holdPosition(new AbortController().signal)
+  await harness.adapter.disconnect()
+
+  assert.deepEqual(await settleWithin(holding, 100), {
+    status: 'failed',
+    code: 'disconnected'
+  })
+})
+
 test('followPlayer uses a dynamic GoalFollow until cancellation', async () => {
   const harness = createNavigationHarness()
   await spawnHarness(harness)
@@ -219,3 +253,19 @@ test('followPlayer fails closed when the target has no positioned entity', async
   )
   assert.equal(harness.loadCount(), 0)
 })
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('promise did not settle after disconnect')), timeoutMs)
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      error => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
