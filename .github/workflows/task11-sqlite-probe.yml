@@ -1,10 +1,14 @@
-name: Task 11 SQLite Driver Probe
+name: Task 11 Memory Native Gate
 
 on:
   push:
     branches:
       - feature/phase0-platform-bootstrap
     paths:
+      - package.json
+      - package-lock.json
+      - src/memory/**
+      - tests/memory/**
       - scripts/probe-sqlite-driver.mjs
       - .github/workflows/task11-sqlite-probe.yml
 
@@ -12,11 +16,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: task11-sqlite-probe-${{ github.ref }}
+  group: task11-memory-native-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  sqlite-driver-probe:
+  memory-native:
     strategy:
       fail-fast: false
       matrix:
@@ -27,7 +31,7 @@ jobs:
           - name: linux-arm64
             os: ubuntu-24.04-arm
             arch: arm64
-    name: sqlite-driver-probe (${{ matrix.name }})
+    name: memory-native (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -39,9 +43,13 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install locked project dependencies
         run: npm ci
-      - name: Install sqlite candidate without changing the lockfile
-        run: npm install --no-save --package-lock=false better-sqlite3@12.11.1
-      - name: Probe native sqlite load and round trip
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Probe locked native sqlite load and round trip
         run: node scripts/probe-sqlite-driver.mjs
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
+      - name: Run persistent memory repository tests
+        run: npm test -- tests/memory/repository.test.ts tests/memory/restart.test.ts
+      - name: Typecheck repository contracts
+        run: npm run typecheck
