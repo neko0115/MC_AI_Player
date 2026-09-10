@@ -5,12 +5,15 @@ on:
     branches:
       - feature/phase0-platform-bootstrap
     paths:
+      - src/goals/goal-manager.ts
       - src/minecraft/adapter.ts
       - src/minecraft/mineflayer-inventory.ts
+      - src/safety/survival-guard.ts
       - src/skills/survival.ts
       - src/skills/inventory.ts
       - tests/minecraft/mineflayer-inventory.test.ts
       - tests/minecraft/inventory-live.e2e.test.ts
+      - tests/safety/survival-guard.test.ts
       - tests/skills/survival.test.ts
       - tests/skills/inventory.test.ts
       - scripts/fetch-test-server.ts
