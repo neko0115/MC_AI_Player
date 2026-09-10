@@ -68,15 +68,26 @@ export class SkillExecutor {
     ) => Promise<SkillResult>,
     args: unknown
   ): Promise<SkillResult> {
-    await this.events?.publish({
+    const startedEvent = this.events?.publish({
       type: 'skill_started',
       at: this.now(),
       skill: active.name
     })
 
+    let execution: Promise<SkillResult>
+    try {
+      execution = execute({ signal: active.controller.signal }, args)
+    } catch (error) {
+      execution = Promise.reject(error)
+    }
+
+    if (startedEvent) {
+      await startedEvent
+    }
+
     let result: SkillResult
     try {
-      result = await execute({ signal: active.controller.signal }, args)
+      result = await execution
     } catch (error) {
       result = {
         status: 'failed',
