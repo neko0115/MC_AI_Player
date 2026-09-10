@@ -48,7 +48,7 @@ export interface DecisionContext {
   readonly currentGoal: DecisionGoalSummary | null
   readonly self: DecisionSelfState
   readonly nearbyPlayers: readonly PlayerSnapshot[]
-  readonly inventory: readonly Array<{ readonly name: string; readonly count: number }>
+  readonly inventory: ReadonlyArray<{ readonly name: string; readonly count: number }>
   readonly recentEvents: readonly RuntimeEvent[]
   readonly memories: readonly DecisionMemorySummary[]
   readonly skills: readonly DecisionSkillDescription[]
