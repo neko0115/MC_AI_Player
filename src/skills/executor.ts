@@ -88,10 +88,10 @@ export class SkillExecutor {
     let result: SkillResult
     try {
       result = await execution
-    } catch (error) {
+    } catch {
       result = {
         status: 'failed',
-        code: sanitizeCode(error instanceof Error ? error.message : String(error), 'skill_exception')
+        code: 'skill_exception'
       }
     }
 
