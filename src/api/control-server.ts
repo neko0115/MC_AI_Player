@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import { isIP, type AddressInfo } from 'node:net'
 import { z } from 'zod'
 import { RuntimeEventSchema, type RuntimeEvent } from '../contracts/events.js'
 import { GoalRequestSchema, type GoalRecord, type GoalRequest, type GoalSource } from '../contracts/goals.js'
@@ -428,7 +428,9 @@ function normalizeOptionalToken(value: string | undefined): string | undefined {
 }
 
 function isLoopbackHost(host: string): boolean {
-  return host === 'localhost' || host === '::1' || host.startsWith('127.')
+  if (host === 'localhost' || host === '::1') return true
+  if (isIP(host) !== 4) return false
+  return Number(host.split('.')[0]) === 127
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
