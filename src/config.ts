@@ -19,6 +19,18 @@ export type AiConfig =
       readonly apiKey: string
     }
 
+export interface ControlApiConfig {
+  readonly host: string
+  readonly port: number
+  readonly bearerToken?: string
+  readonly maxBodyBytes: number
+}
+
+const DEFAULT_CONTROL_HOST = '127.0.0.1'
+const DEFAULT_CONTROL_PORT = 8766
+const DEFAULT_CONTROL_MAX_BODY_BYTES = 16 * 1024
+const MAX_CONTROL_BODY_BYTES = 1024 * 1024
+
 export function loadMinecraftConfig(env: NodeJS.ProcessEnv): MinecraftConfig {
   const host = required(env.MC_HOST, 'MC_HOST')
   const username = required(env.MC_USERNAME, 'MC_USERNAME')
@@ -72,12 +84,68 @@ export function loadAiConfig(
   }
 }
 
+export function loadControlApiConfig(
+  env: Readonly<Record<string, string | undefined>>
+): ControlApiConfig {
+  const host = (env.MC_CONTROL_HOST ?? DEFAULT_CONTROL_HOST).trim().toLowerCase()
+  if (!host || host.length > 255) {
+    throw new Error('MC_CONTROL_HOST must be a non-empty value up to 255 characters')
+  }
+
+  const port = parseIntegerSetting(
+    env.MC_CONTROL_PORT,
+    DEFAULT_CONTROL_PORT,
+    'MC_CONTROL_PORT',
+    1,
+    65535
+  )
+  const maxBodyBytes = parseIntegerSetting(
+    env.MC_CONTROL_MAX_BODY_BYTES,
+    DEFAULT_CONTROL_MAX_BODY_BYTES,
+    'MC_CONTROL_MAX_BODY_BYTES',
+    1,
+    MAX_CONTROL_BODY_BYTES
+  )
+  const bearerToken = env.MC_CONTROL_TOKEN?.trim()
+  if (bearerToken && bearerToken.length > 4096) {
+    throw new Error('MC_CONTROL_TOKEN must be at most 4096 characters')
+  }
+  if (!isLoopbackHost(host) && !bearerToken) {
+    throw new Error('MC_CONTROL_TOKEN is required for non-loopback MC_CONTROL_HOST')
+  }
+
+  return {
+    host,
+    port,
+    ...(bearerToken ? { bearerToken } : {}),
+    maxBodyBytes
+  }
+}
+
 function required(value: string | undefined, name: string): string {
   const normalized = value?.trim()
   if (!normalized) {
     throw new Error(`${name} is required`)
   }
   return normalized
+}
+
+function parseIntegerSetting(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+  minimum: number,
+  maximum: number
+): number {
+  const value = raw === undefined || raw.trim() === '' ? fallback : Number(raw)
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`)
+  }
+  return value
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || host === '::1' || host.startsWith('127.')
 }
 
 function isLogLevel(value: string): value is LogLevel {
