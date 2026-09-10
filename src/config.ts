@@ -1,5 +1,6 @@
 export type MinecraftAuth = 'offline' | 'microsoft'
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
+export type AiProviderName = 'fake' | 'gemini'
 
 export interface MinecraftConfig {
   host: string
@@ -9,6 +10,14 @@ export interface MinecraftConfig {
   version?: string
   logLevel: LogLevel
 }
+
+export type AiConfig =
+  | { readonly provider: 'fake' }
+  | {
+      readonly provider: 'gemini'
+      readonly model: string
+      readonly apiKey: string
+    }
 
 export function loadMinecraftConfig(env: NodeJS.ProcessEnv): MinecraftConfig {
   const host = required(env.MC_HOST, 'MC_HOST')
@@ -37,6 +46,29 @@ export function loadMinecraftConfig(env: NodeJS.ProcessEnv): MinecraftConfig {
     auth: authText,
     ...(version ? { version } : {}),
     logLevel: logLevelText
+  }
+}
+
+export function loadAiConfig(
+  env: Readonly<Record<string, string | undefined>>
+): AiConfig {
+  const provider = env.MC_AI_PROVIDER?.trim() || 'fake'
+  if (provider === 'fake') {
+    return { provider: 'fake' }
+  }
+  if (provider !== 'gemini') {
+    throw new Error('MC_AI_PROVIDER must be fake or gemini')
+  }
+
+  const model = required(env.MC_AI_MODEL, 'MC_AI_MODEL')
+  if (model.length > 256) {
+    throw new Error('MC_AI_MODEL must be at most 256 characters')
+  }
+  const apiKey = required(env.MC_AI_API_KEY, 'MC_AI_API_KEY')
+  return {
+    provider: 'gemini',
+    model,
+    apiKey
   }
 }
 
