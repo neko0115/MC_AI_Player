@@ -1,0 +1,41 @@
+name: Task 11 Lock SQLite Dependency
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+    paths:
+      - .github/workflows/task11-lock-sqlite.yml
+
+permissions:
+  contents: write
+
+jobs:
+  lock-sqlite-dependency:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exact sqlite dependency and update lockfile
+        run: npm install --save-exact better-sqlite3@12.11.1
+      - name: Verify existing suite before committing dependency lock
+        run: |
+          npm test
+          npm run typecheck
+      - name: Commit canonical package files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No package changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: lock better-sqlite3 dependency"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
