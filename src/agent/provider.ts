@@ -32,10 +32,32 @@ export const ProviderResultSchema = z.discriminatedUnion('kind', [
 
 export type ProviderResult = z.infer<typeof ProviderResultSchema>
 
+export interface ProviderCapabilities {
+  readonly structuredFinal: boolean
+  readonly reasoningSeparated: boolean
+}
+
+export const SAFE_GAMEPLAY_PROVIDER_CAPABILITIES: ProviderCapabilities = Object.freeze({
+  structuredFinal: true,
+  reasoningSeparated: true
+})
+
 export interface DecisionRequest<TContext = unknown> {
   readonly context: TContext
 }
 
 export interface DecisionProvider<TContext = unknown> {
+  readonly capabilities: ProviderCapabilities
   decide(request: DecisionRequest<TContext>): Promise<ProviderResult>
+}
+
+export function assertGameplayProviderCapabilities(
+  provider: Pick<DecisionProvider, 'capabilities'>
+): void {
+  if (provider.capabilities.structuredFinal !== true) {
+    throw new Error('gameplay provider requires structured final output')
+  }
+  if (provider.capabilities.reasoningSeparated !== true) {
+    throw new Error('gameplay provider requires reasoning separation')
+  }
 }
