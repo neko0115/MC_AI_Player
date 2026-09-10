@@ -53,7 +53,7 @@ export function createMineflayerRuntimeBundle(
   const inventoryRuntime = new MineflayerInventoryRuntime(readyBot)
   const gatheringRuntime = new MineflayerGatheringRuntime(readyBot)
 
-  const inventory: SurvivalInventoryAdapter & ContainerTransactionAdapter = Object.freeze({
+  const inventory: SurvivalInventoryAdapter & ContainerTransactionAdapter = {
     inventoryItems: () => inventoryRuntime.inventoryItems(),
     consumeInventoryItem: (item, signal) =>
       inventoryRuntime.consumeInventoryItem(item, signal),
@@ -61,16 +61,18 @@ export function createMineflayerRuntimeBundle(
       inventoryRuntime.equipInventoryItem(item, destination, signal),
     transferContainerItem: (target, direction, item, quantity, signal) =>
       inventoryRuntime.transferContainerItem(target, direction, item, quantity, signal)
-  })
+  }
+  Object.freeze(inventory)
 
-  const gathering: ResourceGatheringAdapter = Object.freeze({
+  const gathering: ResourceGatheringAdapter = {
     currentPosition: () => gatheringRuntime.currentPosition(),
     inventoryCount: item => gatheringRuntime.inventoryCount(item),
     findResourceBlocks: (request, signal) =>
       gatheringRuntime.findResourceBlocks(request, signal),
     harvestResourceBlock: (target, permit, signal) =>
       gatheringRuntime.harvestResourceBlock(target, permit, signal)
-  })
+  }
+  Object.freeze(gathering)
 
   return Object.freeze({
     adapter,
