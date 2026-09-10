@@ -3,7 +3,10 @@ import type { GoalRequest, GoalSource } from '../contracts/goals.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 import type { RuntimeEventBus } from '../telemetry/event-bus.js'
-import type { ProviderResult, StructuredProviderMode } from './provider.js'
+import {
+  ProviderResultSchema,
+  type StructuredProviderMode
+} from './provider.js'
 
 export interface AiGoalSubmitter {
   submit(request: GoalRequest, source: GoalSource): Promise<unknown>
@@ -41,10 +44,16 @@ export class DecisionGate {
   }
 
   async accept(
-    result: ProviderResult,
+    input: unknown,
     state: WorldStateSnapshot
   ): Promise<GatedDecision> {
-    const provider = normalizeProvider(result.provider)
+    const envelope = ProviderResultSchema.safeParse(input)
+    if (!envelope.success) {
+      return this.reject(providerFromUnknown(input), 'provider_result_invalid')
+    }
+
+    const result = envelope.data
+    const provider = result.provider
 
     if (result.kind === 'timeout') {
       return this.reject(provider, 'provider_timeout')
@@ -110,7 +119,7 @@ export class DecisionPipeline {
   ) {}
 
   async handle(
-    result: ProviderResult,
+    result: unknown,
     state: WorldStateSnapshot
   ): Promise<GatedDecision> {
     const gated = await this.gate.accept(result, state)
@@ -144,6 +153,16 @@ function decisionToGoal(decision: DecisionV1): GoalRequest {
     case 'withdraw_item':
       return { kind: 'withdraw_item', args: { ...decision.args } }
   }
+}
+
+function providerFromUnknown(value: unknown): string {
+  if (typeof value !== 'object' || value === null) {
+    return 'unknown_provider'
+  }
+  const provider = (value as { provider?: unknown }).provider
+  return typeof provider === 'string'
+    ? normalizeProvider(provider)
+    : 'unknown_provider'
 }
 
 function normalizeProvider(value: string): string {
