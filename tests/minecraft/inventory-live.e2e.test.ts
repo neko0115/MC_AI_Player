@@ -118,13 +118,10 @@ test(
     server.stdin.write(
       `setblock ${chestPosition.x} ${chestPosition.y} ${chestPosition.z} minecraft:chest replace\n`
     )
+    const chestVec = bot.entity.position.clone()
+    chestVec.set(chestPosition.x, chestPosition.y, chestPosition.z)
     await waitUntil(
-      () => bot?.blockAt(bot.entity.position.offset(2, 0, 0))?.name === 'chest' ||
-        bot?.blockAt({
-          x: chestPosition.x,
-          y: chestPosition.y,
-          z: chestPosition.z
-        } as never)?.name === 'chest',
+      () => bot?.blockAt(chestVec)?.name === 'chest',
       15_000,
       'chest block'
     )
