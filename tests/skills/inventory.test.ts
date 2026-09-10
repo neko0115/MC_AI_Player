@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { SkillResult } from '../../src/contracts/skills.js'
 import type {
   ContainerTransactionAdapter,
   ResolvedStorageTarget
@@ -18,7 +19,9 @@ class FakeContainerAdapter implements ContainerTransactionAdapter {
     quantity: number
   }> = []
 
-  constructor(private readonly result = { status: 'succeeded' as const, code: 'transferred' }) {}
+  constructor(
+    private readonly result: SkillResult = { status: 'succeeded', code: 'transferred' }
+  ) {}
 
   async transferContainerItem(
     target: ResolvedStorageTarget,
@@ -26,8 +29,8 @@ class FakeContainerAdapter implements ContainerTransactionAdapter {
     item: string,
     quantity: number,
     signal: AbortSignal
-  ) {
-    if (signal.aborted) return { status: 'cancelled' as const, code: 'cancelled' }
+  ): Promise<SkillResult> {
+    if (signal.aborted) return { status: 'cancelled', code: 'cancelled' }
     this.transactions.push({ direction, target, item, quantity })
     return this.result
   }
