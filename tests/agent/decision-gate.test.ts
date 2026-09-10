@@ -37,7 +37,9 @@ class RecordingGoalSubmitter implements AiGoalSubmitter {
 test('valid structured decision passes strict schema, safety, and becomes one AI GoalRequest', async () => {
   const events = new RuntimeEventBus()
   const emitted: string[] = []
-  events.subscribe(event => emitted.push(event.type))
+  events.subscribe(event => {
+    emitted.push(event.type)
+  })
   const gate = new DecisionGate({
     safety: new SafetyPolicy(),
     events,
@@ -73,7 +75,11 @@ test('structured value with reasoning-like or unknown fields is rejected and sta
   const events = new RuntimeEventBus()
   const emitted: Array<{ type: string; code?: string }> = []
   events.subscribe(event => {
-    emitted.push({ type: event.type, ...('code' in event ? { code: event.code } : {}) })
+    if ('code' in event) {
+      emitted.push({ type: event.type, code: event.code })
+    } else {
+      emitted.push({ type: event.type })
+    }
   })
   const gate = new DecisionGate({ safety: new SafetyPolicy(), events, now: () => 10 })
   const goals = new RecordingGoalSubmitter()
