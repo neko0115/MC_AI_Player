@@ -1,9 +1,10 @@
 import { GoogleGenAI } from '@google/genai'
 import type { DecisionContext } from '../context-builder.js'
-import type {
-  DecisionProvider,
-  DecisionRequest,
-  ProviderResult
+import {
+  SAFE_GAMEPLAY_PROVIDER_CAPABILITIES,
+  type DecisionProvider,
+  type DecisionRequest,
+  type ProviderResult
 } from '../provider.js'
 
 export type GeminiThinkingLevel = 'low' | 'medium' | 'high'
@@ -123,6 +124,7 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
 })
 
 export class GeminiDecisionProvider implements DecisionProvider<DecisionContext> {
+  readonly capabilities = SAFE_GAMEPLAY_PROVIDER_CAPABILITIES
   private readonly timeoutMs: number
   private readonly thinkingLevel: GeminiThinkingLevel
   private readonly model: string
