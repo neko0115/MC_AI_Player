@@ -1,0 +1,51 @@
+name: Task 12 Reasoning Isolation Gate
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+    paths:
+      - src/agent/**
+      - src/contracts/decision.ts
+      - src/contracts/goals.ts
+      - src/contracts/skills.ts
+      - src/goals/goal-manager.ts
+      - src/safety/policy.ts
+      - src/skills/executor.ts
+      - src/skills/registry.ts
+      - src/telemetry/**
+      - fixtures/provider/reasoning-isolation.json
+      - tests/agent/**
+      - .github/workflows/task12-reasoning-isolation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task12-reasoning-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reasoning-isolation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    name: reasoning-isolation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Run reasoning isolation tests
+        run: npm test -- tests/agent/context-builder.test.ts tests/agent/decision-gate.test.ts tests/agent/reasoning-isolation.test.ts
+      - name: Typecheck decision boundary
+        run: npm run typecheck
