@@ -225,7 +225,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
       return mapPathfinderFailure(error, signal, stuck, this.operatorDisconnect)
     }
 
-    const navigationResult = navigation.then<SkillResult>(
+    const navigationResult = navigation.then<SkillResult, SkillResult>(
       () => {
         if (signal.aborted) {
           return { status: 'cancelled', code: abortCode(signal) }
