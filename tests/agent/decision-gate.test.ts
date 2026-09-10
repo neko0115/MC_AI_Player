@@ -75,8 +75,9 @@ test('structured value with reasoning-like or unknown fields is rejected and sta
   const events = new RuntimeEventBus()
   const emitted: Array<{ type: string; code?: string }> = []
   events.subscribe(event => {
-    if ('code' in event) {
-      emitted.push({ type: event.type, code: event.code })
+    const code = (event as { code?: unknown }).code
+    if (typeof code === 'string') {
+      emitted.push({ type: event.type, code })
     } else {
       emitted.push({ type: event.type })
     }
