@@ -32,6 +32,10 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Run live gather regression tests
-        run: npm test -- tests/skills/gathering-live-regressions.test.ts
+        run: >-
+          npm test --
+          tests/skills/gathering-live-regressions.test.ts
+          tests/skills/gathering-accessibility-regressions.test.ts
+          tests/minecraft/navigation-leaf-safety-regressions.test.ts
       - name: Typecheck
         run: npm run typecheck
