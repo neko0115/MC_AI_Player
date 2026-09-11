@@ -7,14 +7,17 @@ on:
     paths:
       - package.json
       - package-lock.json
+      - README.md
       - .env.example
       - tsconfig.json
+      - fixtures/replay/**
       - scripts/**
       - src/**
       - tests/**
       - .github/workflows/phase0.yml
       - .github/workflows/task13-gemini-provider.yml
       - .github/workflows/task14-control-api.yml
+      - .github/workflows/task15-cooperative-e2e.yml
   pull_request:
     branches:
       - main
