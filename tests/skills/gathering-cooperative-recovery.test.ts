@@ -11,7 +11,8 @@ import type {
 } from '../../src/minecraft/gathering.js'
 import {
   GatherResourceSkill,
-  RegionProtectionPolicy
+  RegionProtectionPolicy,
+  type CooperativePickupNotice
 } from '../../src/skills/gathering.js'
 import {
   SafetyPolicy,
@@ -149,7 +150,7 @@ test('player-collected drops are non-fatal and gather continues until the bot ow
   }))
   const world = new CooperativeWorld(blocks)
   world.interceptFirst = 4
-  const notices: unknown[] = []
+  const notices: CooperativePickupNotice[] = []
 
   const skill = new GatherResourceSkill({
     resources: world,
@@ -164,8 +165,8 @@ test('player-collected drops are non-fatal and gather continues until the bot ow
       maxRetries: 3,
       maxCandidatesPerSearch: 8
     },
-    onCooperativePickup: notice => notices.push(notice)
-  } as any)
+    onCooperativePickup: (notice: CooperativePickupNotice) => notices.push(notice)
+  })
 
   const result = await skill.execute(
     { signal: new AbortController().signal },
