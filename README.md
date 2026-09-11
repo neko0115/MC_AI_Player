@@ -102,9 +102,13 @@ The automated suite currently covers:
 - composition-root startup/shutdown and fresh-clone persistence directory bootstrap;
 - replay-backed component-integrated cooperative acceptance: player appears, follow, gather 16 oak logs, return to base, handoff surrogate, write base/resource/task memories, then resume follow;
 - invalid raw-text decision rejection inside that cooperative flow;
-- Gemini high-reasoning provider-adapter variation producing the same allowlisted gather GoalRequest while discarding thought content.
+- Gemini high-reasoning provider-adapter variation producing the same allowlisted gather GoalRequest while discarding thought content;
+- Task 16 soak telemetry contracts for RSS, heap, event-loop lag and explicit missing runtime metrics;
+- Task 16 chaos-harness contracts covering disconnect/restart/stuck/target loss/inventory full/death/AI failures/memory failure/SSE disconnect storms with bounded timeouts.
 
 The cooperative acceptance fixture is `fixtures/replay/cooperative-session.jsonl`. Its deterministic scenario lives in `tests/scenarios/cooperative-session.test.ts`; the Gemini adapter variation lives in `tests/scenarios/cooperative-provider.test.ts`.
+
+Task 16 measurement tooling lives in `scripts/soak.ts` and `scripts/chaos.ts`. Deployment and real-hardware measurement procedure is documented in `docs/operations/pi-deployment.md`. Missing runtime probes are represented as `null` plus `missingMetrics`; the tooling must not invent deployment measurements.
 
 ## Gates that are still pending
 
@@ -114,7 +118,7 @@ Do not treat the following as validated yet:
 - **Production event-driven AI coordinator:** `src/main.ts` currently constructs and capability-checks the selected DecisionProvider, but it does not yet wire player chat/runtime decision points into an automatic ContextBuilder → DecisionProvider → DecisionGate/GoalManager loop. The Task 15 automated scenario invokes that pipeline explicitly, so autonomous cooperative-agent behavior is not yet claimed as PASS.
 - **30-minute private-server cooperative session:** still requires real server/human validation with the Task 15 checklist.
 - **Production wiring for `return_home`, `deposit_item`, and `withdraw_item`:** the underlying deterministic skill implementations exist, but the current production composition root does not yet register/resolve these three intents. The automated Task 15 scenario therefore uses explicit `go_to` plus a test-only handoff surrogate. This remains a release blocker, not a hidden PASS.
-- **Task 16 low-power / ARM64 / Pi 3B / soak / chaos gates:** not yet complete.
+- **Task 16 real deployment evidence:** Linux ARM64 runtime measurements, Pi 3B benchmark, intended mini-PC benchmark, runtime-probe integration, and the required 4–8 hour soak have not been captured. Automated x64 harness tests are not substitutes for these hardware/long-duration gates.
 - **Mock Moxue integration and any DC_BOT changes:** not started; DC_BOT remains untouched.
 
 For the 30-minute private-server gate, required evidence is:
@@ -129,6 +133,8 @@ emergency stop failures: 0
 goal lifecycle inconsistencies: 0
 ```
 
+For the Task 16 release evidence, record real p50/p95/max measurements where applicable and retain the Git SHA, hardware/OS/Node details, power/throttling state, soak summary, and PASS/FAIL/BLOCKED decision. Do not copy CI x64 values into ARM64/Pi evidence.
+
 ## Supported validation targets
 
 - Windows x64: primary development and interactive E2E target.
@@ -136,4 +142,4 @@ goal lifecycle inconsistencies: 0
 - Linux ARM64: required release validation target.
 - Raspberry Pi 3 Model B / 1 GB: constrained minimum-hardware experiment target; validation occurs later and does not require Minecraft GUI rendering.
 
-Architecture, implementation, and platform-validation plans live under `docs/superpowers/`.
+Architecture, implementation, platform-validation, and deployment plans live under `docs/superpowers/` and `docs/operations/`.
