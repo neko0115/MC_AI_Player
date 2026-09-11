@@ -105,6 +105,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
   private operatorDisconnect = false
   private navigationBot: Bot | null = null
   private navigationMovements: Movements | null = null
+  private lastPositionCell: string | null = null
 
   constructor(
     private readonly config: MinecraftConfig,
@@ -421,6 +422,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
       ...(this.config.version ? { version: this.config.version } : {})
     }
     const bot = this.createBot(options)
+    this.lastPositionCell = null
     this.bot = bot
     this.attachObservationListeners(bot)
   }
@@ -436,7 +438,24 @@ export class MineflayerAdapter implements MinecraftAdapter {
       if (this.bot !== bot) return
       this.spawnedBots.add(bot)
       this.attachInventoryListener(bot)
+      this.lastPositionCell = positionCell(bot.entity.position)
       this.emit(this.bridge.spawned(bot))
+    })
+
+    bot.on('move', () => {
+      if (this.bot !== bot || !this.spawnedBots.has(bot)) return
+      const cell = positionCell(bot.entity.position)
+      if (cell === this.lastPositionCell) return
+      this.lastPositionCell = cell
+      this.emit({
+        type: 'position_changed',
+        at: this.now(),
+        position: {
+          x: bot.entity.position.x,
+          y: bot.entity.position.y,
+          z: bot.entity.position.z
+        }
+      })
     })
 
     bot.on('playerJoined', player => {
@@ -491,6 +510,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
         this.navigationBot = null
         this.navigationMovements = null
       }
+      this.lastPositionCell = null
       this.bot = null
       this.emit(this.bridge.ended(reason))
       if (!this.operatorDisconnect) {
@@ -593,6 +613,10 @@ export class MineflayerAdapter implements MinecraftAdapter {
       listener(event)
     }
   }
+}
+
+function positionCell(position: Position): string {
+  return `${Math.floor(position.x)},${Math.floor(position.y)},${Math.floor(position.z)}`
 }
 
 function runtimePathfinderOf(bot: Bot): RuntimePathfinder | null {
