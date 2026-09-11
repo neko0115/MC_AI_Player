@@ -1,0 +1,102 @@
+name: Manual Live Server Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run fetch:test-server
+        env:
+          MC_TEST_VERSION: '1.21.1'
+      - run: npm test -- tests/minecraft/observation-live.e2e.test.ts
+        env:
+          MC_LIVE_E2E: '1'
+          MC_TEST_VERSION: '1.21.1'
+          MC_TEST_PORT: '25570'
+
+  navigation-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run fetch:test-server
+        env:
+          MC_TEST_VERSION: '1.21.1'
+      - run: npm test -- tests/minecraft/navigation-live.e2e.test.ts
+        env:
+          MC_NAV_LIVE_E2E: '1'
+          MC_TEST_VERSION: '1.21.1'
+          MC_NAV_TEST_PORT: '25571'
+          MC_NAV_DURATION_SCALE: '0.02'
+          MC_NAV_MIN_SEQUENCE_MS: '30000'
+
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run fetch:test-server
+        env:
+          MC_TEST_VERSION: '1.21.1'
+      - run: npm test -- tests/minecraft/inventory-live.e2e.test.ts
+        env:
+          MC_INV_LIVE_E2E: '1'
+          MC_TEST_VERSION: '1.21.1'
+          MC_INV_TEST_PORT: '25573'
+
+  gathering:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run fetch:test-server
+        env:
+          MC_TEST_VERSION: '1.21.1'
+      - run: npm test -- tests/minecraft/gathering-live.e2e.test.ts
+        env:
+          MC_GATHER_LIVE_E2E: '1'
+          MC_TEST_VERSION: '1.21.1'
+          MC_GATHER_TEST_PORT: '25574'

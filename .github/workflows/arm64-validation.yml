@@ -1,0 +1,32 @@
+name: Manual ARM64 Native Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite-native-arm64:
+    name: Linux ARM64 / Node 24 / SQLite native
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Probe native SQLite load and round trip
+        run: node scripts/probe-sqlite-driver.mjs
+        env:
+          EXPECTED_ARCH: arm64
+      - name: Run persistent memory tests
+        run: npm test -- tests/memory/repository.test.ts tests/memory/restart.test.ts
+      - name: Typecheck native-memory boundary
+        run: npm run typecheck
