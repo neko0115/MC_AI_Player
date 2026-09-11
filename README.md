@@ -2,6 +2,12 @@
 
 Standalone Minecraft Java cooperative-player runtime for Moxue experiments.
 
+## Development status
+
+This repository contains an implemented, testable **pre-release runtime**. Landing the current runtime on `main` does not mean the v1 release or DC_BOT integration gates are complete. Automated and live evidence already obtained is listed below; anything under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
+
+The design and implementation-plan documents are architectural/execution records. Their historical wording or unchecked task boxes are not the authoritative source of current completion state; use this README and concrete validation evidence for that.
+
 ## Project boundary
 
 - `MC_AI_Player` owns Minecraft connectivity, deterministic gameplay, safety, Minecraft-specific memory, telemetry, control API, replay fixtures, and AI decision-provider adapters.
