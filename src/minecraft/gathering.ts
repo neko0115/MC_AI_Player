@@ -7,6 +7,7 @@ export interface ResourceCandidate {
   readonly blockName: string
   readonly position: Position
   readonly approachPosition?: Position
+  readonly pickupPosition?: Position
 }
 
 export interface ResourceSearchRequest {
