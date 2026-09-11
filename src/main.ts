@@ -108,7 +108,7 @@ export function createApplication(
   const safety = new SafetyPolicy()
 
   const registry = new SkillRegistry()
-  registerProductionSkills(registry, runtime, safety, state)
+  registerProductionSkills(registry, runtime, safety, state, events)
   const executor = new SkillExecutor(registry, { events })
   const goals = new GoalManager({ skillController: executor, events })
   const executionBinding = wireGoalExecution({ events, goals, executor })
@@ -192,7 +192,8 @@ function registerProductionSkills(
   registry: SkillRegistry,
   runtime: MineflayerRuntimeBundle,
   safety: SafetyPolicy,
-  state: WorldStateCache
+  state: WorldStateCache,
+  events: RuntimeEventBus
 ): void {
   const navigation = createNavigationSkills(runtime.adapter)
   registry.register(navigation.goTo)
@@ -213,7 +214,19 @@ function registerProductionSkills(
     navigation: runtime.adapter,
     safety,
     state: () => state.snapshot(),
-    protection
+    protection,
+    onCooperativePickup: notice => {
+      void events.publish({
+        type: 'cooperative_pickup',
+        at: Date.now(),
+        resource: notice.resource,
+        player: notice.player,
+        interceptedCount: notice.interceptedCount,
+        remaining: notice.remaining
+      }).catch(() => {
+        // Cooperative telemetry is advisory and must never stop gameplay.
+      })
+    }
   }))
 }
 

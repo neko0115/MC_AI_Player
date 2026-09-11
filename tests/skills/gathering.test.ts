@@ -192,7 +192,7 @@ test('search expansion is bounded and reports resource_not_found instead of scan
   assert.deepEqual(world.searchRequests.map(request => request.radius), [8, 16, 24])
 })
 
-test('repeated navigation failures exhaust an explicit retry budget and return stuck', async () => {
+test('unreachable candidates are exhausted before preserving the real no_path failure', async () => {
   const world = new FakeGatheringWorld(blocks)
   world.failNavigation = true
   const skill = new GatherResourceSkill({
@@ -215,8 +215,8 @@ test('repeated navigation failures exhaust an explicit retry budget and return s
     quantity: 1
   })
 
-  assert.deepEqual(result, { status: 'failed', code: 'stuck' })
-  assert.equal(world.navigationAttempts.length, 2)
+  assert.deepEqual(result, { status: 'failed', code: 'no_path' })
+  assert.equal(world.navigationAttempts.length, 3)
   assert.deepEqual(world.harvestAttempts, [])
 })
 
