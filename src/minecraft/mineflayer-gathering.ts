@@ -6,6 +6,8 @@ import {
   type ResourceMutationPermit
 } from '../safety/policy.js'
 import type {
+  DroppedResource,
+  DroppedResourceStatus,
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceSearchRequest
@@ -29,8 +31,14 @@ interface NormalizedOptions {
   sleep: (ms: number) => Promise<void>
 }
 
+type DropCollectionRecord =
+  | { readonly kind: 'collected_by_player'; readonly player: string; readonly count: number }
+  | { readonly kind: 'collected_by_bot'; readonly count: number }
+
 const RESOURCE_NAME_PATTERN = /^[a-z0-9_.:-]+$/
 const MAX_HARVEST_REACH = 4.5
+const MAX_DROP_SEARCH_RADIUS = 8
+const MAX_DROP_COLLECTION_RECORDS = 128
 const HARVEST_VERTICAL_OFFSETS = [0, -1, -2, -3] as const
 const HARVEST_HORIZONTAL_OFFSETS = [
   [-1, 0],
@@ -46,6 +54,9 @@ const UNSAFE_PASSABLE_BLOCKS = new Set(['water', 'lava', 'powder_snow'])
 
 export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
   private readonly options: NormalizedOptions
+  private trackedBot: Bot | null = null
+  private playerCollectListener: ((collector: any, collected: any) => void) | null = null
+  private readonly dropCollections = new Map<number, DropCollectionRecord>()
 
   constructor(
     private readonly getBot: GatheringBotProvider,
@@ -150,6 +161,53 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     return candidates
   }
 
+  async findDroppedResource(
+    itemName: string,
+    origin: Position,
+    radius: number,
+    signal: AbortSignal
+  ): Promise<DroppedResource | null> {
+    if (signal.aborted) return null
+    if (
+      !isResourceName(itemName) ||
+      !isFinitePosition(origin) ||
+      !Number.isFinite(radius) ||
+      radius <= 0 ||
+      radius > MAX_DROP_SEARCH_RADIUS
+    ) {
+      return null
+    }
+
+    const bot = this.readyBot()
+    if (!bot) return null
+
+    const candidates: DroppedResource[] = []
+    for (const entity of Object.values(bot.entities)) {
+      if (signal.aborted) return null
+      const drop = droppedResourceFromEntity(entity)
+      if (!drop || drop.itemName !== itemName) continue
+      if (squaredDistance(drop.position, origin) > radius * radius) continue
+      candidates.push(drop)
+    }
+
+    candidates.sort((a, b) => {
+      const distanceDelta = squaredDistance(a.position, origin) - squaredDistance(b.position, origin)
+      return distanceDelta !== 0 ? distanceDelta : a.entityId - b.entityId
+    })
+    return candidates[0] ?? null
+  }
+
+  droppedResourceStatus(entityId: number): DroppedResourceStatus {
+    const collected = this.dropCollections.get(entityId)
+    if (collected) return { ...collected }
+
+    const bot = this.readyBot()
+    if (!bot) return { kind: 'gone' }
+    const entity = bot.entities[entityId]
+    const drop = entity ? droppedResourceFromEntity(entity) : null
+    return drop ? { kind: 'present', drop } : { kind: 'gone' }
+  }
+
   async harvestResourceBlock(
     target: ResourceCandidate,
     permit: ResourceMutationPermit,
@@ -227,7 +285,57 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
 
   private readyBot(): Bot | null {
     const bot = this.getBot()
-    return bot?.entity?.position && bot.inventory ? bot : null
+    if (!bot?.entity?.position || !bot.inventory) return null
+    this.ensureDropTracking(bot)
+    return bot
+  }
+
+  private ensureDropTracking(bot: Bot): void {
+    if (this.trackedBot === bot) return
+
+    if (this.trackedBot && this.playerCollectListener) {
+      this.trackedBot.off('playerCollect', this.playerCollectListener)
+    }
+    this.trackedBot = bot
+    this.dropCollections.clear()
+
+    const listener = (collector: any, collected: any) => {
+      const entityId = Number(collected?.id)
+      if (!Number.isInteger(entityId) || entityId < 0) return
+      const drop = droppedResourceFromEntity(collected)
+      const count = drop?.count ?? 1
+
+      const collectorId = Number(collector?.id)
+      const selfId = Number((bot.entity as { id?: number }).id)
+      const collectorName = typeof collector?.username === 'string'
+        ? collector.username.trim().slice(0, 64)
+        : ''
+      const isSelf =
+        (Number.isInteger(selfId) && collectorId === selfId) ||
+        (collectorName.length > 0 && collectorName === bot.username)
+
+      if (isSelf) {
+        this.rememberDropCollection(entityId, { kind: 'collected_by_bot', count })
+      } else if (collectorName.length > 0) {
+        this.rememberDropCollection(entityId, {
+          kind: 'collected_by_player',
+          player: collectorName,
+          count
+        })
+      }
+    }
+
+    this.playerCollectListener = listener
+    bot.on('playerCollect', listener)
+  }
+
+  private rememberDropCollection(entityId: number, record: DropCollectionRecord): void {
+    this.dropCollections.set(entityId, record)
+    while (this.dropCollections.size > MAX_DROP_COLLECTION_RECORDS) {
+      const oldest = this.dropCollections.keys().next().value
+      if (oldest === undefined) break
+      this.dropCollections.delete(oldest)
+    }
   }
 
   private async waitForInventoryIncrease(
@@ -244,6 +352,35 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (this.inventoryCount(itemName) > before) return true
     }
     return this.inventoryCount(itemName) > before
+  }
+}
+
+function droppedResourceFromEntity(entity: any): DroppedResource | null {
+  if (!entity || typeof entity.getDroppedItem !== 'function') return null
+  const item = entity.getDroppedItem()
+  if (!item || !isResourceName(item.name)) return null
+  const count = Number(item.count)
+  const entityId = Number(entity.id)
+  const position = entity.position
+  if (
+    !Number.isInteger(entityId) ||
+    entityId < 0 ||
+    !Number.isInteger(count) ||
+    count < 1 ||
+    !position ||
+    !isFinitePosition(position)
+  ) {
+    return null
+  }
+  return {
+    entityId,
+    itemName: item.name,
+    count,
+    position: {
+      x: position.x,
+      y: position.y,
+      z: position.z
+    }
   }
 }
 
@@ -315,6 +452,13 @@ function withinHarvestReach(stance: Position, target: Position): boolean {
     center.y - eye.y,
     center.z - eye.z
   ) <= MAX_HARVEST_REACH
+}
+
+function squaredDistance(a: Position, b: Position): number {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  const dz = a.z - b.z
+  return dx * dx + dy * dy + dz * dz
 }
 
 function hasGeometry(block: { boundingBox?: unknown }): boolean {
