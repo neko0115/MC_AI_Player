@@ -36,6 +36,6 @@ jobs:
           npm test --
           tests/skills/gathering-live-regressions.test.ts
           tests/skills/gathering-accessibility-regressions.test.ts
-          tests/minecraft/navigation-leaf-safety-regressions.test.ts
+          tests/minecraft/gathering-approach-regressions.test.ts
       - name: Typecheck
         run: npm run typecheck
