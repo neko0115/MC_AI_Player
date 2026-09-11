@@ -62,6 +62,6 @@ jobs:
           tests/scenarios/cooperative-provider.test.ts
       - name: Verify acceptance evidence remains explicitly scoped
         run: >-
-          node -e "const fs=require('node:fs'); const r=fs.readFileSync('README.md','utf8'); for(const s of ['Real Gemini API compatibility','30-minute private-server cooperative session','Production wiring for `return_home`, `deposit_item`, and `withdraw_item`']) if(!r.includes(s)) throw new Error('missing gate statement: '+s)"
+          node -e "const fs=require('node:fs'); const r=fs.readFileSync('README.md','utf8'); for(const s of ['Real Gemini API compatibility','Production event-driven AI coordinator','30-minute private-server cooperative session','Production wiring for `return_home`, `deposit_item`, and `withdraw_item`']) if(!r.includes(s)) throw new Error('missing gate statement: '+s)"
       - name: Typecheck cooperative boundary
         run: npm run typecheck
