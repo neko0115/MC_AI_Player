@@ -1,20 +1,39 @@
 # MC_AI_Player
 
-Standalone Minecraft Java cooperative-player runtime for Moxue experiments.
+Headless Minecraft Java cooperative-agent runtime for the Moxue project.
+
+`MC_AI_Player` runs without the Minecraft Launcher or a rendered game client. Mineflayer handles deterministic game actions behind structured goal, safety, memory, and telemetry boundaries. This is a pre-release runtime: verified behavior is documented separately from release gates that still need evidence.
+
+## What it does today
+
+- observes players, chat, health, inventory, and bounded self-position changes;
+- executes allowlisted navigation, follow, survival, inventory, and scoped gather skills;
+- stores world-scoped SQLite memory and emits validated runtime telemetry;
+- exposes a local Control API and SSE stream for external orchestration;
+- supports fake and Gemini decision-provider adapters behind strict decision validation;
+- includes deterministic replay, regression, live-server, soak-contract, and chaos-harness tests.
+
+## Safety model
+
+- model output is parsed into strict structured decisions before gameplay execution;
+- raw model text and hidden reasoning have no direct actuator path;
+- navigation defaults to `canDig=false`, and block mutation is limited to scoped gather flows;
+- PvP is disabled by policy;
+- non-loopback Control API binding requires bearer-token authentication.
 
 ## Development status
 
-This repository contains an implemented, testable **pre-release runtime**. Landing the current runtime on `main` does not mean the v1 release or DC_BOT integration gates are complete. Automated and live evidence already obtained is listed below; anything under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
+The runtime currently on `main` is implemented and testable, but it is not a completed v1 release. Anything listed under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
 
-The design and implementation-plan documents are architectural/execution records. Their historical wording or unchecked task boxes are not the authoritative source of current completion state; use this README and concrete validation evidence for that.
+The design and implementation-plan documents are architectural and execution records. Historical wording or unchecked task boxes in those files are not the authoritative source of current completion state; use this README together with concrete validation evidence.
 
-## Project boundary
+## Architecture / project boundary
 
-- `MC_AI_Player` owns Minecraft connectivity, deterministic gameplay, safety, Minecraft-specific memory, telemetry, control API, replay fixtures, and AI decision-provider adapters.
-- `neko0115/DC_BOT` remains read-only until the standalone and mock-integration gates pass.
+- `MC_AI_Player` owns Minecraft connectivity, deterministic gameplay, safety, Minecraft-specific memory, telemetry, the Control API, replay fixtures, and AI decision-provider adapters.
+- The Discord-side Moxue runtime is outside this repository; DC_BOT integration remains a separate pending gate.
 - Normal gameplay is headless: no Minecraft Launcher, rendered Java client, OCR, screenshot loop, or GUI is required on the runtime host.
 - AI may choose only allowlisted high-level structured decisions. Deterministic runtime code performs Minecraft actions.
-- Raw/mixed model text and hidden reasoning have no gameplay actuator path.
+- Raw or mixed model text and hidden reasoning have no gameplay actuator path.
 
 ## Runtime baseline
 
@@ -38,7 +57,7 @@ npm test
 npm run typecheck
 ```
 
-`npm run probe` loads Mineflayer and mineflayer-pathfinder without opening a Minecraft connection and reports the host runtime information.
+`npm run probe` loads Mineflayer and mineflayer-pathfinder without opening a Minecraft connection and reports host runtime information.
 
 ## Runtime configuration
 
@@ -109,7 +128,7 @@ The automated suite currently covers:
 - replay-backed component-integrated cooperative acceptance: player appears, follow, gather 16 oak logs, return to base, handoff surrogate, write base/resource/task memories, then resume follow;
 - invalid raw-text decision rejection inside that cooperative flow;
 - Gemini high-reasoning provider-adapter variation producing the same allowlisted gather GoalRequest while discarding thought content;
-- Task 16 soak telemetry contracts for RSS, heap, event-loop lag and explicit missing runtime metrics;
+- Task 16 soak telemetry contracts for RSS, heap, event-loop lag, and explicit missing runtime metrics;
 - Task 16 chaos-harness contracts covering disconnect/restart/stuck/target loss/inventory full/death/AI failures/memory failure/SSE disconnect storms with bounded timeouts.
 
 The cooperative acceptance fixture is `fixtures/replay/cooperative-session.jsonl`. Its deterministic scenario lives in `tests/scenarios/cooperative-session.test.ts`; the Gemini adapter variation lives in `tests/scenarios/cooperative-provider.test.ts`.
@@ -125,7 +144,7 @@ Do not treat the following as validated yet:
 - **30-minute private-server cooperative session:** still requires real server/human validation with the Task 15 checklist.
 - **Production wiring for `return_home`, `deposit_item`, and `withdraw_item`:** the underlying deterministic skill implementations exist, but the current production composition root does not yet register/resolve these three intents. The automated Task 15 scenario therefore uses explicit `go_to` plus a test-only handoff surrogate. This remains a release blocker, not a hidden PASS.
 - **Task 16 real deployment evidence:** Linux ARM64 runtime measurements, Pi 3B benchmark, intended mini-PC benchmark, runtime-probe integration, and the required 4–8 hour soak have not been captured. Automated x64 harness tests are not substitutes for these hardware/long-duration gates.
-- **Mock Moxue integration and any DC_BOT changes:** not started; DC_BOT remains untouched.
+- **Mock Moxue / DC_BOT integration:** not started in this repository and not claimed as validated.
 
 For the 30-minute private-server gate, required evidence is:
 
@@ -148,4 +167,10 @@ For the Task 16 release evidence, record real p50/p95/max measurements where app
 - Linux ARM64: required release validation target.
 - Raspberry Pi 3 Model B / 1 GB: constrained minimum-hardware experiment target; validation occurs later and does not require Minecraft GUI rendering.
 
+## Operations / design references
+
 Architecture, implementation, platform-validation, and deployment plans live under `docs/superpowers/` and `docs/operations/`.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
