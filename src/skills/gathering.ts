@@ -191,7 +191,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     let radius = this.options.initialSearchRadius
     let failures = 0
     let uncollectedHarvests = 0
-    let playerInterceptedCount = 0
+    const playerInterceptedCounts = new Map<string, number>()
     let cooperativeNoticeSent = false
     let lastFailureCode: string | null = null
 
@@ -284,7 +284,9 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           lastFailureCode = 'item_not_collected'
 
           if (recovery.kind === 'collected_by_player') {
-            playerInterceptedCount += Math.max(1, recovery.count)
+            const playerInterceptedCount =
+              (playerInterceptedCounts.get(recovery.player) ?? 0) + Math.max(1, recovery.count)
+            playerInterceptedCounts.set(recovery.player, playerInterceptedCount)
             if (
               !cooperativeNoticeSent &&
               playerInterceptedCount >= this.options.cooperativePickupNoticeThreshold
