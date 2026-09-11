@@ -27,13 +27,19 @@ interface DropView {
   position: Position
 }
 
+interface PlayerCollectionView extends DropView {
+  sequence: number
+  player: string
+}
+
 class CooperativeWorld implements ResourceGatheringAdapter, ResourceNavigationAdapter {
   readonly inventory = new Map<string, number>()
   readonly blocks = new Map<string, ResourceCandidate>()
   readonly navigationAttempts: Position[] = []
-  readonly interceptedDrops = new Map<number, { player: string; count: number }>()
+  readonly playerCollections: PlayerCollectionView[] = []
   position: Position = { x: 0, y: 64, z: 0 }
   nextEntityId = 100
+  collectionSequence = 0
   interceptFirst = 0
   harvested = 0
   activeDrop: DropView | null = null
@@ -48,6 +54,23 @@ class CooperativeWorld implements ResourceGatheringAdapter, ResourceNavigationAd
 
   inventoryCount(item: string): number {
     return this.inventory.get(item) ?? 0
+  }
+
+  resourceCollectionCursor(): number {
+    return this.collectionSequence
+  }
+
+  findPlayerResourceCollectionAfter(
+    cursor: number,
+    itemName: string,
+    origin: Position,
+    radius: number
+  ): PlayerCollectionView | null {
+    return this.playerCollections.find(collection =>
+      collection.sequence > cursor &&
+      collection.itemName === itemName &&
+      distance(collection.position, origin) <= radius
+    ) ?? null
   }
 
   async findResourceBlocks(request: ResourceSearchRequest, signal: AbortSignal) {
@@ -81,8 +104,15 @@ class CooperativeWorld implements ResourceGatheringAdapter, ResourceNavigationAd
           z: target.position.z + 0.4
         }
       }
-      this.activeDrop = drop
-      this.interceptedDrops.set(drop.entityId, { player: 'Neko0115', count: 1 })
+      this.collectionSequence += 1
+      this.playerCollections.push({
+        ...drop,
+        sequence: this.collectionSequence,
+        player: 'Neko0115'
+      })
+      // Model the real race: the player collects immediately, so the entity
+      // is already gone by the time harvestResourceBlock reports the miss.
+      this.activeDrop = null
       return { status: 'failed', code: 'item_not_collected' }
     }
 
@@ -112,15 +142,6 @@ class CooperativeWorld implements ResourceGatheringAdapter, ResourceNavigationAd
   }
 
   droppedResourceStatus(entityId: number) {
-    const intercepted = this.interceptedDrops.get(entityId)
-    if (intercepted) {
-      this.activeDrop = null
-      return {
-        kind: 'collected_by_player' as const,
-        player: intercepted.player,
-        count: intercepted.count
-      }
-    }
     if (this.activeDrop?.entityId === entityId) {
       return { kind: 'present' as const, drop: structuredClone(this.activeDrop) }
     }
@@ -187,4 +208,8 @@ test('player-collected drops are non-fatal and gather continues until the bot ow
 
 function key(position: Position): string {
   return `${position.x},${position.y},${position.z}`
+}
+
+function distance(a: Position, b: Position): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 }
