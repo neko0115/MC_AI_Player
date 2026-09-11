@@ -1,0 +1,37 @@
+name: Live Gather Fix Gate
+
+on:
+  push:
+    branches:
+      - fix/live-gather-recovery
+    paths:
+      - src/minecraft/**
+      - src/skills/**
+      - src/safety/**
+      - tests/minecraft/**
+      - tests/skills/**
+      - .github/workflows/live-gather-fix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run live gather regression tests
+        run: npm test -- tests/skills/gathering-live-regressions.test.ts
+      - name: Typecheck
+        run: npm run typecheck
