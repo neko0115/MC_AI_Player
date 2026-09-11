@@ -1,0 +1,6 @@
+{"type":"connected","at":1000}
+{"type":"spawned","at":1001,"dimension":"overworld","position":{"x":0,"y":64,"z":0},"health":20,"food":20}
+{"type":"player_seen","at":1002,"player":{"name":"Boss","id":"boss-player","position":{"x":2,"y":64,"z":0}}}
+{"type":"player_chat","at":1003,"player":"Boss","message":"墨雪跟我來"}
+{"type":"player_chat","at":1004,"player":"Boss","message":"幫我找 16 個橡木"}
+{"type":"inventory_changed","at":1005,"items":[]}

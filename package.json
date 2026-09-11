@@ -1,0 +1,28 @@
+{
+  "name": "mc-ai-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "tsx --test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "probe": "tsx scripts/probe-platform.ts",
+    "fetch:test-server": "tsx scripts/fetch-test-server.ts"
+  },
+  "dependencies": {
+    "@google/genai": "2.21.0",
+    "better-sqlite3": "12.11.1",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2"
+  }
+}

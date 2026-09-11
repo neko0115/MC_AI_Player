@@ -1,0 +1,36 @@
+[
+  {
+    "type": "connected",
+    "at": 1
+  },
+  {
+    "type": "spawned",
+    "at": 2,
+    "dimension": "overworld",
+    "position": { "x": 0, "y": 64, "z": 0 },
+    "health": 20,
+    "food": 20
+  },
+  {
+    "type": "player_seen",
+    "at": 3,
+    "player": {
+      "name": "Boss",
+      "id": "player-1",
+      "position": { "x": 2, "y": 64, "z": 2 }
+    }
+  },
+  {
+    "type": "player_chat",
+    "at": 4,
+    "player": "Boss",
+    "message": "hello"
+  },
+  {
+    "type": "inventory_changed",
+    "at": 5,
+    "items": [
+      { "name": "oak_log", "count": 4 }
+    ]
+  }
+]

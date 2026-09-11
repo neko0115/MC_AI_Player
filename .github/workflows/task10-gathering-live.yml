@@ -1,0 +1,56 @@
+name: Task 10 Gathering Live
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+    paths:
+      - src/minecraft/gathering.ts
+      - src/minecraft/mineflayer-gathering.ts
+      - src/safety/policy.ts
+      - src/skills/gathering.ts
+      - src/skills/navigation.ts
+      - tests/minecraft/mineflayer-gathering.test.ts
+      - tests/minecraft/gathering-live.e2e.test.ts
+      - tests/skills/gathering.test.ts
+      - tests/scenarios/deterministic-gather.test.ts
+      - fixtures/worlds/deterministic-gather.json
+      - scripts/fetch-test-server.ts
+      - .github/workflows/task10-gathering-live.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task10-gathering-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gathering-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Fetch verified Mojang test server
+        run: npm run fetch:test-server
+        env:
+          MC_TEST_VERSION: '1.21.1'
+      - name: Run live deterministic gathering scenario
+        run: npm test -- tests/minecraft/gathering-live.e2e.test.ts
+        env:
+          MC_GATHER_LIVE_E2E: '1'
+          MC_TEST_VERSION: '1.21.1'
+          MC_GATHER_TEST_PORT: '25574'
