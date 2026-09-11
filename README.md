@@ -100,7 +100,7 @@ The automated suite currently covers:
 - SQLite Minecraft memory, deduplication, world isolation, and restart persistence;
 - local Control API authentication, body limits, async goal submission, memory search, and SSE lifecycle;
 - composition-root startup/shutdown and fresh-clone persistence directory bootstrap;
-- replay-backed cooperative acceptance: player appears, follow, gather 16 oak logs, return to base, handoff surrogate, write base/resource/task memories, then resume follow;
+- replay-backed component-integrated cooperative acceptance: player appears, follow, gather 16 oak logs, return to base, handoff surrogate, write base/resource/task memories, then resume follow;
 - invalid raw-text decision rejection inside that cooperative flow;
 - Gemini high-reasoning provider-adapter variation producing the same allowlisted gather GoalRequest while discarding thought content.
 
@@ -111,6 +111,7 @@ The cooperative acceptance fixture is `fixtures/replay/cooperative-session.jsonl
 Do not treat the following as validated yet:
 
 - **Real Gemini API compatibility:** live Google API/model/function-schema call has not been approved as PASS. The safe runtime default remains `fake`.
+- **Production event-driven AI coordinator:** `src/main.ts` currently constructs and capability-checks the selected DecisionProvider, but it does not yet wire player chat/runtime decision points into an automatic ContextBuilder → DecisionProvider → DecisionGate/GoalManager loop. The Task 15 automated scenario invokes that pipeline explicitly, so autonomous cooperative-agent behavior is not yet claimed as PASS.
 - **30-minute private-server cooperative session:** still requires real server/human validation with the Task 15 checklist.
 - **Production wiring for `return_home`, `deposit_item`, and `withdraw_item`:** the underlying deterministic skill implementations exist, but the current production composition root does not yet register/resolve these three intents. The automated Task 15 scenario therefore uses explicit `go_to` plus a test-only handoff surrogate. This remains a release blocker, not a hidden PASS.
 - **Task 16 low-power / ARM64 / Pi 3B / soak / chaos gates:** not yet complete.
