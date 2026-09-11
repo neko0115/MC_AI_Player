@@ -2,7 +2,6 @@ import type { GoalRequest } from '../contracts/goals.js'
 import type { Position } from '../contracts/events.js'
 import type { SkillDefinition, SkillResult } from '../contracts/skills.js'
 import type {
-  DroppedResource,
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceNavigationAdapter
@@ -255,6 +254,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         return { status: 'failed', code: permitDecision.code }
       }
 
+      const collectionCursor = this.dependencies.resources.resourceCollectionCursor?.() ?? null
       const beforeHarvest = this.dependencies.resources.inventoryCount(resource)
       const harvested = await this.dependencies.resources.harvestResourceBlock(
         candidate,
@@ -269,6 +269,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
             candidate,
             resource,
             beforeHarvest,
+            collectionCursor,
             signal
           )
           if (recovery.kind === 'terminal') return recovery.result
@@ -337,6 +338,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     candidate: ResourceCandidate,
     resource: string,
     beforeHarvest: number,
+    collectionCursor: number | null,
     signal: AbortSignal
   ): Promise<DropRecoveryOutcome> {
     const resources = this.dependencies.resources
@@ -382,6 +384,13 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       }
     }
 
+    const fastPlayerCollection = this.findPlayerCollectionAfter(
+      collectionCursor,
+      resource,
+      candidate.position
+    )
+    if (fastPlayerCollection) return fastPlayerCollection
+
     if (candidate.pickupPosition) {
       const recovery = await this.dependencies.navigation.goTo(
         candidate.pickupPosition,
@@ -396,7 +405,31 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       }
     }
 
-    return { kind: 'missed' }
+    return this.findPlayerCollectionAfter(collectionCursor, resource, candidate.position) ?? {
+      kind: 'missed'
+    }
+  }
+
+  private findPlayerCollectionAfter(
+    cursor: number | null,
+    resource: string,
+    origin: Position
+  ): Extract<DropRecoveryOutcome, { kind: 'collected_by_player' }> | null {
+    if (cursor === null || !this.dependencies.resources.findPlayerResourceCollectionAfter) {
+      return null
+    }
+    const collection = this.dependencies.resources.findPlayerResourceCollectionAfter(
+      cursor,
+      resource,
+      origin,
+      DROP_SEARCH_RADIUS
+    )
+    if (!collection) return null
+    return {
+      kind: 'collected_by_player',
+      player: collection.player,
+      count: collection.count
+    }
   }
 }
 
