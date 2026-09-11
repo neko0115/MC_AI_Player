@@ -82,3 +82,36 @@ test('playerCollect records which player took a tracked dropped resource', async
     count: 1
   })
 })
+
+test('a pre-harvest collection cursor attributes a player pickup even after the item entity is gone', () => {
+  const bot = new TrackingBot()
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+  const cursor = runtime.resourceCollectionCursor()
+  const drop = droppedEntity(301, 'spruce_log', 1, new Vec3(5.4, 64, 0.6))
+  bot.entities[301] = drop
+
+  bot.emit('playerCollect', {
+    id: 2,
+    type: 'player',
+    username: 'Neko0115',
+    position: new Vec3(5.4, 64, 0.6)
+  }, drop)
+  delete bot.entities[301]
+
+  assert.deepEqual(
+    runtime.findPlayerResourceCollectionAfter(
+      cursor,
+      'spruce_log',
+      { x: 4, y: 64, z: 0 },
+      4
+    ),
+    {
+      sequence: cursor + 1,
+      entityId: 301,
+      itemName: 'spruce_log',
+      count: 1,
+      position: { x: 5.4, y: 64, z: 0.6 },
+      player: 'Neko0115'
+    }
+  )
+})
