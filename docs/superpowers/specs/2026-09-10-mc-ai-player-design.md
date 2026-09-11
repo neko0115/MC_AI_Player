@@ -2,8 +2,10 @@
 
 **Date:** 2026-09-10
 **Repository:** `neko0115/MC_AI_Player`
-**Status:** Approved architecture; implementation not started
+**Status:** Implemented pre-release architecture; release and integration gates remain pending
 **DC_BOT constraint:** `neko0115/DC_BOT` is read-only for this project until the integration gate passes.
+
+> Status note: this document defines the approved architecture and release gates. The runtime has since been implemented across the major standalone layers described here, but individual release gates are evidence-driven and must not be inferred from this document alone. Use the repository README for the current validated/pending status.
 
 ## 1. Goal
 
