@@ -2,6 +2,7 @@ import type { GoalRequest } from '../contracts/goals.js'
 import type { Position } from '../contracts/events.js'
 import type { SkillDefinition, SkillResult } from '../contracts/skills.js'
 import type {
+  DroppedResource,
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceNavigationAdapter
@@ -121,6 +122,15 @@ export interface GatheringOptions {
   readonly searchStep?: number
   readonly maxRetries?: number
   readonly maxCandidatesPerSearch?: number
+  readonly maxUncollectedHarvests?: number
+  readonly cooperativePickupNoticeThreshold?: number
+}
+
+export interface CooperativePickupNotice {
+  readonly resource: string
+  readonly player: string
+  readonly interceptedCount: number
+  readonly remaining: number
 }
 
 interface GatherResourceDependencies {
@@ -130,6 +140,7 @@ interface GatherResourceDependencies {
   readonly state: () => WorldStateSnapshot
   readonly protection: ResourceProtectionPolicy
   readonly options?: GatheringOptions
+  readonly onCooperativePickup?: (notice: CooperativePickupNotice) => void
 }
 
 interface NormalizedGatheringOptions {
@@ -138,13 +149,23 @@ interface NormalizedGatheringOptions {
   searchStep: number
   maxRetries: number
   maxCandidatesPerSearch: number
+  maxUncollectedHarvests: number
+  cooperativePickupNoticeThreshold: number
 }
+
+type DropRecoveryOutcome =
+  | { readonly kind: 'collected' }
+  | { readonly kind: 'collected_by_player'; readonly player: string; readonly count: number }
+  | { readonly kind: 'missed' }
+  | { readonly kind: 'terminal'; readonly result: SkillResult }
 
 const SKIPPABLE_CANDIDATE_NAVIGATION_FAILURES = new Set([
   'no_path',
   'path_timeout',
   'path_stopped'
 ])
+const DROP_SEARCH_RADIUS = 4
+const DROP_PICKUP_ATTEMPTS = 3
 
 export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   readonly name = 'gather_resource' as const
@@ -170,6 +191,9 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     const attempted = new Set<string>()
     let radius = this.options.initialSearchRadius
     let failures = 0
+    let uncollectedHarvests = 0
+    let playerInterceptedCount = 0
+    let cooperativeNoticeSent = false
     let lastFailureCode: string | null = null
 
     while (this.dependencies.resources.inventoryCount(resource) < targetCount) {
@@ -240,26 +264,51 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       if (harvested.status === 'cancelled') return harvested
 
       if (harvested.status !== 'succeeded') {
-        if (harvested.code === 'item_not_collected' && candidate.pickupPosition) {
-          const recovery = await this.dependencies.navigation.goTo(
-            candidate.pickupPosition,
-            { range: 0, canDig: false },
+        if (harvested.code === 'item_not_collected') {
+          const recovery = await this.recoverDroppedResource(
+            candidate,
+            resource,
+            beforeHarvest,
             signal
           )
-          if (recovery.status === 'cancelled') return recovery
-          if (
-            recovery.status === 'succeeded' &&
-            this.dependencies.resources.inventoryCount(resource) > beforeHarvest
-          ) {
+          if (recovery.kind === 'terminal') return recovery.result
+          if (recovery.kind === 'collected') {
             failures = 0
-            lastFailureCode = null
+            if (uncollectedHarvests === 0) lastFailureCode = null
             continue
           }
-          lastFailureCode = recovery.status === 'failed' ? recovery.code : harvested.code
-        } else {
-          lastFailureCode = harvested.code
+
+          uncollectedHarvests += 1
+          failures = 0
+          lastFailureCode = 'item_not_collected'
+
+          if (recovery.kind === 'collected_by_player') {
+            playerInterceptedCount += Math.max(1, recovery.count)
+            if (
+              !cooperativeNoticeSent &&
+              playerInterceptedCount >= this.options.cooperativePickupNoticeThreshold
+            ) {
+              cooperativeNoticeSent = true
+              const remaining = Math.max(
+                0,
+                targetCount - this.dependencies.resources.inventoryCount(resource)
+              )
+              safelyNotify(this.dependencies.onCooperativePickup, {
+                resource,
+                player: recovery.player,
+                interceptedCount: playerInterceptedCount,
+                remaining
+              })
+            }
+          }
+
+          if (uncollectedHarvests >= this.options.maxUncollectedHarvests) {
+            return { status: 'failed', code: 'item_not_collected' }
+          }
+          continue
         }
 
+        lastFailureCode = harvested.code
         failures += 1
         if (failures >= this.options.maxRetries) {
           return { status: 'failed', code: lastFailureCode }
@@ -268,19 +317,86 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       }
 
       if (this.dependencies.resources.inventoryCount(resource) <= beforeHarvest) {
+        uncollectedHarvests += 1
+        failures = 0
         lastFailureCode = 'item_not_collected'
-        failures += 1
-        if (failures >= this.options.maxRetries) {
-          return { status: 'failed', code: lastFailureCode }
+        if (uncollectedHarvests >= this.options.maxUncollectedHarvests) {
+          return { status: 'failed', code: 'item_not_collected' }
         }
         continue
       }
 
       failures = 0
-      lastFailureCode = null
+      if (uncollectedHarvests === 0) lastFailureCode = null
     }
 
     return { status: 'succeeded', code: 'gathered' }
+  }
+
+  private async recoverDroppedResource(
+    candidate: ResourceCandidate,
+    resource: string,
+    beforeHarvest: number,
+    signal: AbortSignal
+  ): Promise<DropRecoveryOutcome> {
+    const resources = this.dependencies.resources
+    if (resources.findDroppedResource && resources.droppedResourceStatus) {
+      let drop = await resources.findDroppedResource(
+        resource,
+        candidate.position,
+        DROP_SEARCH_RADIUS,
+        signal
+      )
+      if (signal.aborted) return { kind: 'terminal', result: cancelled(signal) }
+
+      if (drop) {
+        for (let attempt = 0; attempt < DROP_PICKUP_ATTEMPTS; attempt += 1) {
+          const navigation = await this.dependencies.navigation.goTo(
+            drop.position,
+            { range: 0, canDig: false },
+            signal
+          )
+          if (navigation.status === 'cancelled') {
+            return { kind: 'terminal', result: navigation }
+          }
+          if (this.dependencies.resources.inventoryCount(resource) > beforeHarvest) {
+            return { kind: 'collected' }
+          }
+
+          const status = resources.droppedResourceStatus(drop.entityId)
+          if (status.kind === 'collected_by_player') {
+            return {
+              kind: 'collected_by_player',
+              player: status.player,
+              count: status.count
+            }
+          }
+          if (status.kind === 'collected_by_bot') {
+            return this.dependencies.resources.inventoryCount(resource) > beforeHarvest
+              ? { kind: 'collected' }
+              : { kind: 'missed' }
+          }
+          if (status.kind === 'gone') break
+          drop = status.drop
+        }
+      }
+    }
+
+    if (candidate.pickupPosition) {
+      const recovery = await this.dependencies.navigation.goTo(
+        candidate.pickupPosition,
+        { range: 0, canDig: false },
+        signal
+      )
+      if (recovery.status === 'cancelled') {
+        return { kind: 'terminal', result: recovery }
+      }
+      if (this.dependencies.resources.inventoryCount(resource) > beforeHarvest) {
+        return { kind: 'collected' }
+      }
+    }
+
+    return { kind: 'missed' }
   }
 }
 
@@ -340,17 +456,33 @@ function normalizeOptions(options: GatheringOptions = {}): NormalizedGatheringOp
     maxSearchRadius: options.maxSearchRadius ?? 48,
     searchStep: options.searchStep ?? 16,
     maxRetries: options.maxRetries ?? 3,
-    maxCandidatesPerSearch: options.maxCandidatesPerSearch ?? 32
+    maxCandidatesPerSearch: options.maxCandidatesPerSearch ?? 32,
+    maxUncollectedHarvests: options.maxUncollectedHarvests ?? 12,
+    cooperativePickupNoticeThreshold: options.cooperativePickupNoticeThreshold ?? 3
   }
   validatePositiveInteger(normalized.initialSearchRadius, 'initialSearchRadius')
   validatePositiveInteger(normalized.maxSearchRadius, 'maxSearchRadius')
   validatePositiveInteger(normalized.searchStep, 'searchStep')
   validatePositiveInteger(normalized.maxRetries, 'maxRetries')
   validatePositiveInteger(normalized.maxCandidatesPerSearch, 'maxCandidatesPerSearch')
+  validatePositiveInteger(normalized.maxUncollectedHarvests, 'maxUncollectedHarvests')
+  validatePositiveInteger(normalized.cooperativePickupNoticeThreshold, 'cooperativePickupNoticeThreshold')
   if (normalized.initialSearchRadius > normalized.maxSearchRadius) {
     throw new RangeError('initialSearchRadius must be <= maxSearchRadius')
   }
   return normalized
+}
+
+function safelyNotify(
+  notify: ((notice: CooperativePickupNotice) => void) | undefined,
+  notice: CooperativePickupNotice
+): void {
+  if (!notify) return
+  try {
+    notify(notice)
+  } catch {
+    // Cooperative notices are telemetry/advisory only and must never stop gameplay.
+  }
 }
 
 function validatePositiveInteger(value: number, name: string): void {
