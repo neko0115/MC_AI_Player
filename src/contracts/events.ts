@@ -86,6 +86,16 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
       code: z.string().trim().min(1).max(128)
     })
     .strict(),
+  z
+    .object({
+      type: z.literal('cooperative_pickup'),
+      at: AtSchema,
+      resource: z.string().trim().min(1).max(128),
+      player: z.string().trim().min(1).max(64),
+      interceptedCount: z.number().int().min(1).max(2304),
+      remaining: z.number().int().min(0).max(2304)
+    })
+    .strict(),
   z.object({ type: z.literal('emergency_stop'), at: AtSchema, reason: z.string().trim().min(1).max(500) }).strict(),
   z.object({ type: z.literal('decision_accepted'), at: AtSchema, intent: z.string().trim().min(1).max(64) }).strict(),
   z.object({ type: z.literal('decision_rejected'), at: AtSchema, code: z.string().trim().min(1).max(128) }).strict(),
