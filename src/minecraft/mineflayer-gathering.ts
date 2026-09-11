@@ -8,6 +8,7 @@ import {
 import type {
   DroppedResource,
   DroppedResourceStatus,
+  PlayerResourceCollection,
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceSearchRequest
@@ -57,6 +58,8 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
   private trackedBot: Bot | null = null
   private playerCollectListener: ((collector: any, collected: any) => void) | null = null
   private readonly dropCollections = new Map<number, DropCollectionRecord>()
+  private readonly playerResourceCollections: PlayerResourceCollection[] = []
+  private collectionSequence = 0
 
   constructor(
     private readonly getBot: GatheringBotProvider,
@@ -89,6 +92,38 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       .items()
       .filter(item => item.name === itemName)
       .reduce((sum, item) => sum + item.count, 0)
+  }
+
+  resourceCollectionCursor(): number {
+    this.readyBot()
+    return this.collectionSequence
+  }
+
+  findPlayerResourceCollectionAfter(
+    cursor: number,
+    itemName: string,
+    origin: Position,
+    radius: number
+  ): PlayerResourceCollection | null {
+    if (
+      !Number.isInteger(cursor) ||
+      cursor < 0 ||
+      !isResourceName(itemName) ||
+      !isFinitePosition(origin) ||
+      !Number.isFinite(radius) ||
+      radius <= 0 ||
+      radius > MAX_DROP_SEARCH_RADIUS
+    ) {
+      return null
+    }
+    if (!this.readyBot()) return null
+
+    const match = this.playerResourceCollections.find(collection =>
+      collection.sequence > cursor &&
+      collection.itemName === itemName &&
+      squaredDistance(collection.position, origin) <= radius * radius
+    )
+    return match ? clonePlayerCollection(match) : null
   }
 
   async findResourceBlocks(
@@ -298,6 +333,8 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     }
     this.trackedBot = bot
     this.dropCollections.clear()
+    this.playerResourceCollections.length = 0
+    this.collectionSequence = 0
 
     const listener = (collector: any, collected: any) => {
       const entityId = Number(collected?.id)
@@ -322,6 +359,17 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
           player: collectorName,
           count
         })
+        if (drop) {
+          this.collectionSequence += 1
+          this.playerResourceCollections.push({
+            ...drop,
+            sequence: this.collectionSequence,
+            player: collectorName
+          })
+          while (this.playerResourceCollections.length > MAX_DROP_COLLECTION_RECORDS) {
+            this.playerResourceCollections.shift()
+          }
+        }
       }
     }
 
@@ -381,6 +429,17 @@ function droppedResourceFromEntity(entity: any): DroppedResource | null {
       y: position.y,
       z: position.z
     }
+  }
+}
+
+function clonePlayerCollection(collection: PlayerResourceCollection): PlayerResourceCollection {
+  return {
+    sequence: collection.sequence,
+    entityId: collection.entityId,
+    itemName: collection.itemName,
+    count: collection.count,
+    position: { ...collection.position },
+    player: collection.player
   }
 }
 
