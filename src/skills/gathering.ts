@@ -240,10 +240,10 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       if (harvested.status === 'cancelled') return harvested
 
       if (harvested.status !== 'succeeded') {
-        if (harvested.code === 'item_not_collected') {
+        if (harvested.code === 'item_not_collected' && candidate.pickupPosition) {
           const recovery = await this.dependencies.navigation.goTo(
-            approach,
-            { range: 1, canDig: false },
+            candidate.pickupPosition,
+            { range: 0, canDig: false },
             signal
           )
           if (recovery.status === 'cancelled') return recovery
@@ -300,6 +300,9 @@ function selectCandidate(
       position: { ...candidate.position },
       ...(candidate.approachPosition
         ? { approachPosition: { ...candidate.approachPosition } }
+        : {}),
+      ...(candidate.pickupPosition
+        ? { pickupPosition: { ...candidate.pickupPosition } }
         : {})
     }))
 
