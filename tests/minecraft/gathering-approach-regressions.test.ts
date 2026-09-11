@@ -25,7 +25,13 @@ class ApproachBot extends EventEmitter {
     this.setBlock(3, 63, 0, 'stone', 'block')
 
     this.setBlock(6, 70, 0, 'spruce_log', 'block')
-    for (const [x, z] of [[5, 0], [7, 0], [6, -1], [6, 1]]) {
+    const canopySupports: ReadonlyArray<readonly [number, number]> = [
+      [5, 0],
+      [7, 0],
+      [6, -1],
+      [6, 1]
+    ]
+    for (const [x, z] of canopySupports) {
       this.setBlock(x, 69, z, 'spruce_leaves', 'block')
     }
   }
