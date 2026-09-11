@@ -6,6 +6,7 @@ import type { NavigationOptions } from './adapter.js'
 export interface ResourceCandidate {
   readonly blockName: string
   readonly position: Position
+  readonly approachPosition?: Position
 }
 
 export interface ResourceSearchRequest {
