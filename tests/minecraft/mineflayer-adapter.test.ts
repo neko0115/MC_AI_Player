@@ -159,6 +159,50 @@ test('observation-only adapter emits normalized events and never initiates movem
   assert.equal(bot.quitCount, 1)
 })
 
+test('self movement emits at most one position update per Minecraft block cell', async () => {
+  const bot = new FakeBot()
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: () => bot as unknown as Bot,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 10
+    }
+  )
+  const seen: Array<Record<string, unknown>> = []
+  adapter.onEvent(event => {
+    seen.push(structuredClone(event) as unknown as Record<string, unknown>)
+  })
+
+  await adapter.connect()
+  bot.emit('login')
+  bot.emit('spawn')
+
+  bot.entity.position.x = 0.2
+  bot.emit('move')
+  bot.entity.position.x = 0.8
+  bot.emit('move')
+  bot.entity.position.x = 1.1
+  bot.emit('move')
+  bot.entity.position.x = 1.9
+  bot.emit('move')
+
+  assert.deepEqual(
+    seen.filter(event => event.type === 'position_changed'),
+    [{
+      type: 'position_changed',
+      at: 10,
+      position: { x: 1.1, y: 64, z: 0 }
+    }]
+  )
+})
+
 test('inventory listener waits until spawn when Mineflayer injects inventory later', async () => {
   const bot = new DeferredInventoryBot()
   const factory: MineflayerBotFactory = () => bot as unknown as Bot
