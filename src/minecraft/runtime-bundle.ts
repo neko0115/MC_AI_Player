@@ -70,7 +70,11 @@ export function createMineflayerRuntimeBundle(
     findResourceBlocks: (request, signal) =>
       gatheringRuntime.findResourceBlocks(request, signal),
     harvestResourceBlock: (target, permit, signal) =>
-      gatheringRuntime.harvestResourceBlock(target, permit, signal)
+      gatheringRuntime.harvestResourceBlock(target, permit, signal),
+    findDroppedResource: (itemName, origin, radius, signal) =>
+      gatheringRuntime.findDroppedResource(itemName, origin, radius, signal),
+    droppedResourceStatus: entityId =>
+      gatheringRuntime.droppedResourceStatus(entityId)
   }
   Object.freeze(gathering)
 
