@@ -1,0 +1,67 @@
+name: Task 15 Cooperative Acceptance Gate
+
+on:
+  push:
+    branches:
+      - feature/phase0-platform-bootstrap
+    paths:
+      - package.json
+      - package-lock.json
+      - README.md
+      - fixtures/replay/**
+      - src/agent/**
+      - src/contracts/**
+      - src/goals/**
+      - src/memory/**
+      - src/minecraft/**
+      - src/runtime/**
+      - src/safety/**
+      - src/skills/**
+      - src/state/**
+      - src/telemetry/**
+      - tests/scenarios/cooperative-session.test.ts
+      - tests/scenarios/cooperative-provider.test.ts
+      - .github/workflows/phase0.yml
+      - .github/workflows/task13-gemini-provider.yml
+      - .github/workflows/task14-control-api.yml
+      - .github/workflows/task15-cooperative-e2e.yml
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task15-cooperative-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cooperative-acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Run cooperative acceptance scenarios
+        run: >-
+          npm test --
+          tests/scenarios/cooperative-session.test.ts
+          tests/scenarios/cooperative-provider.test.ts
+      - name: Verify acceptance evidence remains explicitly scoped
+        run: >-
+          node -e "const fs=require('node:fs'); const r=fs.readFileSync('README.md','utf8'); for(const s of ['Real Gemini API compatibility','30-minute private-server cooperative session','Production wiring for `return_home`, `deposit_item`, and `withdraw_item`']) if(!r.includes(s)) throw new Error('missing gate statement: '+s)"
+      - name: Typecheck cooperative boundary
+        run: npm run typecheck
