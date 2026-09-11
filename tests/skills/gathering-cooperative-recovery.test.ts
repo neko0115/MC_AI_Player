@@ -37,6 +37,7 @@ class CooperativeWorld implements ResourceGatheringAdapter, ResourceNavigationAd
   readonly blocks = new Map<string, ResourceCandidate>()
   readonly navigationAttempts: Position[] = []
   readonly playerCollections: PlayerCollectionView[] = []
+  readonly interceptPlayers: string[] = []
   position: Position = { x: 0, y: 64, z: 0 }
   nextEntityId = 100
   collectionSequence = 0
@@ -108,7 +109,7 @@ class CooperativeWorld implements ResourceGatheringAdapter, ResourceNavigationAd
       this.playerCollections.push({
         ...drop,
         sequence: this.collectionSequence,
-        player: 'Neko0115'
+        player: this.interceptPlayers[this.harvested - 1] ?? 'Neko0115'
       })
       // Model the real race: the player collects immediately, so the entity
       // is already gone by the time harvestResourceBlock reports the miss.
@@ -163,17 +164,8 @@ function state(world: CooperativeWorld): WorldStateSnapshot {
   }
 }
 
-test('player-collected drops are non-fatal and gather continues until the bot owns the requested quantity', async () => {
-  const blocks = [4, 6, 8, 10, 12].map(x => ({
-    blockName: 'spruce_log',
-    position: { x, y: 64, z: 0 },
-    approachPosition: { x: x - 1, y: 64, z: 0 }
-  }))
-  const world = new CooperativeWorld(blocks)
-  world.interceptFirst = 4
-  const notices: CooperativePickupNotice[] = []
-
-  const skill = new GatherResourceSkill({
+function createSkill(world: CooperativeWorld, notices: CooperativePickupNotice[]) {
+  return new GatherResourceSkill({
     resources: world,
     navigation: world,
     safety: new SafetyPolicy(),
@@ -188,6 +180,18 @@ test('player-collected drops are non-fatal and gather continues until the bot ow
     },
     onCooperativePickup: (notice: CooperativePickupNotice) => notices.push(notice)
   })
+}
+
+test('player-collected drops are non-fatal and gather continues until the bot owns the requested quantity', async () => {
+  const blocks = [4, 6, 8, 10, 12].map(x => ({
+    blockName: 'spruce_log',
+    position: { x, y: 64, z: 0 },
+    approachPosition: { x: x - 1, y: 64, z: 0 }
+  }))
+  const world = new CooperativeWorld(blocks)
+  world.interceptFirst = 4
+  const notices: CooperativePickupNotice[] = []
+  const skill = createSkill(world, notices)
 
   const result = await skill.execute(
     { signal: new AbortController().signal },
@@ -204,6 +208,29 @@ test('player-collected drops are non-fatal and gather continues until the bot ow
     interceptedCount: 3,
     remaining: 1
   })
+})
+
+test('cooperative pickup threshold does not combine interceptions from different players', async () => {
+  const blocks = [4, 6, 8, 10].map(x => ({
+    blockName: 'spruce_log',
+    position: { x, y: 64, z: 0 },
+    approachPosition: { x: x - 1, y: 64, z: 0 }
+  }))
+  const world = new CooperativeWorld(blocks)
+  world.interceptFirst = 3
+  world.interceptPlayers.push('Alice', 'Alice', 'Bob')
+  const notices: CooperativePickupNotice[] = []
+  const skill = createSkill(world, notices)
+
+  const result = await skill.execute(
+    { signal: new AbortController().signal },
+    { resource: 'spruce_log', quantity: 1 }
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.equal(world.harvested, 4)
+  assert.equal(world.inventoryCount('spruce_log'), 1)
+  assert.deepEqual(notices, [])
 })
 
 function key(position: Position): string {
