@@ -140,6 +140,12 @@ interface NormalizedGatheringOptions {
   maxCandidatesPerSearch: number
 }
 
+const SKIPPABLE_CANDIDATE_NAVIGATION_FAILURES = new Set([
+  'no_path',
+  'path_timeout',
+  'path_stopped'
+])
+
 export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   readonly name = 'gather_resource' as const
   private readonly options: NormalizedGatheringOptions
@@ -200,17 +206,17 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       }
       attempted.add(candidateKey(candidate))
 
+      const approach = candidate.approachPosition ?? candidate.position
       const navigation = await this.dependencies.navigation.goTo(
-        candidate.position,
+        approach,
         { range: 1, canDig: false },
         signal
       )
       if (navigation.status === 'cancelled') return navigation
       if (navigation.status !== 'succeeded') {
-        failures += 1
         lastFailureCode = navigation.code
-        if (failures >= this.options.maxRetries) {
-          return { status: 'failed', code: lastFailureCode }
+        if (!SKIPPABLE_CANDIDATE_NAVIGATION_FAILURES.has(navigation.code)) {
+          return { status: 'failed', code: navigation.code }
         }
         continue
       }
@@ -236,7 +242,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       if (harvested.status !== 'succeeded') {
         if (harvested.code === 'item_not_collected') {
           const recovery = await this.dependencies.navigation.goTo(
-            candidate.position,
+            approach,
             { range: 1, canDig: false },
             signal
           )
@@ -289,10 +295,18 @@ function selectCandidate(
     .filter(candidate => candidate.blockName === resource)
     .filter(candidate => !protection.isProtected(candidate.position))
     .filter(candidate => !attempted.has(candidateKey(candidate)))
-    .map(candidate => ({ blockName: candidate.blockName, position: { ...candidate.position } }))
+    .map(candidate => ({
+      blockName: candidate.blockName,
+      position: { ...candidate.position },
+      ...(candidate.approachPosition
+        ? { approachPosition: { ...candidate.approachPosition } }
+        : {})
+    }))
 
   eligible.sort((a, b) => {
-    const distanceDelta = squaredDistance(a.position, origin) - squaredDistance(b.position, origin)
+    const aApproach = a.approachPosition ?? a.position
+    const bApproach = b.approachPosition ?? b.position
+    const distanceDelta = squaredDistance(aApproach, origin) - squaredDistance(bApproach, origin)
     if (distanceDelta !== 0) return distanceDelta
     return candidateKey(a).localeCompare(candidateKey(b))
   })
