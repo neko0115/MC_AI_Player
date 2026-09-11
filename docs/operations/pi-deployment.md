@@ -256,23 +256,28 @@ A hanging case, reasoning leakage, or uncaught exception fails the chaos gate.
 
 ## Rollback
 
-Before deployment, record the known-good Git commit and back up the Minecraft memory database if it contains valuable world knowledge.
+Before deployment, record the known-good Git commit and back up the Minecraft memory database if it contains valuable world knowledge. Do not copy a live SQLite database while the service may be writing it.
 
-Example procedure:
+Example procedure using a short maintenance stop:
 
 ```bash
 git rev-parse HEAD
+sudo systemctl stop mc-ai-player
 cp data/mc_memory.sqlite3 data/mc_memory.sqlite3.backup
+sudo systemctl start mc-ai-player
 ```
+
+If the database path is different on the deployment host, use that configured path. Verify the backup exists before upgrading.
 
 Rollback should use an explicitly reviewed known-good commit/tag, then reinstall exactly from its lockfile:
 
 ```bash
+sudo systemctl stop mc-ai-player
 git checkout <known-good-commit-or-tag>
 npm ci
 npm test
 npm run typecheck
-sudo systemctl restart mc-ai-player
+sudo systemctl start mc-ai-player
 ```
 
 Do not roll back by copying old `node_modules` directories between architectures.
