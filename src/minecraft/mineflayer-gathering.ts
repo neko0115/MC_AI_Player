@@ -139,10 +139,12 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
 
       const approachPosition = findSafeHarvestApproach(bot, targetPosition)
       if (!approachPosition) continue
+      const pickupPosition = findSafePostHarvestPickupPosition(bot, targetPosition)
       candidates.push({
         blockName: block.name,
         position: targetPosition,
-        approachPosition
+        approachPosition,
+        ...(pickupPosition ? { pickupPosition } : {})
       })
     }
     return candidates
@@ -273,6 +275,22 @@ function findSafeHarvestApproach(bot: Bot, target: Position): Position | null {
     }
   }
   return null
+}
+
+function findSafePostHarvestPickupPosition(bot: Bot, target: Position): Position | null {
+  const support = blockAtPosition(bot, {
+    x: target.x,
+    y: target.y - 1,
+    z: target.z
+  })
+  const head = blockAtPosition(bot, {
+    x: target.x,
+    y: target.y + 1,
+    z: target.z
+  })
+  if (!support || !head) return null
+  if (!isSafeSupport(support) || !isPassableSpace(head)) return null
+  return { ...target }
 }
 
 function blockAtPosition(bot: Bot, position: Position): ReturnType<Bot['blockAt']> {
