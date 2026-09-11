@@ -20,6 +20,7 @@ class ApproachBot extends EventEmitter {
   private readonly blocks = new Map<string, FakeBlock>()
 
   constructor() {
+    super()
     this.setBlock(4, 64, 0, 'spruce_log', 'block')
     this.setBlock(3, 63, 0, 'stone', 'block')
 
