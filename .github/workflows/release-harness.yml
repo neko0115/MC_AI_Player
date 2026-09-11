@@ -1,0 +1,28 @@
+name: Manual Release Harness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chaos-and-soak-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test -- tests/scenarios/chaos.test.ts
+      - name: Run short process-only soak smoke
+        env:
+          MC_SOAK_DURATION_MS: '50'
+          MC_SOAK_INTERVAL_MS: '10'
+        run: npx tsx scripts/soak.ts > soak-smoke.json
+      - name: Confirm smoke remains incomplete evidence
+        run: >-
+          node -e "const fs=require('node:fs'); const d=JSON.parse(fs.readFileSync('soak-smoke.json','utf8')); if(d.summary.evidenceComplete!==false) throw new Error('process-only smoke must remain incomplete'); for(const s of ['pathfinderPlanningDurationMs','activeGoalAgeMs','eventQueueDepth','memoryRowCount','aiDecisionLatencyMs']) if(!d.summary.missingMetrics.includes(s)) throw new Error('missing explicit metric: '+s)"
