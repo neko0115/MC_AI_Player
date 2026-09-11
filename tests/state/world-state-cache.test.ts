@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { RuntimeEvent } from '../../src/contracts/events.js'
 import { WorldStateCache } from '../../src/state/world-state-cache.js'
 
 test('recent events keep only the configured maximum', () => {
@@ -17,6 +18,27 @@ test('recent events keep only the configured maximum', () => {
   cache.apply({ type: 'player_chat', at: 3, player: 'Boss', message: 'hello' })
 
   assert.deepEqual(cache.snapshot().recentEvents.map(event => event.at), [2, 3])
+})
+
+test('position update replaces the spawned self position', () => {
+  const cache = new WorldStateCache({ maxRecentEvents: 10 })
+  cache.apply({ type: 'connected', at: 1 })
+  cache.apply({
+    type: 'spawned',
+    at: 2,
+    dimension: 'overworld',
+    position: { x: 0, y: 64, z: 0 },
+    health: 20,
+    food: 20
+  })
+
+  cache.apply({
+    type: 'position_changed',
+    at: 3,
+    position: { x: 12.25, y: 65, z: -4.5 }
+  } as unknown as RuntimeEvent)
+
+  assert.deepEqual(cache.snapshot().position, { x: 12.25, y: 65, z: -4.5 })
 })
 
 test('nearby players replace by identity instead of growing forever', () => {
