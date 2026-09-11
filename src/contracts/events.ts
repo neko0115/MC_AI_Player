@@ -48,6 +48,7 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
       food: z.number().finite().min(0).max(20)
     })
     .strict(),
+  z.object({ type: z.literal('position_changed'), at: AtSchema, position: PositionSchema }).strict(),
   z.object({ type: z.literal('player_seen'), at: AtSchema, player: PlayerSnapshotSchema }).strict(),
   z
     .object({
