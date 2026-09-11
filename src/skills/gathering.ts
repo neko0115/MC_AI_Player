@@ -164,6 +164,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     const attempted = new Set<string>()
     let radius = this.options.initialSearchRadius
     let failures = 0
+    let lastFailureCode: string | null = null
 
     while (this.dependencies.resources.inventoryCount(resource) < targetCount) {
       if (signal.aborted) return cancelled(signal)
@@ -193,7 +194,9 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           radius = Math.min(this.options.maxSearchRadius, radius + this.options.searchStep)
           continue
         }
-        return { status: 'failed', code: 'resource_not_found' }
+        return lastFailureCode
+          ? { status: 'failed', code: lastFailureCode }
+          : { status: 'failed', code: 'resource_not_found' }
       }
       attempted.add(candidateKey(candidate))
 
@@ -205,8 +208,9 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       if (navigation.status === 'cancelled') return navigation
       if (navigation.status !== 'succeeded') {
         failures += 1
+        lastFailureCode = navigation.code
         if (failures >= this.options.maxRetries) {
-          return { status: 'failed', code: 'stuck' }
+          return { status: 'failed', code: lastFailureCode }
         }
         continue
       }
@@ -228,20 +232,46 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         signal
       )
       if (harvested.status === 'cancelled') return harvested
+
       if (harvested.status !== 'succeeded') {
+        if (harvested.code === 'item_not_collected') {
+          const recovery = await this.dependencies.navigation.goTo(
+            candidate.position,
+            { range: 1, canDig: false },
+            signal
+          )
+          if (recovery.status === 'cancelled') return recovery
+          if (
+            recovery.status === 'succeeded' &&
+            this.dependencies.resources.inventoryCount(resource) > beforeHarvest
+          ) {
+            failures = 0
+            lastFailureCode = null
+            continue
+          }
+          lastFailureCode = recovery.status === 'failed' ? recovery.code : harvested.code
+        } else {
+          lastFailureCode = harvested.code
+        }
+
         failures += 1
         if (failures >= this.options.maxRetries) {
-          return { status: 'failed', code: 'stuck' }
+          return { status: 'failed', code: lastFailureCode }
         }
         continue
       }
 
       if (this.dependencies.resources.inventoryCount(resource) <= beforeHarvest) {
+        lastFailureCode = 'item_not_collected'
         failures += 1
         if (failures >= this.options.maxRetries) {
-          return { status: 'failed', code: 'stuck' }
+          return { status: 'failed', code: lastFailureCode }
         }
+        continue
       }
+
+      failures = 0
+      lastFailureCode = null
     }
 
     return { status: 'succeeded', code: 'gathered' }
