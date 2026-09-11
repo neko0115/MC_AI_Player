@@ -5,6 +5,8 @@ on:
     branches:
       - fix/live-gather-recovery
     paths:
+      - src/contracts/**
+      - src/main.ts
       - src/minecraft/**
       - src/skills/**
       - src/safety/**
@@ -38,7 +40,9 @@ jobs:
           npm test --
           tests/skills/gathering-live-regressions.test.ts
           tests/skills/gathering-accessibility-regressions.test.ts
+          tests/skills/gathering-cooperative-recovery.test.ts
           tests/minecraft/gathering-approach-regressions.test.ts
+          tests/minecraft/dropped-resource-tracking.test.ts
       - name: Run full test suite
         run: npm test
       - name: Typecheck
