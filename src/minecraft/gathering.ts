@@ -17,6 +17,11 @@ export interface DroppedResource {
   readonly position: Position
 }
 
+export interface PlayerResourceCollection extends DroppedResource {
+  readonly sequence: number
+  readonly player: string
+}
+
 export type DroppedResourceStatus =
   | { readonly kind: 'present'; readonly drop: DroppedResource }
   | { readonly kind: 'collected_by_player'; readonly player: string; readonly count: number }
@@ -49,6 +54,13 @@ export interface ResourceGatheringAdapter {
     signal: AbortSignal
   ): Promise<DroppedResource | null>
   droppedResourceStatus?(entityId: number): DroppedResourceStatus
+  resourceCollectionCursor?(): number
+  findPlayerResourceCollectionAfter?(
+    cursor: number,
+    itemName: string,
+    origin: Position,
+    radius: number
+  ): PlayerResourceCollection | null
 }
 
 export interface ResourceNavigationAdapter {
