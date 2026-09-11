@@ -19,9 +19,13 @@ import {
   type ResourceMutationPermit
 } from '../../src/safety/policy.js'
 
+type TestResourceCandidate = ResourceCandidate & {
+  readonly pickupPosition?: Position
+}
+
 class DropRegressionWorld implements ResourceGatheringAdapter, ResourceNavigationAdapter {
   readonly inventory = new Map<string, number>()
-  readonly blocks = new Map<string, ResourceCandidate>()
+  readonly blocks = new Map<string, TestResourceCandidate>()
   readonly navigationAttempts: Position[] = []
   readonly harvestAttempts: ResourceCandidate[] = []
   readonly navigationCanDig: boolean[] = []
@@ -30,7 +34,7 @@ class DropRegressionWorld implements ResourceGatheringAdapter, ResourceNavigatio
   alwaysMissPickup = false
   private pendingDrop: ResourceCandidate | null = null
 
-  constructor(blocks: readonly ResourceCandidate[]) {
+  constructor(blocks: readonly TestResourceCandidate[]) {
     for (const block of blocks) this.blocks.set(key(block.position), block)
   }
 
@@ -48,7 +52,16 @@ class DropRegressionWorld implements ResourceGatheringAdapter, ResourceNavigatio
       .filter(block => request.blockNames.includes(block.blockName))
       .filter(block => distance(block.position, request.origin) <= request.radius)
       .slice(0, request.limit)
-      .map(block => ({ blockName: block.blockName, position: { ...block.position } }))
+      .map(block => ({
+        blockName: block.blockName,
+        position: { ...block.position },
+        ...(block.approachPosition
+          ? { approachPosition: { ...block.approachPosition } }
+          : {}),
+        ...(block.pickupPosition
+          ? { pickupPosition: { ...block.pickupPosition } }
+          : {})
+      })) as readonly TestResourceCandidate[]
   }
 
   async harvestResourceBlock(
@@ -122,9 +135,14 @@ function createSkill(world: DropRegressionWorld, maxRetries = 2) {
   })
 }
 
-test('item_not_collected performs one safe pickup recovery at the harvested block', async () => {
+test('item_not_collected moves from the harvest approach into a distinct safe pickup position', async () => {
   const world = new DropRegressionWorld([
-    { blockName: 'spruce_log', position: { x: 4, y: 64, z: 0 } }
+    {
+      blockName: 'spruce_log',
+      position: { x: 4, y: 64, z: 0 },
+      approachPosition: { x: 3, y: 64, z: 0 },
+      pickupPosition: { x: 4, y: 64, z: 0 }
+    }
   ])
   world.recoveryCollectsDrop = true
 
@@ -136,7 +154,7 @@ test('item_not_collected performs one safe pickup recovery at the harvested bloc
   assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
   assert.equal(world.inventoryCount('spruce_log'), 1)
   assert.deepEqual(world.navigationAttempts, [
-    { x: 4, y: 64, z: 0 },
+    { x: 3, y: 64, z: 0 },
     { x: 4, y: 64, z: 0 }
   ])
   assert.equal(world.navigationCanDig.every(value => value === false), true)
