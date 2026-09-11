@@ -23,6 +23,7 @@ class ApproachBot extends EventEmitter {
     super()
     this.setBlock(4, 64, 0, 'spruce_log', 'block')
     this.setBlock(3, 63, 0, 'stone', 'block')
+    this.setBlock(4, 63, 0, 'stone', 'block')
 
     this.setBlock(6, 70, 0, 'spruce_log', 'block')
     const canopySupports: ReadonlyArray<readonly [number, number]> = [
@@ -68,7 +69,7 @@ class ApproachBot extends EventEmitter {
   }
 }
 
-test('resource search returns a safe ground approach and skips canopy-only logs', async () => {
+test('resource search returns safe harvest and pickup positions while skipping canopy-only logs', async () => {
   const bot = new ApproachBot()
   const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
 
@@ -84,8 +85,12 @@ test('resource search returns a safe ground approach and skips canopy-only logs'
 
   assert.equal(result.length, 1)
   assert.deepEqual(result[0]?.position, { x: 4, y: 64, z: 0 })
-  const approach = (result[0] as ResourceCandidate & { approachPosition?: Position })?.approachPosition
-  assert.deepEqual(approach, { x: 3, y: 64, z: 0 })
+  const candidate = result[0] as ResourceCandidate & {
+    approachPosition?: Position
+    pickupPosition?: Position
+  }
+  assert.deepEqual(candidate.approachPosition, { x: 3, y: 64, z: 0 })
+  assert.deepEqual(candidate.pickupPosition, { x: 4, y: 64, z: 0 })
 })
 
 function key(x: number, y: number, z: number): string {
