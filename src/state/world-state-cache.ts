@@ -40,6 +40,9 @@ export class WorldStateCache {
         this.health = event.health
         this.food = event.food
         break
+      case 'position_changed':
+        this.position = structuredClone(event.position)
+        break
       case 'player_seen': {
         const key = event.player.id ? `id:${event.player.id}` : `name:${event.player.name}`
         this.nearbyPlayers.set(key, structuredClone(event.player))
