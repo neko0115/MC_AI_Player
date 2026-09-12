@@ -126,11 +126,11 @@ test('opted-in live validation covers all routes and proves actual usage settlem
   }
 
   const result = await runGeminiRoutingLiveValidation(env, {
-    createStack(options) {
+    createStack(options: GeminiDecisionStackOptions) {
       capturedOptions.push(options)
       return fakeStack(options.events, capturedPlans)
     },
-    writeLine: line => lines.push(line),
+    writeLine: (line: string) => lines.push(line),
     quotaFilename: ':memory:',
     readActualUsage(quotaFilename: string, decisionId: string, model: string) {
       usageReads.push([quotaFilename, decisionId, model])
