@@ -394,3 +394,5 @@ function numberSchema(minimum: number, maximum: number): Readonly<Record<string,
 function integerSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> {
   return { type: 'integer', minimum, maximum }
 }
+
+export class GeminiTransport {}
