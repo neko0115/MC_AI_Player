@@ -8,7 +8,10 @@ import type { MineflayerRuntimeBundle } from '../src/minecraft/runtime-bundle.js
 import type { MinecraftMemoryRepository, MemorySearchQuery, MinecraftMemory } from '../src/memory/repository.js'
 import type { ProviderCapabilities, DecisionProvider } from '../src/agent/provider.js'
 import type { ControlServerOptions, ControlServerAddress } from '../src/api/control-server.js'
-import { createApplication } from '../src/main.js'
+import {
+  createApplication,
+  createFakeDecisionStack
+} from '../src/main.js'
 
 class FakeAdapter implements MinecraftAdapter {
   readonly calls: string[]
@@ -138,6 +141,79 @@ function unsafeProvider(capabilities: ProviderCapabilities): DecisionProvider {
     }
   }
 }
+
+const logicalRequest = {
+  context: {
+    worldKey: 'test-world',
+    currentGoal: null,
+    self: {
+      connected: true,
+      spawned: true,
+      health: 20,
+      food: 20,
+      dimension: 'overworld',
+      position: { x: 0, y: 64, z: 0 }
+    },
+    nearbyPlayers: [],
+    inventory: [],
+    recentEvents: [],
+    memories: [],
+    skills: [],
+    safetyConstraints: []
+  },
+  routePlan: {
+    decisionId: 'decision-fake-1',
+    policy: 'balanced-v1' as const,
+    routeClass: 'routine' as const,
+    thinking: 'low' as const,
+    reserveAuthorized: false,
+    reasons: [],
+    highReason: null
+  }
+}
+
+test('fake decision stack invokes one safe provider without routing infrastructure', async () => {
+  let calls = 0
+  const provider: DecisionProvider = {
+    capabilities: { structuredFinal: true, reasoningSeparated: true },
+    async decide() {
+      calls += 1
+      return { kind: 'timeout', provider: 'fake-test' }
+    }
+  }
+  const executor = createFakeDecisionStack({ provider })
+
+  const result = await executor.execute(logicalRequest, new AbortController().signal)
+
+  assert.equal(calls, 1)
+  assert.deepEqual(result, {
+    kind: 'success',
+    providerResult: { kind: 'timeout', provider: 'fake-test' }
+  })
+})
+
+test('fake decision stack honours cancellation before provider invocation and keeps capability gate', async () => {
+  let calls = 0
+  const provider: DecisionProvider = {
+    capabilities: { structuredFinal: true, reasoningSeparated: true },
+    async decide() {
+      calls += 1
+      return { kind: 'timeout', provider: 'fake-test' }
+    }
+  }
+  const executor = createFakeDecisionStack({ provider })
+  const abort = new AbortController()
+  abort.abort('cancelled')
+
+  assert.deepEqual(await executor.execute(logicalRequest, abort.signal), { kind: 'cancelled' })
+  assert.equal(calls, 0)
+  assert.throws(
+    () => createFakeDecisionStack({
+      provider: unsafeProvider({ structuredFinal: false, reasoningSeparated: true })
+    }),
+    /structured final/i
+  )
+})
 
 function environment(): NodeJS.ProcessEnv {
   return {
