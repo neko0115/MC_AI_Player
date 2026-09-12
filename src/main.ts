@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AiConfig, MinecraftConfig } from './config.js'
 import {
+  loadAdminApiConfig,
   loadAiConfig,
   loadControlApiConfig,
   loadMinecraftConfig,
@@ -21,6 +22,11 @@ import { RoutedDecisionExecutor } from './agent/routing/routed-executor.js'
 import type { DecisionProvider } from './agent/provider.js'
 import { assertGameplayProviderCapabilities } from './agent/provider.js'
 import { FakeDecisionProvider } from './agent/fake-provider.js'
+import {
+  AdminServer,
+  type AdminServerAddress,
+  type AdminServerOptions
+} from './api/admin-server.js'
 import {
   ControlServer,
   type ControlServerAddress,
@@ -47,6 +53,7 @@ import { RuntimeEventBus } from './telemetry/event-bus.js'
 import { JsonlEventRecorder } from './telemetry/recorder.js'
 
 const DEFAULT_MEMORY_PATH = 'data/mc_memory.sqlite3'
+const DEFAULT_QUOTA_PATH = 'data/ai-quota.sqlite3'
 const DEFAULT_EVENT_LOG_PATH = 'data/runtime-events.jsonl'
 const DEFAULT_EVENT_LOG_MAX_BYTES = 5 * 1024 * 1024
 const DEFAULT_RECENT_EVENT_LIMIT = 20
@@ -176,6 +183,18 @@ export interface ApplicationControlServerPort {
   close(): Promise<void>
 }
 
+export interface ApplicationAdminServerPort {
+  start(): Promise<AdminServerAddress>
+  close(): Promise<void>
+}
+
+export interface ApplicationGeminiDecisionStackPort {
+  readonly executor: LogicalDecisionExecutor
+  readonly configManager: Pick<RoutingConfigManager, 'snapshot' | 'reload'>
+  readonly quotaLedger: Pick<SqliteQuotaLedger, 'adminSnapshot'>
+  close(): void
+}
+
 export interface ApplicationDependencies {
   readonly createRuntime?: (config: MinecraftConfig) => MineflayerRuntimeBundle
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
@@ -184,7 +203,11 @@ export interface ApplicationDependencies {
     config: AiConfig,
     events: RuntimeEventBus
   ) => LogicalDecisionExecutor
+  readonly createGeminiDecisionStack?: (
+    options: GeminiDecisionStackOptions
+  ) => ApplicationGeminiDecisionStackPort
   readonly createControlServer?: (options: ControlServerOptions) => ApplicationControlServerPort
+  readonly createAdminServer?: (options: AdminServerOptions) => ApplicationAdminServerPort
 }
 
 export interface McAiPlayerApplication {
@@ -199,6 +222,7 @@ export function createApplication(
   const minecraftConfig = loadMinecraftConfig(env)
   const aiConfig = loadAiConfig(env)
   const controlConfig = loadControlApiConfig(env)
+  const adminConfig = loadAdminApiConfig(env)
   const identityMode = loadMinecraftServerIdentityMode(env)
 
   const events = new RuntimeEventBus()
@@ -227,9 +251,28 @@ export function createApplication(
       })
   })
 
-  const createLogicalDecisionExecutor = dependencies.createLogicalDecisionExecutor
-    ?? createDefaultLogicalDecisionExecutor
-  const logicalExecutor = createLogicalDecisionExecutor(aiConfig, events)
+  let geminiStack: ApplicationGeminiDecisionStackPort | null = null
+  let logicalExecutor: LogicalDecisionExecutor
+  if (dependencies.createLogicalDecisionExecutor) {
+    logicalExecutor = dependencies.createLogicalDecisionExecutor(aiConfig, events)
+  } else if (aiConfig.provider === 'fake') {
+    logicalExecutor = createFakeDecisionStack({
+      provider: new FakeDecisionProvider<DecisionContext>([])
+    })
+  } else {
+    const createStack = dependencies.createGeminiDecisionStack ?? createGeminiDecisionStack
+    geminiStack = createStack({
+      routingConfigPath: aiConfig.routingConfigPath,
+      env,
+      quotaFilename: DEFAULT_QUOTA_PATH,
+      processInstanceId: randomUUID(),
+      events
+    })
+    logicalExecutor = geminiStack.executor
+  }
+
+  const manualAccess = geminiStack?.configManager.snapshot().manualAccess
+    ?? DENY_ALL_MANUAL_ACCESS
   const identity = new MinecraftIdentityRegistry()
   const coordinator = new DecisionCoordinator({
     events,
@@ -239,7 +282,7 @@ export function createApplication(
     registry,
     identity,
     identityMode,
-    manualAccess: DENY_ALL_MANUAL_ACCESS,
+    manualAccess,
     worldKey: `${minecraftConfig.host}:${minecraftConfig.port}`,
     botUsername: minecraftConfig.username,
     logicalExecutor,
@@ -276,6 +319,17 @@ export function createApplication(
     events
   })
 
+  const createAdminServer = dependencies.createAdminServer ?? (options => new AdminServer(options))
+  const adminServer = adminConfig.enabled && geminiStack
+    ? createAdminServer({
+        port: adminConfig.port,
+        bearerToken: adminConfig.bearerToken,
+        quota: geminiStack.quotaLedger,
+        routing: geminiStack.configManager,
+        coordinator
+      })
+    : null
+
   let started = false
   let closed = false
 
@@ -287,6 +341,12 @@ export function createApplication(
       await runtime.adapter.connect()
       try {
         const address = await controlServer.start()
+        try {
+          await adminServer?.start()
+        } catch (error) {
+          await contain(() => controlServer.close())
+          throw error
+        }
         started = true
         return address
       } catch (error) {
@@ -300,6 +360,7 @@ export function createApplication(
       if (closed) return
       closed = true
 
+      if (adminServer) await contain(() => adminServer.close())
       await contain(() => controlServer.close())
       await contain(() => coordinator.clearAiWork('application_shutdown'))
       coordinator.dispose()
@@ -309,6 +370,7 @@ export function createApplication(
       await adapterEventTail
       unsubscribeAdapter()
       await recorderTail
+      geminiStack?.close()
       memory.close()
       started = false
     }
@@ -376,21 +438,6 @@ function createDefaultRecorder(filename: string): ApplicationRecorderPort {
 
 function ensureParentDirectory(filename: string): void {
   mkdirSync(dirname(resolve(filename)), { recursive: true })
-}
-
-function createDefaultLogicalDecisionExecutor(
-  config: AiConfig,
-  _events: RuntimeEventBus
-): LogicalDecisionExecutor {
-  if (config.provider === 'fake') {
-    return createFakeDecisionStack({
-      provider: new FakeDecisionProvider<DecisionContext>([])
-    })
-  }
-
-  // Transitional fail-closed seam. The next Task 16 TDD cycle replaces this
-  // with the approved routed Gemini composition stack.
-  throw new Error('Gemini multi-model routing is not yet wired into the application composition root')
 }
 
 async function safeDisconnect(runtime: MineflayerRuntimeBundle): Promise<void> {
