@@ -102,11 +102,40 @@ export interface GeminiAttemptSuccess {
   readonly usage?: GeminiUsage
 }
 
-export type GeminiAttemptResult = GeminiAttemptSuccess | { readonly kind: 'network_error' }
+export type GeminiAttemptResult =
+  | GeminiAttemptSuccess
+  | { readonly kind: 'generation_error'; readonly code: string; readonly usage?: GeminiUsage }
+  | { readonly kind: 'content_blocked'; readonly code: 'content_blocked'; readonly usage?: GeminiUsage }
+  | {
+      readonly kind: 'api_error'
+      readonly httpStatus: number
+      readonly providerCode: string | null
+      readonly retryAfterMs?: number
+    }
+  | { readonly kind: 'timeout' }
+  | { readonly kind: 'network_error' }
+  | { readonly kind: 'cancelled' }
 
 const PROVIDER_NAME = 'gemini'
 const FUNCTION_NAME = 'submit_decision'
 const DEFAULT_TIMEOUT_MS = 30_000
+const SAFE_PROVIDER_CODES = new Set([
+  'authentication',
+  'permission_denied',
+  'quota_exceeded',
+  'rate_limit_exceeded',
+  'too_many_requests',
+  'aborted',
+  'invalid_request',
+  'parameter_unknown',
+  'model_not_found',
+  'content_blocked',
+  'malformed_function_call',
+  'malformed_tool_call',
+  'unexpected_tool_call',
+  'too_many_tool_calls',
+  'missing_thought_signature'
+])
 const SYSTEM_INSTRUCTION = [
   'You are the high-level Minecraft decision planner for a deterministic gameplay runtime.',
   'Use the supplied bounded context and safety constraints to choose exactly one high-level action.',
@@ -307,9 +336,61 @@ function normalizeUsage(usage: GeminiInteractionUsage | undefined): GeminiUsage 
   return { inputTokens, outputTokens, thoughtTokens, toolTokens, totalTokens }
 }
 
+function normalizeTransportError(error: unknown, signal: AbortSignal): GeminiAttemptResult {
+  if (signal.aborted || isCancellationError(error)) return { kind: 'cancelled' }
+  if (isTransportTimeout(error)) return { kind: 'timeout' }
+
+  const httpStatus = extractHttpStatus(error)
+  const providerCode = extractSafeProviderCode(error)
+  if (providerCode === 'content_blocked') {
+    return { kind: 'content_blocked', code: 'content_blocked' }
+  }
+  if (httpStatus !== null) {
+    const retryAfterMs = extractRetryAfterMs(error)
+    return {
+      kind: 'api_error',
+      httpStatus,
+      providerCode,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs })
+    }
+  }
+  return { kind: 'network_error' }
+}
+
+function extractHttpStatus(error: unknown): number | null {
+  if (!isRecord(error)) return null
+  const status = integerInRange(error.status, 100, 599) ?? integerInRange(error.statusCode, 100, 599)
+  return status ?? null
+}
+
+function extractSafeProviderCode(error: unknown): string | null {
+  if (!isRecord(error)) return null
+  const nested = isRecord(error.error) ? error.error : null
+  const nestedNested = nested && isRecord(nested.error) ? nested.error : null
+  for (const value of [error.providerCode, error.code, nested?.code, nestedNested?.code]) {
+    if (typeof value !== 'string') continue
+    const normalized = value.trim().toLowerCase()
+    if (SAFE_PROVIDER_CODES.has(normalized)) return normalized
+  }
+  return null
+}
+
+function extractRetryAfterMs(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined
+  const headers = error.headers
+  if (!headers || typeof (headers as { get?: unknown }).get !== 'function') return undefined
+  const raw = (headers as { get(name: string): string | null }).get('retry-after')?.trim()
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000)
+  const deadline = Date.parse(raw)
+  return Number.isFinite(deadline) ? Math.max(0, deadline - Date.now()) : undefined
+}
+
 function invalid(code: string): ProviderResult { return { kind: 'invalid', provider: PROVIDER_NAME, code } }
 function isTimeoutError(error: unknown): boolean { return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'RequestTimeoutError') }
-function isNetworkError(error: unknown): boolean { return error instanceof Error && (error.name === 'APIConnectionError' || error.name === 'ConnectionError') }
+function isTransportTimeout(error: unknown): boolean { return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'RequestTimeoutError' || error.name === 'APIConnectionTimeoutError') }
+function isCancellationError(error: unknown): boolean { return error instanceof Error && (error.name === 'AbortError' || error.name === 'APIUserAbortError' || error.name === 'RequestAbortedError') }
 function validateTimeout(value: number): void { if (!Number.isInteger(value) || value < 1 || value > 300_000) throw new RangeError('timeoutMs must be an integer between 1 and 300000') }
 function normalizeModel(value: string): string { const model = value.trim(); if (model.length < 1 || model.length > 256) throw new RangeError('model must be between 1 and 256 characters'); return model }
 function decisionBranch(intent: string, argsProperties: Record<string, unknown>, requiredArgs: readonly string[]): Readonly<Record<string, unknown>> { return { type: 'object', additionalProperties: false, properties: { version: { const: 1, type: 'integer' }, intent: { const: intent, type: 'string' }, args: argsSchema(argsProperties, requiredArgs) }, required: ['version', 'intent', 'args'] } }
@@ -320,6 +401,7 @@ function stringSchema(maxLength: number): Readonly<Record<string, unknown>> { re
 function finiteNumberSchema(): Readonly<Record<string, unknown>> { return { type: 'number' } }
 function numberSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> { return { type: 'number', minimum, maximum } }
 function integerSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> { return { type: 'integer', minimum, maximum } }
+function integerInRange(value: unknown, minimum: number, maximum: number): number | undefined { return typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum ? value : undefined }
 function nonNegativeInteger(value: unknown): number | undefined { return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 function toSdkInteractionRequest(request: GeminiInteractionRequest) { return { model: request.model, input: request.input, store: request.store, stream: false as const, system_instruction: request.system_instruction, tools: request.tools.map(tool => ({ type: tool.type, name: tool.name, description: tool.description, parameters: tool.parameters })), generation_config: { thinking_level: request.generation_config.thinking_level, thinking_summaries: request.generation_config.thinking_summaries, tool_choice: request.generation_config.tool_choice } } }
@@ -348,11 +430,14 @@ export class GeminiTransport {
         generation_config: { thinking_level: lease.thinking, thinking_summaries: 'none', tool_choice: 'any' }
       }, { timeout: this.timeoutMs, retryAttempts: 1, signal })
     } catch (error) {
-      if (isNetworkError(error)) return { kind: 'network_error' }
-      throw error
+      return normalizeTransportError(error, signal)
     }
     const providerResult = extractDecisionFunctionCall(response)
     const usage = normalizeUsage(response.usage)
+    if (providerResult.kind !== 'structured') {
+      const code = providerResult.kind === 'invalid' ? providerResult.code : 'unexpected_provider_result'
+      return { kind: 'generation_error', code, ...(usage === undefined ? {} : { usage }) }
+    }
     return { kind: 'success', providerResult, ...(usage === undefined ? {} : { usage }) }
   }
 }
