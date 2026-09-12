@@ -116,6 +116,21 @@ export type GeminiAttemptResult =
   | { readonly kind: 'network_error' }
   | { readonly kind: 'cancelled' }
 
+export interface GeminiSdkClientLike {
+  readonly interactions: {
+    create(
+      request: unknown,
+      options: {
+        readonly timeout?: number
+        readonly maxRetries?: number
+        readonly signal?: AbortSignal
+      }
+    ): Promise<unknown>
+  }
+}
+
+export type GeminiSdkFactory = (apiKey: string) => GeminiSdkClientLike
+
 const PROVIDER_NAME = 'gemini'
 const FUNCTION_NAME = 'submit_decision'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -249,6 +264,25 @@ export function createGeminiDecisionProvider(options: CreateGeminiDecisionProvid
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel })
   })
+}
+
+export function createGeminiAttemptClient(
+  apiKey: string,
+  createSdk: GeminiSdkFactory = key => new GoogleGenAI({ apiKey: key }) as unknown as GeminiSdkClientLike
+): GeminiAttemptClient {
+  const normalizedKey = apiKey.trim()
+  if (!normalizedKey) throw new TypeError('Gemini apiKey must be a non-empty string')
+  const sdk = createSdk(normalizedKey)
+  return {
+    async create(request, options) {
+      const interaction = await sdk.interactions.create(toSdkInteractionRequest(request), {
+        timeout: options.timeout,
+        maxRetries: options.retryAttempts - 1,
+        signal: options.signal
+      })
+      return normalizeSdkInteraction(interaction)
+    }
+  }
 }
 
 function buildInteractionRequest(model: string, thinkingLevel: GeminiThinkingLevel, context: DecisionContext): GeminiInteractionRequest {
@@ -408,7 +442,12 @@ function toSdkInteractionRequest(request: GeminiInteractionRequest) { return { m
 
 export class GeminiTransport {
   private readonly timeoutMs: number
-  constructor(private readonly options: GeminiTransportOptions = {}) { this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS; validateTimeout(this.timeoutMs) }
+  private readonly clients = new Map<string, GeminiAttemptClient>()
+
+  constructor(private readonly options: GeminiTransportOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    validateTimeout(this.timeoutMs)
+  }
 
   prepare(context: DecisionContext): PreparedGeminiPayload {
     const input = JSON.stringify({ task: 'Choose exactly one safe high-level Minecraft outcome from the available skills.', context })
@@ -417,11 +456,7 @@ export class GeminiTransport {
   }
 
   async execute(prepared: PreparedGeminiPayload, lease: AttemptLease, signal: AbortSignal): Promise<GeminiAttemptResult> {
-    const resolveCredential = this.options.resolveCredential
-    const createClient = this.options.createClient
-    if (!resolveCredential || !createClient) throw new Error('GeminiTransport execution dependencies are not configured')
-    const apiKey = resolveCredential(lease.credentialHandle)
-    const client = createClient(apiKey)
+    const client = this.clientFor(lease.credentialHandle)
     let response: GeminiInteractionResponse
     try {
       response = await client.create({
@@ -439,5 +474,16 @@ export class GeminiTransport {
       return { kind: 'generation_error', code, ...(usage === undefined ? {} : { usage }) }
     }
     return { kind: 'success', providerResult, ...(usage === undefined ? {} : { usage }) }
+  }
+
+  private clientFor(credentialHandle: string): GeminiAttemptClient {
+    const cached = this.clients.get(credentialHandle)
+    if (cached) return cached
+    const resolveCredential = this.options.resolveCredential
+    if (!resolveCredential) throw new Error('GeminiTransport credential resolver is not configured')
+    const createClient = this.options.createClient ?? createGeminiAttemptClient
+    const client = createClient(resolveCredential(credentialHandle))
+    this.clients.set(credentialHandle, client)
+    return client
   }
 }
