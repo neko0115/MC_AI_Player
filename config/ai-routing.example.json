@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "models": {
+    "routine": {
+      "name": "gemini-3.5-flash-lite",
+      "reservation": {
+        "inputTokenOverhead": 256,
+        "generationTokenAllowance": {
+          "low": 512
+        }
+      }
+    },
+    "complex": {
+      "name": "gemini-3.8-flash",
+      "reservation": {
+        "inputTokenOverhead": 256,
+        "generationTokenAllowance": {
+          "medium": 2048,
+          "high": 4096
+        }
+      }
+    }
+  },
+  "projects": [
+    {
+      "projectKey": "pool-a",
+      "apiKeyEnv": "MC_AI_KEY_PRIMARY",
+      "providerLimits": {
+        "routine": {
+          "rpm": 10,
+          "inputTpm": 10000,
+          "rpd": 100
+        },
+        "complex": {
+          "rpm": 10,
+          "inputTpm": 10000,
+          "rpd": 100
+        }
+      },
+      "flashBudget": {
+        "requestLimit": 80,
+        "totalTokenLimit": 100000,
+        "resetWindow": "america-los-angeles-day",
+        "source": "operator_policy"
+      }
+    },
+    {
+      "projectKey": "pool-b",
+      "apiKeyEnv": "MC_AI_KEY_BACKUP",
+      "providerLimits": {
+        "routine": {
+          "rpm": 10,
+          "inputTpm": 10000,
+          "rpd": 100
+        },
+        "complex": {
+          "rpm": 10,
+          "inputTpm": 10000,
+          "rpd": 100
+        }
+      },
+      "flashBudget": {
+        "requestLimit": 80,
+        "totalTokenLimit": 100000,
+        "resetWindow": "america-los-angeles-day",
+        "source": "operator_policy"
+      }
+    }
+  ],
+  "manualAccess": {
+    "ownerUuid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "operatorAllowlistUuids": [
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+  }
+}

@@ -13,7 +13,6 @@ import {
   assertGameplayProviderCapabilities
 } from './agent/provider.js'
 import { FakeDecisionProvider } from './agent/fake-provider.js'
-import { createGeminiDecisionProvider } from './agent/providers/gemini.js'
 import {
   ControlServer,
   type ControlServerAddress,
@@ -255,11 +254,10 @@ function createDefaultDecisionProvider(config: AiConfig): DecisionProvider {
   if (config.provider === 'fake') {
     return new FakeDecisionProvider([])
   }
-  return createGeminiDecisionProvider({
-    apiKey: config.apiKey,
-    model: config.model,
-    thinkingLevel: 'high'
-  })
+
+  // Transitional fail-closed seam. Task 16 replaces this legacy provider
+  // factory with the approved routed Gemini decision stack.
+  throw new Error('Gemini multi-model routing is not wired through the legacy DecisionProvider factory')
 }
 
 async function safeDisconnect(runtime: MineflayerRuntimeBundle): Promise<void> {
