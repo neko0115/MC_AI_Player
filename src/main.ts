@@ -29,6 +29,7 @@ import {
 } from './api/admin-server.js'
 import {
   ControlServer,
+  type ControlAiStatusPort,
   type ControlServerAddress,
   type ControlServerOptions
 } from './api/control-server.js'
@@ -294,6 +295,22 @@ export function createApplication(
   })
   coordinator.start()
 
+  let activeProject: string | null = null
+  const unsubscribeAiStatusEvents = geminiStack
+    ? events.subscribe(event => {
+        if (event.type === 'model_route') activeProject = event.project
+      })
+    : null
+  const aiStatus: ControlAiStatusPort | undefined = geminiStack
+    ? createControlAiStatus({
+        stack: geminiStack,
+        coordinator,
+        goals,
+        adminEnabled: adminConfig.enabled,
+        activeProject: () => activeProject
+      })
+    : undefined
+
   let adapterEventTail: Promise<void> = Promise.resolve()
   const unsubscribeAdapter = runtime.adapter.onEvent(event => {
     const next = structuredClone(event)
@@ -316,7 +333,8 @@ export function createApplication(
     goals,
     state,
     memory,
-    events
+    events,
+    ...(aiStatus ? { aiStatus } : {})
   })
 
   const createAdminServer = dependencies.createAdminServer ?? (options => new AdminServer(options))
@@ -364,6 +382,7 @@ export function createApplication(
       await contain(() => controlServer.close())
       await contain(() => coordinator.clearAiWork('application_shutdown'))
       coordinator.dispose()
+      unsubscribeAiStatusEvents?.()
       await contain(() => goals.emergencyStop('application_shutdown'))
       executionBinding.dispose()
       await contain(() => runtime.adapter.disconnect())
@@ -375,6 +394,64 @@ export function createApplication(
       started = false
     }
   }
+}
+
+function createControlAiStatus(options: {
+  readonly stack: ApplicationGeminiDecisionStackPort
+  readonly coordinator: DecisionCoordinator
+  readonly goals: GoalManager
+  readonly adminEnabled: boolean
+  readonly activeProject: () => string | null
+}): ControlAiStatusPort {
+  return {
+    snapshot() {
+      const routing = options.stack.configManager.snapshot()
+      const coordinator = options.coordinator.status()
+      const goal = coordinator.activeGoalId
+        ? options.goals.getGoal(coordinator.activeGoalId)
+        : undefined
+      return {
+        routineModel: routing.models.routine.name,
+        complexModel: routing.models.complex.name,
+        available: coordinator.aiAvailability === 'available',
+        activeProject: options.activeProject(),
+        flashAutoUsedPct: calculateFlashAutoUsedPct(
+          routing.models.complex.name,
+          routing.projects,
+          options.stack.quotaLedger.adminSnapshot()
+        ),
+        manualDeepThinkAvailable:
+          options.adminEnabled ||
+          routing.manualAccess.ownerUuid.length > 0 ||
+          routing.manualAccess.operatorAllowlistUuids.length > 0,
+        coordinatorState: coordinator.coordinatorState,
+        activeTaskId: coordinator.activeTaskId,
+        activeGoalKind: goal?.request.kind ?? null,
+        pendingTaskCount: coordinator.pendingTaskCount,
+        decisionInFlight: coordinator.decisionInFlight
+      }
+    }
+  }
+}
+
+function calculateFlashAutoUsedPct(
+  complexModel: string,
+  projects: ReturnType<ApplicationGeminiDecisionStackPort['configManager']['snapshot']>['projects'],
+  quotaProjects: ReturnType<ApplicationGeminiDecisionStackPort['quotaLedger']['adminSnapshot']>
+): number {
+  let maximum = 0
+  for (const project of projects) {
+    const quota = quotaProjects.find(candidate => candidate.projectKey === project.projectKey)
+    const domain = quota?.domains.find(candidate => candidate.model === complexModel)
+    if (!domain) continue
+
+    const requestCeiling = Math.floor(project.flashBudget.requestLimit * 0.70)
+    const tokenCeiling = Math.floor(project.flashBudget.totalTokenLimit * 0.70)
+    const requestRatio = requestCeiling > 0 ? domain.normalRequests / requestCeiling : 1
+    const tokenRatio = tokenCeiling > 0 ? domain.normalTotalTokens / tokenCeiling : 1
+    maximum = Math.max(maximum, requestRatio, tokenRatio)
+  }
+  return Math.max(0, Math.min(100, Math.round(maximum * 100)))
 }
 
 function registerProductionSkills(
