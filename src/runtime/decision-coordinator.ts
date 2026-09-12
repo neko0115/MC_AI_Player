@@ -2,12 +2,14 @@ import type { ContextBuilder } from '../agent/context-builder.js'
 import { registeredDecisionSkills } from '../agent/skill-catalog.js'
 import { assessComplexity, createRoutePlan } from '../agent/routing/complexity.js'
 import type {
+  ComplexityEvidence,
   LogicalDecisionExecutor,
   LogicalDecisionResult
 } from '../agent/routing/contracts.js'
 import type { DecisionGate } from '../agent/decision-gate.js'
 import type { MinecraftServerIdentityMode } from '../config.js'
 import type { RuntimeEvent } from '../contracts/events.js'
+import type { GoalRequest } from '../contracts/goals.js'
 import type { GoalManager } from '../goals/goal-manager.js'
 import type { MinecraftMemoryRepository } from '../memory/repository.js'
 import type {
@@ -20,6 +22,8 @@ import type { RuntimeEventBus } from '../telemetry/event-bus.js'
 import {
   AiTaskQueue,
   createAiTask,
+  noteActionSuccess,
+  noteGoalFailure,
   type AiTask
 } from './ai-task.js'
 import { TriggerClassifier } from './trigger-classifier.js'
@@ -66,6 +70,9 @@ export class DecisionCoordinator {
   private execution: DecisionCoordinatorStatus['execution'] = 'idle'
   private aiAvailability: DecisionCoordinatorStatus['aiAvailability'] = 'available'
   private taskGeneration = 0
+  private previousAction: GoalRequest['kind'] | null = null
+  private readonly failureEvidence = new Set<'stuck' | 'skill_failed'>()
+  private pendingDecisionEvidence: ComplexityEvidence = {}
 
   constructor(private readonly options: DecisionCoordinatorOptions) {
     this.classifier = new TriggerClassifier({ botUsername: options.botUsername })
@@ -88,7 +95,7 @@ export class DecisionCoordinator {
     this.decisionAbort?.abort('coordinator_disposed')
     this.decisionAbort = null
     this.pendingTasks.clear()
-    this.activeTask = null
+    this.clearActiveTaskState()
     this.execution = 'idle'
   }
 
@@ -131,7 +138,7 @@ export class DecisionCoordinator {
       this.decisionAbort?.abort('emergency_stop')
       this.decisionAbort = null
       if (this.activeTask) this.activeTask.state = 'superseded'
-      this.activeTask = null
+      this.clearActiveTaskState()
       this.execution = 'idle'
       return
     }
@@ -141,7 +148,46 @@ export class DecisionCoordinator {
       activeGoalId: this.activeTask?.activeGoalId ?? null
     })
 
-    if (classification.kind !== 'explicit_instruction') return
+    switch (classification.kind) {
+      case 'failure_evidence':
+        this.failureEvidence.add(classification.reason)
+        return
+
+      case 'goal_completed': {
+        const task = this.activeTask
+        if (!task || task.activeGoalId !== classification.goalId) return
+        this.previousAction = this.options.goals.getGoal(classification.goalId)?.request.kind ?? null
+        task.activeGoalId = null
+        noteActionSuccess(task)
+        this.failureEvidence.clear()
+        this.pendingDecisionEvidence = {}
+        this.execution = 'idle'
+        this.dispatchActiveTask()
+        return
+      }
+
+      case 'replan': {
+        const task = this.activeTask
+        if (!task || task.activeGoalId !== classification.goalId) return
+        this.previousAction = this.options.goals.getGoal(classification.goalId)?.request.kind ?? null
+        task.activeGoalId = null
+        noteGoalFailure(task)
+        this.pendingDecisionEvidence = {
+          goalFailed: true,
+          ...(this.failureEvidence.has('stuck') ? { stuck: true } : {})
+        }
+        this.failureEvidence.clear()
+        this.execution = 'idle'
+        this.dispatchActiveTask()
+        return
+      }
+
+      case 'explicit_instruction':
+        break
+
+      default:
+        return
+    }
 
     const principal = this.options.identity.resolveChat({
       mode: this.options.identityMode,
@@ -167,7 +213,7 @@ export class DecisionCoordinator {
       return
     }
 
-    this.activeTask = task
+    this.activateTask(task)
     this.dispatchActiveTask()
   }
 
@@ -189,7 +235,7 @@ export class DecisionCoordinator {
         objective: task.objective,
         phase: 'active',
         consecutiveReplans: task.consecutiveReplanCount,
-        previousAction: null
+        previousAction: this.previousAction
       },
       state,
       currentGoal: this.options.goals.activeGoal(),
@@ -203,6 +249,7 @@ export class DecisionCoordinator {
 
     const assessment = assessComplexity({
       ...task.baseComplexityEvidence,
+      ...this.pendingDecisionEvidence,
       replanCount: task.consecutiveReplanCount
     })
     const routePlan = createRoutePlan(
@@ -210,6 +257,7 @@ export class DecisionCoordinator {
       assessment,
       false
     )
+    this.pendingDecisionEvidence = {}
 
     const abort = new AbortController()
     this.decisionAbort = abort
@@ -278,14 +326,29 @@ export class DecisionCoordinator {
         return
       }
       this.activeTask.activeGoalId = goal.goalId
+      this.failureEvidence.clear()
       this.execution = 'goal_running'
       return
     }
 
     if (gated.kind === 'complete') {
       task.state = 'completed'
-      this.activeTask = null
+      this.clearActiveTaskState()
       this.execution = 'idle'
     }
+  }
+
+  private activateTask(task: AiTask): void {
+    this.activeTask = task
+    this.previousAction = null
+    this.failureEvidence.clear()
+    this.pendingDecisionEvidence = {}
+  }
+
+  private clearActiveTaskState(): void {
+    this.activeTask = null
+    this.previousAction = null
+    this.failureEvidence.clear()
+    this.pendingDecisionEvidence = {}
   }
 }
