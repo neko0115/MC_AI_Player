@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SkillExecutor } from '../../src/skills/executor.js'
 import { SkillRegistry } from '../../src/skills/registry.js'
+import { RuntimeEventBus } from '../../src/telemetry/event-bus.js'
 
 test('skill registry rejects duplicate names and returns only registered definitions', () => {
   const registry = new SkillRegistry()
@@ -77,6 +78,36 @@ test('cancelActive aborts exactly once, waits for cleanup, and suppresses late s
     status: 'cancelled',
     code: 'emergency_stop'
   })
+})
+
+test('cancelled execution emits skill_cancelled and never skill_failed', async () => {
+  const registry = new SkillRegistry()
+  const events = new RuntimeEventBus()
+  const seen: string[] = []
+  events.subscribe(event => {
+    seen.push(event.type)
+  })
+
+  registry.register({
+    name: 'stay',
+    async execute({ signal }) {
+      await new Promise<void>(resolve => {
+        if (signal.aborted) {
+          resolve()
+          return
+        }
+        signal.addEventListener('abort', () => resolve(), { once: true })
+      })
+      return { status: 'succeeded', code: 'late_success' }
+    }
+  })
+
+  const executor = new SkillExecutor(registry, { events, now: () => 10 })
+  const running = executor.execute('stay', {})
+  await executor.cancelActive('operator_stop')
+
+  assert.deepEqual(await running, { status: 'cancelled', code: 'operator_stop' })
+  assert.deepEqual(seen, ['skill_started', 'skill_cancelled'])
 })
 
 test('executor refuses a concurrent second skill instead of racing it', async () => {
