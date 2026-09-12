@@ -4,6 +4,7 @@ import type {
   GeminiTransport,
   PreparedGeminiPayload
 } from '../providers/gemini.js'
+import type { RuntimeEvent } from '../../contracts/events.js'
 import type {
   LogicalDecisionExecutor,
   LogicalDecisionRequest,
@@ -52,11 +53,16 @@ export interface RoutedExecutorTransportPort {
   ): Promise<GeminiAttemptResult>
 }
 
+export interface RoutedExecutorTelemetryPort {
+  publish(event: RuntimeEvent): void | Promise<void>
+}
+
 export interface RoutedDecisionExecutorOptions {
   readonly pool: RoutedExecutorPoolPort
   readonly ledger: RoutedExecutorLedgerPort
   readonly transport: RoutedExecutorTransportPort
   readonly processInstanceId: string
+  readonly events?: RoutedExecutorTelemetryPort
   readonly now?: () => number
 }
 
@@ -89,13 +95,34 @@ export class RoutedDecisionExecutor implements LogicalDecisionExecutor {
       const lease = leaseResult.lease
       const dispatchedAt = this.now()
       this.options.ledger.markDispatched(lease.reservationId, dispatchedAt)
+      await this.publishTelemetry({
+        type: 'model_route',
+        at: dispatchedAt,
+        decisionId: request.routePlan.decisionId,
+        model: lease.model,
+        thinking: lease.thinking,
+        project: lease.projectLabel,
+        reasons: [...request.routePlan.reasons],
+        reserveAuthorized: request.routePlan.reserveAuthorized,
+        reserveUsed: lease.budgetClass === 'reserve'
+      })
 
       const attempt = await this.options.transport.execute(prepared, lease, signal)
-      const policy = classifyAttemptResult(attempt, this.now())
+      const policyAt = this.now()
+      const policy = classifyAttemptResult(attempt, policyAt)
       this.options.ledger.settleAttempt(
         lease.reservationId,
-        settlementFor(attempt, policy, this.now())
+        settlementFor(attempt, policy, policyAt)
       )
+      await this.publishTelemetry({
+        type: 'attempt_result',
+        at: policyAt,
+        decisionId: request.routePlan.decisionId,
+        model: lease.model,
+        project: lease.projectLabel,
+        result: policy.kind,
+        ...('safeCode' in policy ? { safeCode: policy.safeCode } : {})
+      })
 
       switch (policy.kind) {
         case 'success':
@@ -151,6 +178,14 @@ export class RoutedDecisionExecutor implements LogicalDecisionExecutor {
     }
 
     return { kind: 'unavailable', retryAt: null }
+  }
+
+  private async publishTelemetry(event: RuntimeEvent): Promise<void> {
+    try {
+      await this.options.events?.publish(event)
+    } catch {
+      // Observability must never change routing/failover semantics.
+    }
   }
 }
 
