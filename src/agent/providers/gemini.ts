@@ -180,46 +180,58 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
 })
 
 const DECISION_OUTCOME_V2_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.freeze({
-  oneOf: [
-    {
-      type: 'object', additionalProperties: false,
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    version: { const: 2, type: 'integer' },
+    outcome: { type: 'string', enum: ['action', 'complete', 'blocked'] },
+    action: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Required when outcome is action. Omit for complete or blocked.',
       properties: {
-        version: { const: 2, type: 'integer' }, outcome: { const: 'action', type: 'string' },
-        action: {
-          oneOf: [
-            actionBranch('follow_player', { player: stringSchema(64), range: numberSchema(1, 16) }, ['player']),
-            actionBranch('stay', {}, []),
-            actionBranch('go_to', {
-              x: finiteNumberSchema(), y: finiteNumberSchema(), z: finiteNumberSchema(), radius: numberSchema(0, 16)
-            }, ['x', 'y', 'z']),
-            actionBranch('return_home', {}, []),
-            actionBranch('eat', {}, []),
-            actionBranch('equip', {
-              item: stringSchema(128),
-              destination: { type: 'string', enum: ['hand', 'off-hand', 'head', 'torso', 'legs', 'feet'] }
-            }, ['item']),
-            actionBranch('gather_resource', { resource: stringSchema(128), quantity: integerSchema(1, 2304) }, ['resource', 'quantity']),
-            actionBranch('deposit_item', { item: stringSchema(128), quantity: integerSchema(1, 2304), storage: identifierSchema() }, ['item', 'quantity', 'storage']),
-            actionBranch('withdraw_item', { item: stringSchema(128), quantity: integerSchema(1, 2304), storage: identifierSchema() }, ['item', 'quantity', 'storage'])
+        intent: {
+          type: 'string',
+          enum: [
+            'follow_player',
+            'stay',
+            'go_to',
+            'return_home',
+            'eat',
+            'equip',
+            'gather_resource',
+            'deposit_item',
+            'withdraw_item'
           ]
+        },
+        args: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'Arguments for the selected intent. Include only fields applicable to that intent.',
+          properties: {
+            player: stringSchema(64),
+            range: numberSchema(1, 16),
+            x: finiteNumberSchema(),
+            y: finiteNumberSchema(),
+            z: finiteNumberSchema(),
+            radius: numberSchema(0, 16),
+            item: stringSchema(128),
+            destination: { type: 'string', enum: ['hand', 'off-hand', 'head', 'torso', 'legs', 'feet'] },
+            resource: stringSchema(128),
+            quantity: integerSchema(1, 2304),
+            storage: identifierSchema()
+          }
         }
       },
-      required: ['version', 'outcome', 'action']
+      required: ['intent', 'args']
     },
-    {
-      type: 'object', additionalProperties: false,
-      properties: { version: { const: 2, type: 'integer' }, outcome: { const: 'complete', type: 'string' } },
-      required: ['version', 'outcome']
-    },
-    {
-      type: 'object', additionalProperties: false,
-      properties: {
-        version: { const: 2, type: 'integer' }, outcome: { const: 'blocked', type: 'string' },
-        reason: { type: 'string', enum: ['no_safe_action', 'missing_information', 'capability_unavailable'] }
-      },
-      required: ['version', 'outcome', 'reason']
+    reason: {
+      type: 'string',
+      enum: ['no_safe_action', 'missing_information', 'capability_unavailable'],
+      description: 'Required only when outcome is blocked.'
     }
-  ]
+  },
+  required: ['version', 'outcome']
 })
 
 export class GeminiDecisionProvider implements DecisionProvider<DecisionContext> {
