@@ -12,7 +12,12 @@ import {
 import type { RuntimeEvent } from './contracts/events.js'
 import { ContextBuilder, type DecisionContext } from './agent/context-builder.js'
 import { DecisionGate } from './agent/decision-gate.js'
+import { GeminiTransport } from './agent/providers/gemini.js'
+import { RoutingConfigManager } from './agent/routing/config-manager.js'
 import type { LogicalDecisionExecutor } from './agent/routing/contracts.js'
+import { ProjectPool } from './agent/routing/project-pool.js'
+import { SqliteQuotaLedger } from './agent/routing/quota-ledger.js'
+import { RoutedDecisionExecutor } from './agent/routing/routed-executor.js'
 import type { DecisionProvider } from './agent/provider.js'
 import { assertGameplayProviderCapabilities } from './agent/provider.js'
 import { FakeDecisionProvider } from './agent/fake-provider.js'
@@ -95,6 +100,70 @@ export function createFakeDecisionStack(
       if (signal.aborted) return { kind: 'cancelled' }
       return { kind: 'success', providerResult }
     }
+  }
+}
+
+export interface GeminiDecisionStackOptions {
+  readonly routingConfigPath: string
+  readonly env: Readonly<Record<string, string | undefined>>
+  readonly quotaFilename: string
+  readonly processInstanceId: string
+  readonly events: RuntimeEventBus
+  readonly now?: () => number
+}
+
+export interface GeminiDecisionStack {
+  readonly executor: LogicalDecisionExecutor
+  readonly configManager: RoutingConfigManager
+  readonly quotaLedger: SqliteQuotaLedger
+  close(): void
+}
+
+export function createGeminiDecisionStack(
+  options: GeminiDecisionStackOptions
+): GeminiDecisionStack {
+  ensureParentDirectory(options.quotaFilename)
+  const quotaLedger = new SqliteQuotaLedger(options.quotaFilename)
+  const now = options.now ?? Date.now
+
+  try {
+    const configManager = new RoutingConfigManager({
+      ledger: quotaLedger,
+      env: options.env,
+      routingConfigPath: options.routingConfigPath
+    })
+    configManager.activateInitial()
+    quotaLedger.recoverIncompleteAttempts(now())
+
+    const pool = new ProjectPool({
+      config: configManager,
+      ledger: quotaLedger,
+      processInstanceId: options.processInstanceId,
+      now
+    })
+    const transport = new GeminiTransport({
+      resolveCredential: handle => configManager.resolveCredential(handle)
+    })
+    const executor = new RoutedDecisionExecutor({
+      pool,
+      ledger: quotaLedger,
+      transport,
+      processInstanceId: options.processInstanceId,
+      events: options.events,
+      now
+    })
+
+    return {
+      executor,
+      configManager,
+      quotaLedger,
+      close() {
+        quotaLedger.close()
+      }
+    }
+  } catch (error) {
+    quotaLedger.close()
+    throw error
   }
 }
 
