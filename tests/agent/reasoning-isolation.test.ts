@@ -9,7 +9,7 @@ import { SkillExecutor } from '../../src/skills/executor.js'
 import { SkillRegistry } from '../../src/skills/registry.js'
 import type { WorldStateSnapshot } from '../../src/state/world-state.js'
 import { RuntimeEventBus } from '../../src/telemetry/event-bus.js'
-import { DecisionGate, DecisionPipeline } from '../../src/agent/decision-gate.js'
+import { DecisionGate, type GatedOutcome } from '../../src/agent/decision-gate.js'
 import {
   adaptFakeSdkResponse,
   type FakeSdkResponse
@@ -83,11 +83,15 @@ function runtime() {
     emitted.push(structuredClone(event))
   })
   const gate = new DecisionGate({ safety: new SafetyPolicy(), events })
-  return {
-    executor,
-    goals,
-    emitted,
-    pipeline: new DecisionPipeline(gate, goals)
+  return { executor, goals, emitted, gate, registry }
+}
+
+async function applyGatedAction(
+  current: ReturnType<typeof runtime>,
+  outcome: GatedOutcome
+): Promise<void> {
+  if (outcome.kind === 'action') {
+    await current.goals.submit(outcome.goal, 'ai')
   }
 }
 
@@ -150,7 +154,12 @@ test('every mixed or raw-text reasoning fixture has zero GoalManager and SkillEx
     const current = runtime()
     const providerResult = adaptFakeSdkResponse(fixture.response, 'fixture-provider')
 
-    const result = await current.pipeline.handle(providerResult, readyState())
+    const result = await current.gate.accept(
+      providerResult,
+      readyState(),
+      name => current.registry.has(name)
+    )
+    await applyGatedAction(current, result)
 
     assert.equal(result.kind, 'rejected', fixture.name)
     assert.equal(current.goals.submitCalls, 0, `${fixture.name}: GoalManager.submit reached`)
@@ -158,7 +167,7 @@ test('every mixed or raw-text reasoning fixture has zero GoalManager and SkillEx
   }
 })
 
-test('provider-separated reasoning is discarded before a valid structured decision reaches actuators', async () => {
+test('provider-separated reasoning is discarded before a valid structured action reaches actuators', async () => {
   const fixture = (await fixtures()).find(item => item.expected === 'accepted')
   assert.ok(fixture)
   const current = runtime()
@@ -168,9 +177,14 @@ test('provider-separated reasoning is discarded before a valid structured decisi
   assert.equal(providerResult.kind, 'structured')
   assert.equal(JSON.stringify(providerResult).includes(sentinel), false)
 
-  const result = await current.pipeline.handle(providerResult, readyState())
+  const result = await current.gate.accept(
+    providerResult,
+    readyState(),
+    name => current.registry.has(name)
+  )
+  await applyGatedAction(current, result)
 
-  assert.equal(result.kind, 'accepted')
+  assert.equal(result.kind, 'action')
   assert.equal(current.goals.submitCalls, 1)
   assert.equal(current.executor.executeCalls, 1)
   assert.equal(JSON.stringify(result).includes(sentinel), false)
