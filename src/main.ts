@@ -8,6 +8,8 @@ import {
   loadMinecraftConfig
 } from './config.js'
 import type { RuntimeEvent } from './contracts/events.js'
+import type { DecisionContext } from './agent/context-builder.js'
+import type { LogicalDecisionExecutor } from './agent/routing/contracts.js'
 import type { DecisionProvider } from './agent/provider.js'
 import {
   assertGameplayProviderCapabilities
@@ -64,6 +66,26 @@ const EXCLUDED_FOOD = [
   'rotten_flesh',
   'suspicious_stew'
 ] as const
+
+export interface FakeDecisionStackOptions {
+  readonly provider: DecisionProvider<DecisionContext>
+}
+
+export function createFakeDecisionStack(
+  options: FakeDecisionStackOptions
+): LogicalDecisionExecutor {
+  assertGameplayProviderCapabilities(options.provider)
+  return {
+    async execute(request, signal) {
+      if (signal.aborted) return { kind: 'cancelled' }
+      const providerResult = await options.provider.decide({
+        context: request.context
+      })
+      if (signal.aborted) return { kind: 'cancelled' }
+      return { kind: 'success', providerResult }
+    }
+  }
+}
 
 export interface ApplicationRecorderPort {
   record(event: RuntimeEvent): Promise<unknown>
@@ -250,9 +272,9 @@ function ensureParentDirectory(filename: string): void {
   mkdirSync(dirname(resolve(filename)), { recursive: true })
 }
 
-function createDefaultDecisionProvider(config: AiConfig): DecisionProvider {
+function createDefaultDecisionProvider(config: AiConfig): DecisionProvider<DecisionContext> {
   if (config.provider === 'fake') {
-    return new FakeDecisionProvider([])
+    return new FakeDecisionProvider<DecisionContext>([])
   }
 
   // Transitional fail-closed seam. Task 16 replaces this legacy provider
