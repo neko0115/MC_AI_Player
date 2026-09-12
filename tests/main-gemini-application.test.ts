@@ -135,6 +135,7 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
 
   let controlCreated = false
   let adminCreated = false
+  const controlCaptures: ControlServerOptions[] = []
   const adminCaptures: AdminServerOptions[] = []
   const application = createApplication(env(), {
     createRuntime: (_config: MinecraftConfig) => runtime(calls),
@@ -148,6 +149,7 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
     },
     createControlServer: options => {
       controlCreated = true
+      controlCaptures.push(options)
       return new FakeControlServer(calls, options)
     },
     createAdminServer: options => {
@@ -160,6 +162,23 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
   assert.deepEqual(calls, ['gemini.create'])
   assert.equal(controlCreated, true)
   assert.equal(adminCreated, true)
+  const capturedControl = controlCaptures[0]
+  assert.ok(capturedControl)
+  assert.ok(capturedControl.aiStatus)
+  assert.deepEqual(capturedControl.aiStatus.snapshot(), {
+    routineModel: 'gemini-3.5-flash-lite',
+    complexModel: 'gemini-3.8-flash',
+    available: true,
+    activeProject: null,
+    flashAutoUsedPct: 0,
+    manualDeepThinkAvailable: true,
+    coordinatorState: 'running',
+    activeTaskId: null,
+    activeGoalKind: null,
+    pendingTaskCount: 0,
+    decisionInFlight: false
+  })
+
   const capturedAdmin = adminCaptures[0]
   assert.ok(capturedAdmin)
   assert.equal(capturedAdmin.bearerToken, 'ADMIN_SECRET_DO_NOT_LEAK')
