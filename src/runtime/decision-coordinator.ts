@@ -127,6 +127,15 @@ export class DecisionCoordinator {
   private async handleEvent(event: RuntimeEvent): Promise<void> {
     if (!this.running) return
 
+    if (event.type === 'emergency_stop') {
+      this.decisionAbort?.abort('emergency_stop')
+      this.decisionAbort = null
+      if (this.activeTask) this.activeTask.state = 'superseded'
+      this.activeTask = null
+      this.execution = 'idle'
+      return
+    }
+
     const classification = this.classifier.classify(event, {
       taskId: this.activeTask?.taskId ?? '',
       activeGoalId: this.activeTask?.activeGoalId ?? null
@@ -239,6 +248,44 @@ export class DecisionCoordinator {
 
     if (result.kind === 'unavailable') {
       this.aiAvailability = 'unavailable'
+      return
+    }
+
+    if (result.kind !== 'success') return
+
+    this.aiAvailability = 'available'
+    const gated = await this.options.decisionGate.accept(
+      result.providerResult,
+      this.options.state.snapshot(),
+      name => this.options.registry.has(name)
+    )
+
+    if (
+      this.activeTask === null ||
+      this.activeTask.taskId !== taskId ||
+      this.activeTask.taskGeneration !== taskGeneration
+    ) {
+      return
+    }
+
+    if (gated.kind === 'action') {
+      const goal = await this.options.goals.submit(gated.goal, 'ai')
+      if (
+        this.activeTask === null ||
+        this.activeTask.taskId !== taskId ||
+        this.activeTask.taskGeneration !== taskGeneration
+      ) {
+        return
+      }
+      this.activeTask.activeGoalId = goal.goalId
+      this.execution = 'goal_running'
+      return
+    }
+
+    if (gated.kind === 'complete') {
+      task.state = 'completed'
+      this.activeTask = null
+      this.execution = 'idle'
     }
   }
 }
