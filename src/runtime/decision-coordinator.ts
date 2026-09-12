@@ -1,6 +1,10 @@
 import type { ContextBuilder } from '../agent/context-builder.js'
 import { registeredDecisionSkills } from '../agent/skill-catalog.js'
-import { assessComplexity, createRoutePlan } from '../agent/routing/complexity.js'
+import {
+  analyzeInstructionComplexity,
+  assessComplexity,
+  createRoutePlan
+} from '../agent/routing/complexity.js'
 import type {
   ComplexityEvidence,
   LogicalDecisionExecutor,
@@ -14,17 +18,21 @@ import type { GoalManager } from '../goals/goal-manager.js'
 import type { MinecraftMemoryRepository } from '../memory/repository.js'
 import type {
   MinecraftIdentityRegistry,
-  MinecraftManualAccessPolicy
+  MinecraftManualAccessPolicy,
+  MinecraftPrincipal
 } from '../minecraft/identity-registry.js'
+import { parseManualAiCommand } from '../minecraft/manual-ai-command.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import type { WorldStateCache } from '../state/world-state-cache.js'
 import type { RuntimeEventBus } from '../telemetry/event-bus.js'
 import {
   AiTaskQueue,
   createAiTask,
+  createManualRouteGrant,
   noteActionSuccess,
   noteGoalFailure,
-  type AiTask
+  type AiTask,
+  type ManualRouteGrant
 } from './ai-task.js'
 import { TriggerClassifier } from './trigger-classifier.js'
 
@@ -37,6 +45,15 @@ export interface DecisionCoordinatorStatus {
   readonly execution: 'idle' | 'decision_pending' | 'decision_in_flight' | 'goal_running'
   readonly aiAvailability: 'available' | 'unavailable'
 }
+
+export interface AdminDeepThinkRequest {
+  readonly instruction: string
+  readonly targetGoalId?: string
+}
+
+export type CoordinatorCommandResult =
+  | { readonly kind: 'accepted'; readonly taskId: string }
+  | { readonly kind: 'rejected'; readonly code: string }
 
 export interface DecisionCoordinatorOptions {
   readonly events: RuntimeEventBus
@@ -62,21 +79,31 @@ export class DecisionCoordinator {
   private readonly classifier: TriggerClassifier
   private readonly pendingTasks = new AiTaskQueue(8)
   private readonly now: () => number
+  private readonly manualGrants = new Map<string, ManualRouteGrant>()
+  private readonly grantRequiredTasks = new Set<string>()
   private unsubscribe: (() => void) | null = null
   private mailboxTail: Promise<void> = Promise.resolve()
   private activeTask: AiTask | null = null
   private decisionAbort: AbortController | null = null
+  private activeDecisionEpoch: number | null = null
+  private decisionEpoch = 0
   private running = false
   private execution: DecisionCoordinatorStatus['execution'] = 'idle'
   private aiAvailability: DecisionCoordinatorStatus['aiAvailability'] = 'available'
+  private minecraftReady = false
   private taskGeneration = 0
+  private grantSequence = 0
   private previousAction: GoalRequest['kind'] | null = null
   private readonly failureEvidence = new Set<'stuck' | 'skill_failed'>()
   private pendingDecisionEvidence: ComplexityEvidence = {}
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null
+  private recoveryRetryAt: number | null = null
 
   constructor(private readonly options: DecisionCoordinatorOptions) {
     this.classifier = new TriggerClassifier({ botUsername: options.botUsername })
     this.now = options.now ?? Date.now
+    const initial = options.state.snapshot()
+    this.minecraftReady = initial.connected && initial.spawned
   }
 
   start(): void {
@@ -92,8 +119,9 @@ export class DecisionCoordinator {
     this.running = false
     this.unsubscribe?.()
     this.unsubscribe = null
-    this.decisionAbort?.abort('coordinator_disposed')
-    this.decisionAbort = null
+    this.invalidateInFlightDecision('coordinator_disposed')
+    this.clearRecoveryTimer(true)
+    this.invalidateManualGrants()
     this.pendingTasks.clear()
     this.clearActiveTaskState()
     this.execution = 'idle'
@@ -111,6 +139,20 @@ export class DecisionCoordinator {
     }
   }
 
+  submitAdminDeepThink(request: AdminDeepThinkRequest): Promise<CoordinatorCommandResult> {
+    return this.enqueueCommand(() => this.handleAdminDeepThink(request))
+  }
+
+  invalidateManualGrants(): void {
+    for (const grant of this.manualGrants.values()) grant.invalidate()
+  }
+
+  clearAiWork(reason = 'ai_work_cleared'): Promise<void> {
+    return this.enqueueCommand(async () => {
+      await this.handleClearAiWork(reason)
+    })
+  }
+
   private enqueueEvent(event: RuntimeEvent): void {
     this.mailboxTail = this.mailboxTail
       .then(() => this.handleEvent(event))
@@ -122,25 +164,116 @@ export class DecisionCoordinator {
   private enqueueDecisionResult(
     taskId: string,
     taskGeneration: number,
+    decisionEpoch: number,
     result: LogicalDecisionResult
   ): void {
     this.mailboxTail = this.mailboxTail
-      .then(() => this.handleDecisionResult(taskId, taskGeneration, result))
+      .then(() => this.handleDecisionResult(
+        taskId,
+        taskGeneration,
+        decisionEpoch,
+        result
+      ))
       .catch(() => {
         // Provider completion is contained by the coordinator boundary.
       })
   }
 
+  private enqueueRecovery(taskId: string, taskGeneration: number): void {
+    this.mailboxTail = this.mailboxTail
+      .then(() => this.handleRecovery(taskId, taskGeneration))
+      .catch(() => {
+        // A failed recovery transition must not poison later mailbox work.
+      })
+  }
+
+  private enqueueCommand<T>(command: () => Promise<T> | T): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.mailboxTail = this.mailboxTail
+        .then(async () => {
+          try {
+            resolve(await command())
+          } catch (error) {
+            reject(error)
+          }
+        })
+        .catch(() => {
+          // The command promise above owns its own rejection.
+        })
+    })
+  }
+
   private async handleEvent(event: RuntimeEvent): Promise<void> {
     if (!this.running) return
 
+    if (event.type === 'connected') {
+      this.options.identity.beginSession()
+      this.minecraftReady = false
+      return
+    }
+
+    if (event.type === 'spawned') {
+      this.minecraftReady = true
+      const task = this.activeTask
+      if (task?.state === 'suspended') {
+        task.state = 'active'
+        task.activeGoalId = null
+        this.execution = 'idle'
+        if (this.aiAvailability === 'unavailable') {
+          this.execution = 'decision_pending'
+          if (this.recoveryRetryAt !== null) this.scheduleRecovery(this.recoveryRetryAt)
+        } else {
+          this.dispatchActiveTask()
+        }
+      }
+      return
+    }
+
+    if (event.type === 'player_seen') {
+      this.options.identity.observePlayer(event.player.name, event.player.id)
+      return
+    }
+
+    if (event.type === 'player_left') {
+      this.options.identity.removePlayer(event.player, event.playerId)
+      return
+    }
+
+    if (event.type === 'disconnected') {
+      this.minecraftReady = false
+      this.options.identity.endSession()
+      this.invalidateMinecraftManualGrants()
+      this.invalidateInFlightDecision('minecraft_disconnected')
+      this.clearRecoveryTimer(false)
+      const task = this.activeTask
+      if (task) {
+        if (task.activeGoalId) {
+          await this.options.goals.preemptActive('minecraft_disconnected')
+          task.activeGoalId = null
+        }
+        task.state = 'suspended'
+        this.execution = 'decision_pending'
+      } else {
+        this.execution = 'idle'
+      }
+      return
+    }
+
     if (event.type === 'emergency_stop') {
-      this.decisionAbort?.abort('emergency_stop')
-      this.decisionAbort = null
+      this.invalidateInFlightDecision('emergency_stop')
+      this.clearRecoveryTimer(true)
       if (this.activeTask) this.activeTask.state = 'superseded'
       this.clearActiveTaskState()
       this.execution = 'idle'
       return
+    }
+
+    if (event.type === 'player_chat') {
+      const manual = parseManualAiCommand(event.message)
+      if (manual) {
+        await this.handleMinecraftManualCommand(event, manual)
+        return
+      }
     }
 
     const classification = this.classifier.classify(event, {
@@ -198,33 +331,50 @@ export class DecisionCoordinator {
       policy: this.options.manualAccess
     })
 
-    const task = createAiTask({
-      taskId: this.options.nextTaskId(),
-      objective: classification.instruction,
-      source: 'minecraft',
-      principalKind: principal.kind,
-      taskGeneration: ++this.taskGeneration,
-      minecraftSessionGeneration: this.options.identity.currentSessionGeneration(),
-      baseComplexityEvidence: classification.baseComplexityEvidence
-    })
-
-    if (this.activeTask !== null) {
-      if (await this.supersedeContinuousGoal(task)) return
-      this.pendingTasks.enqueue(task)
-      return
-    }
-
-    this.activateTask(task)
-    this.dispatchActiveTask()
+    const task = this.createTask(
+      classification.instruction,
+      'minecraft',
+      principal.kind,
+      this.currentMinecraftSessionGeneration(),
+      classification.baseComplexityEvidence
+    )
+    await this.acceptNewTask(task)
   }
 
-  private dispatchActiveTask(): void {
+  private dispatchActiveTask(force = false): void {
     const task = this.activeTask
     if (
       !this.running ||
       task === null ||
+      task.state !== 'active' ||
+      !this.minecraftReady ||
       this.execution === 'decision_in_flight'
     ) {
+      return
+    }
+
+    const grant = this.manualGrants.get(task.taskId)
+    const grantSession = grant?.principalKind === 'local_admin'
+      ? null
+      : this.currentMinecraftSessionGeneration()
+    const grantValid = grant?.validFor(
+      task.taskId,
+      task.taskGeneration,
+      grantSession
+    ) === true
+
+    if (this.grantRequiredTasks.has(task.taskId) && !grantValid) {
+      task.state = 'blocked'
+      this.grantRequiredTasks.delete(task.taskId)
+      this.manualGrants.delete(task.taskId)
+      this.clearActiveTaskState()
+      this.execution = 'idle'
+      this.startNextPendingTask()
+      return
+    }
+
+    if (this.aiAvailability === 'unavailable' && !force && !grantValid) {
+      this.execution = 'decision_pending'
       return
     }
 
@@ -236,7 +386,10 @@ export class DecisionCoordinator {
         objective: task.objective,
         phase: 'active',
         consecutiveReplans: task.consecutiveReplanCount,
-        previousAction: this.previousAction
+        previousAction: this.previousAction,
+        ...(grantValid && grant?.directive
+          ? { ephemeralDirective: grant.directive }
+          : {})
       },
       state,
       currentGoal: this.options.goals.activeGoal(),
@@ -251,26 +404,35 @@ export class DecisionCoordinator {
     const assessment = assessComplexity({
       ...task.baseComplexityEvidence,
       ...this.pendingDecisionEvidence,
-      replanCount: task.consecutiveReplanCount
+      replanCount: task.consecutiveReplanCount,
+      ...(grantValid ? { manualDeep: true } : {})
     })
     const routePlan = createRoutePlan(
       this.options.nextDecisionId(),
       assessment,
-      false
+      grantValid
     )
     this.pendingDecisionEvidence = {}
 
+    if (grantValid) {
+      if (!grant?.consume(task.taskId, task.taskGeneration, grantSession)) return
+      this.grantRequiredTasks.delete(task.taskId)
+    }
+
+    this.clearRecoveryTimer(true)
     const abort = new AbortController()
+    const epoch = ++this.decisionEpoch
     this.decisionAbort = abort
+    this.activeDecisionEpoch = epoch
     this.execution = 'decision_in_flight'
 
     void this.options.logicalExecutor
       .execute({ context, routePlan }, abort.signal)
       .then(result => {
-        this.enqueueDecisionResult(task.taskId, task.taskGeneration, result)
+        this.enqueueDecisionResult(task.taskId, task.taskGeneration, epoch, result)
       })
       .catch(() => {
-        this.enqueueDecisionResult(task.taskId, task.taskGeneration, {
+        this.enqueueDecisionResult(task.taskId, task.taskGeneration, epoch, {
           kind: 'invalid_response',
           code: 'logical_executor_failed'
         })
@@ -280,29 +442,36 @@ export class DecisionCoordinator {
   private async handleDecisionResult(
     taskId: string,
     taskGeneration: number,
+    decisionEpoch: number,
     result: LogicalDecisionResult
   ): Promise<void> {
-    if (!this.running) return
+    if (!this.running || this.activeDecisionEpoch !== decisionEpoch) return
     const task = this.activeTask
     if (
       task === null ||
       task.taskId !== taskId ||
-      task.taskGeneration !== taskGeneration
+      task.taskGeneration !== taskGeneration ||
+      task.state !== 'active'
     ) {
       return
     }
 
+    this.activeDecisionEpoch = null
     this.decisionAbort = null
     this.execution = 'idle'
 
     if (result.kind === 'unavailable') {
       this.aiAvailability = 'unavailable'
+      this.execution = 'decision_pending'
+      this.recoveryRetryAt = result.retryAt
+      if (result.retryAt !== null) this.scheduleRecovery(result.retryAt)
       return
     }
 
     if (result.kind !== 'success') return
 
     this.aiAvailability = 'available'
+    this.recoveryRetryAt = null
     const gated = await this.options.decisionGate.accept(
       result.providerResult,
       this.options.state.snapshot(),
@@ -312,7 +481,8 @@ export class DecisionCoordinator {
     if (
       this.activeTask === null ||
       this.activeTask.taskId !== taskId ||
-      this.activeTask.taskGeneration !== taskGeneration
+      this.activeTask.taskGeneration !== taskGeneration ||
+      this.activeTask.state !== 'active'
     ) {
       return
     }
@@ -322,7 +492,8 @@ export class DecisionCoordinator {
       if (
         this.activeTask === null ||
         this.activeTask.taskId !== taskId ||
-        this.activeTask.taskGeneration !== taskGeneration
+        this.activeTask.taskGeneration !== taskGeneration ||
+        this.activeTask.state !== 'active'
       ) {
         return
       }
@@ -332,12 +503,197 @@ export class DecisionCoordinator {
       return
     }
 
-    if (gated.kind === 'complete') {
-      task.state = 'completed'
+    if (gated.kind === 'complete' || gated.kind === 'blocked' || gated.kind === 'rejected') {
+      task.state = gated.kind === 'complete' ? 'completed' : 'blocked'
       this.clearActiveTaskState()
       this.execution = 'idle'
       this.startNextPendingTask()
     }
+  }
+
+  private async handleMinecraftManualCommand(
+    event: Extract<RuntimeEvent, { type: 'player_chat' }>,
+    command: NonNullable<ReturnType<typeof parseManualAiCommand>>
+  ): Promise<void> {
+    const principal = this.options.identity.resolveChat({
+      mode: this.options.identityMode,
+      player: event.player,
+      ...(event.playerId === undefined ? {} : { playerId: event.playerId }),
+      policy: this.options.manualAccess
+    })
+    if (!isPrivilegedMinecraftPrincipal(principal)) return
+
+    if (command.kind === 'deep_current') {
+      const task = this.activeTask
+      if (!task || task.state !== 'active') return
+      this.setManualGrant(task, principal.kind, command.directive)
+      if (this.execution === 'idle' || this.execution === 'decision_pending') {
+        this.dispatchActiveTask(true)
+      }
+      return
+    }
+
+    const task = this.createTask(
+      command.instruction,
+      'minecraft',
+      principal.kind,
+      this.currentMinecraftSessionGeneration(),
+      analyzeInstructionComplexity(command.instruction)
+    )
+    this.setManualGrant(task, principal.kind)
+    this.grantRequiredTasks.add(task.taskId)
+    await this.acceptNewTask(task)
+  }
+
+  private async handleAdminDeepThink(
+    request: AdminDeepThinkRequest
+  ): Promise<CoordinatorCommandResult> {
+    const instruction = normalizeInstruction(request.instruction)
+    if (!instruction) return { kind: 'rejected', code: 'invalid_instruction' }
+
+    if (request.targetGoalId !== undefined) {
+      const goalId = request.targetGoalId.trim()
+      const task = this.activeTask
+      if (!goalId || !task || task.state !== 'active' || task.activeGoalId !== goalId) {
+        return { kind: 'rejected', code: 'target_goal_not_active' }
+      }
+      this.setManualGrant(task, 'local_admin', instruction)
+      if (this.execution === 'idle' || this.execution === 'decision_pending') {
+        this.dispatchActiveTask(true)
+      }
+      return { kind: 'accepted', taskId: task.taskId }
+    }
+
+    const task = this.createTask(
+      instruction,
+      'local_admin',
+      'local_admin',
+      null,
+      analyzeInstructionComplexity(instruction)
+    )
+    this.setManualGrant(task, 'local_admin')
+    this.grantRequiredTasks.add(task.taskId)
+    await this.acceptNewTask(task)
+    return { kind: 'accepted', taskId: task.taskId }
+  }
+
+  private async handleClearAiWork(reason: string): Promise<void> {
+    this.invalidateInFlightDecision(reason)
+    this.clearRecoveryTimer(true)
+    this.invalidateManualGrants()
+    this.pendingTasks.clear()
+    const task = this.activeTask
+    if (task) {
+      task.state = 'superseded'
+      if (task.activeGoalId) {
+        const active = this.options.goals.activeGoal()
+        if (active?.goalId === task.activeGoalId && active.source === 'ai') {
+          await this.options.goals.preemptActive(reason)
+        }
+      }
+    }
+    this.clearActiveTaskState()
+    this.execution = 'idle'
+    this.aiAvailability = 'available'
+  }
+
+  private async handleRecovery(taskId: string, taskGeneration: number): Promise<void> {
+    if (!this.running || !this.minecraftReady) return
+    const task = this.activeTask
+    if (
+      !task ||
+      task.taskId !== taskId ||
+      task.taskGeneration !== taskGeneration ||
+      task.state !== 'active'
+    ) return
+
+    this.recoveryRetryAt = null
+    this.aiAvailability = 'available'
+    this.execution = 'idle'
+    this.dispatchActiveTask(true)
+  }
+
+  private scheduleRecovery(retryAt: number): void {
+    this.clearRecoveryTimer(false)
+    this.recoveryRetryAt = retryAt
+    if (!this.running || !this.minecraftReady || !this.activeTask) return
+    const taskId = this.activeTask.taskId
+    const taskGeneration = this.activeTask.taskGeneration
+    const delay = Math.max(0, retryAt - this.now())
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = null
+      this.enqueueRecovery(taskId, taskGeneration)
+    }, delay)
+  }
+
+  private clearRecoveryTimer(clearRetryAt: boolean): void {
+    if (this.recoveryTimer !== null) clearTimeout(this.recoveryTimer)
+    this.recoveryTimer = null
+    if (clearRetryAt) this.recoveryRetryAt = null
+  }
+
+  private invalidateInFlightDecision(reason: string): void {
+    this.decisionAbort?.abort(reason)
+    this.decisionAbort = null
+    this.activeDecisionEpoch = null
+  }
+
+  private invalidateMinecraftManualGrants(): void {
+    for (const grant of this.manualGrants.values()) {
+      if (grant.principalKind !== 'local_admin') grant.invalidate()
+    }
+  }
+
+  private setManualGrant(
+    task: AiTask,
+    principalKind: 'minecraft_owner' | 'minecraft_operator' | 'local_admin',
+    directive?: string
+  ): void {
+    this.manualGrants.get(task.taskId)?.invalidate()
+    const grant = createManualRouteGrant({
+      requestId: `grant-${++this.grantSequence}`,
+      taskId: task.taskId,
+      taskGeneration: task.taskGeneration,
+      minecraftSessionGeneration: principalKind === 'local_admin'
+        ? null
+        : this.currentMinecraftSessionGeneration(),
+      principalKind,
+      ...(directive === undefined ? {} : { directive })
+    })
+    this.manualGrants.set(task.taskId, grant)
+  }
+
+  private createTask(
+    objective: string,
+    source: 'minecraft' | 'local_admin' | 'system',
+    principalKind: AiTask['principalKind'],
+    minecraftSessionGeneration: number | null,
+    evidence: ComplexityEvidence
+  ): AiTask {
+    return createAiTask({
+      taskId: this.options.nextTaskId(),
+      objective,
+      source,
+      principalKind,
+      taskGeneration: ++this.taskGeneration,
+      minecraftSessionGeneration,
+      baseComplexityEvidence: evidence
+    })
+  }
+
+  private async acceptNewTask(task: AiTask): Promise<void> {
+    if (this.activeTask !== null) {
+      if (await this.supersedeContinuousGoal(task)) return
+      if (!this.pendingTasks.enqueue(task)) {
+        this.manualGrants.get(task.taskId)?.invalidate()
+        this.manualGrants.delete(task.taskId)
+        this.grantRequiredTasks.delete(task.taskId)
+      }
+      return
+    }
+
+    this.activateTask(task)
+    this.dispatchActiveTask()
   }
 
   private async supersedeContinuousGoal(nextTask: AiTask): Promise<boolean> {
@@ -351,6 +707,7 @@ export class DecisionCoordinator {
 
     await this.options.goals.preemptActive('superseded_by_ai_task')
     task.state = 'superseded'
+    this.invalidateGrantForTask(task.taskId)
     this.clearActiveTaskState()
     this.execution = 'idle'
     this.activateTask(nextTask)
@@ -375,9 +732,33 @@ export class DecisionCoordinator {
   }
 
   private clearActiveTaskState(): void {
+    const taskId = this.activeTask?.taskId
     this.activeTask = null
     this.previousAction = null
     this.failureEvidence.clear()
     this.pendingDecisionEvidence = {}
+    if (taskId) this.invalidateGrantForTask(taskId)
   }
+
+  private invalidateGrantForTask(taskId: string): void {
+    this.manualGrants.get(taskId)?.invalidate()
+    this.manualGrants.delete(taskId)
+    this.grantRequiredTasks.delete(taskId)
+  }
+
+  private currentMinecraftSessionGeneration(): number | null {
+    const generation = this.options.identity.currentSessionGeneration()
+    return generation > 0 ? generation : null
+  }
+}
+
+function isPrivilegedMinecraftPrincipal(
+  principal: MinecraftPrincipal
+): principal is Extract<MinecraftPrincipal, { kind: 'minecraft_owner' | 'minecraft_operator' }> {
+  return principal.kind === 'minecraft_owner' || principal.kind === 'minecraft_operator'
+}
+
+function normalizeInstruction(value: string): string | null {
+  const normalized = value.trim()
+  return normalized.length >= 1 && normalized.length <= 1000 ? normalized : null
 }
