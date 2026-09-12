@@ -3,10 +3,10 @@
 **Date:** 2026-09-12  
 **Repository:** `neko0115/MC_AI_Player`  
 **Base:** `main` at `4afc0fbc2b39205659f5439e363c4a338fe22e2c`  
-**Status:** Architecture approved; written specification pending user review  
+**Status:** Implemented on feature branch; automated CI/E2E PASS; real Gemini live validation and remaining release gates pending  
 **Scope boundary:** This document specifies MC_AI_Player only. DC_BOT integration remains a later, separate trust-boundary change.
 
-> Process gate: implementation must not begin from this document alone. After the user reviews and approves this written specification, the next step is a separate `writing-plans` pass followed by RED -> GREEN TDD on this feature branch and a pull request into protected `main`.
+> Implementation status: this specification was reviewed and approved by the user, then implemented through the paired `docs/superpowers/plans/2026-09-12-gemini-multi-model-routing.md` RED -> GREEN TDD plan on `feature/gemini-multi-model-routing`. Automated CI/E2E evidence does not substitute for the separate real Gemini, human multiplayer, or hardware/soak release gates listed below.
 
 ## 1. Goal
 
@@ -911,10 +911,9 @@ Implementation is RED -> GREEN TDD. At minimum, tests cover:
 
 ## 41. Release gates
 
-This architecture does not waive existing release gates. Before the resulting system is considered production-ready, evidence must still cover:
+This architecture does not waive existing release gates. The production event-driven coordinator is now implemented and covered by automated tests/E2E, but the resulting system is not production-ready until separate evidence still covers:
 
 - real Gemini live validation;
-- the production event-driven coordinator;
 - a 30-minute complete human multiplayer cooperation session;
 - Pi/mini-PC resource measurements;
 - a 4-8 hour soak;
