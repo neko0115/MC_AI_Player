@@ -293,11 +293,14 @@ test('Gemini transport prepares one immutable V2 forced-function payload', async
   assert.equal(prepared.utf8Bytes, Buffer.byteLength(prepared.input, 'utf8'))
   assert.equal(prepared.input.includes('test-server:survival-v1'), true)
 
-  const schema = JSON.stringify(prepared.tools[0]?.parameters)
-  assert.equal(schema.includes('"version":{"const":2'), true)
-  assert.equal(schema.includes('"outcome":{"const":"action"'), true)
-  assert.equal(schema.includes('"outcome":{"const":"complete"'), true)
-  assert.equal(schema.includes('"outcome":{"const":"blocked"'), true)
+  const parameters = prepared.tools[0]?.parameters as Record<string, any>
+  assert.equal(parameters.type, 'object')
+  assert.equal(parameters.additionalProperties, false)
+  assert.equal(parameters.properties?.version?.const, 2)
+  assert.deepEqual(parameters.properties?.outcome?.enum, ['action', 'complete', 'blocked'])
+
+  const schema = JSON.stringify(parameters)
+  assert.equal(schema.includes('"oneOf"'), false)
   assert.equal(schema.includes('"reasoning"'), false)
   assert.equal(schema.includes('"analysis"'), false)
   assert.equal(schema.includes('"thought"'), false)
