@@ -57,7 +57,7 @@ const activeGoal: GoalRecord = {
   updatedAt: 20
 }
 
-test('context builder keeps only bounded decision-relevant state', () => {
+test('context builder keeps bounded task objective and decision-relevant state', () => {
   const events: RuntimeEvent[] = [
     { type: 'connected', at: 1 },
     { type: 'player_chat', at: 2, player: 'Boss', message: 'bring wood' },
@@ -71,11 +71,21 @@ test('context builder keeps only bounded decision-relevant state', () => {
     maxMemories: 2,
     maxMemoryContentChars: 80,
     maxSkills: 2,
-    maxSafetyConstraints: 2
+    maxSafetyConstraints: 2,
+    maxTaskObjectiveChars: 80,
+    maxTaskDirectiveChars: 40
   })
 
   const context = builder.build({
     worldKey: WORLD_KEY,
+    task: {
+      taskId: 'task-1',
+      objective: `採 16 個橡木，回家後放進基地箱子${'。'.repeat(100)}`,
+      phase: 'active',
+      consecutiveReplans: 1,
+      previousAction: 'gather_resource',
+      ephemeralDirective: `再確認背包和箱子${'！'.repeat(100)}`
+    },
     state: state(events),
     currentGoal: activeGoal,
     memories: [
@@ -97,6 +107,10 @@ test('context builder keeps only bounded decision-relevant state', () => {
   })
 
   assert.equal(context.worldKey, WORLD_KEY)
+  assert.equal(context.task?.taskId, 'task-1')
+  assert.equal(context.task?.objective.length, 80)
+  assert.equal(context.task?.ephemeralDirective?.length, 40)
+  assert.equal(context.task?.consecutiveReplans, 1)
   assert.deepEqual(context.self, {
     connected: true,
     spawned: true,
@@ -138,4 +152,5 @@ test('context builder does not mutate source snapshots or leak foreign-world mem
 
   assert.deepEqual(snapshot, original)
   assert.deepEqual(context.memories, [])
+  assert.equal(context.task, undefined)
 })
