@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Review gate:** This plan is complete and self-reviewed, but implementation must not begin until the user explicitly approves this plan.
+
 **Goal:** Implement the approved deterministic Gemini Lite/Flash routing architecture, including trusted manual deep-think, an ordered Google Project pool, durable quota accounting, a production decision coordinator, and a loopback-only Admin API without weakening deterministic gameplay or SafetyPolicy boundaries.
 
 **Architecture:** DecisionCoordinator owns when a logical AI decision is needed and builds the latest task-aware context. A deterministic instruction analyzer plus `balanced-v1` policy produces an immutable RoutePlan. RoutedDecisionExecutor owns Project selection, quota admission, retries/failover, and Gemini transport attempts; its routing details never leak back into Coordinator. Gemini proposes only validated high-level outcomes, while registered-skill checks, SafetyPolicy, GoalManager, and SkillExecutor remain deterministic authorities.
