@@ -15,4 +15,12 @@ export class SkillRegistry {
   get(name: SkillName): AnySkillDefinition | undefined {
     return this.definitions.get(name)
   }
+
+  has(name: SkillName): boolean {
+    return this.definitions.has(name)
+  }
+
+  registeredNames(): SkillName[] {
+    return [...this.definitions.keys()]
+  }
 }
