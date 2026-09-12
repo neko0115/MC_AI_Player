@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the approved deterministic Gemini Lite/Flash routing architecture, including trusted manual deep-think, an ordered Google Project pool, durable quota accounting, a production decision coordinator, and a loopback-only Admin API without weakening the existing deterministic gameplay and SafetyPolicy boundaries.
+**Goal:** Implement the approved deterministic Gemini Lite/Flash routing architecture, including trusted manual deep-think, an ordered Google Project pool, durable quota accounting, a production decision coordinator, and a loopback-only Admin API without weakening deterministic gameplay or SafetyPolicy boundaries.
 
-**Architecture:** The runtime keeps AI planning provider-neutral at the Coordinator boundary. A deterministic instruction analyzer and `balanced-v1` policy create an immutable RoutePlan, ProjectPool obtains one JIT AttemptLease at a time from a durable SQLite QuotaLedger, and GeminiTransport performs exactly one SDK/API attempt per lease with no SDK-level retry. DecisionCoordinator owns AiTask lifecycle and stale-result rejection; routing/auth/quota components never execute gameplay directly, and every accepted action passes the latest registered-skill and SafetyPolicy checks before GoalManager submission.
+**Architecture:** DecisionCoordinator owns when a logical AI decision is needed and builds the latest task-aware context. A deterministic instruction analyzer plus `balanced-v1` policy produces an immutable RoutePlan. RoutedDecisionExecutor owns Project selection, quota admission, retries/failover, and Gemini transport attempts; its routing details never leak back into Coordinator. Gemini proposes only validated high-level outcomes, while registered-skill checks, SafetyPolicy, GoalManager, and SkillExecutor remain deterministic authorities.
 
 **Tech Stack:** Node.js 24, TypeScript 7.0.2, tsx 4.23.13, Zod 4.5.4, better-sqlite3 12.11.1, Mineflayer 4.39.0, mineflayer-pathfinder 2.4.5, @google/genai 2.21.0, Node built-in HTTP, `Intl.DateTimeFormat` for `America/Los_Angeles`, Node test runner through `tsx --test`.
 
@@ -12,26 +12,25 @@
 
 ## Global Constraints
 
-- Work only on `feature/gemini-multi-model-routing`; protected `main` is changed only by PR merge.
-- At execution time, create/use an isolated worktree with `superpowers:using-git-worktrees`; do not implement directly in the main checkout.
+- Work only on `feature/gemini-multi-model-routing`; protected `main` changes only by PR merge.
+- At implementation time create/use an isolated worktree with `superpowers:using-git-worktrees`; do not implement in the main checkout.
 - `neko0115/DC_BOT` is out of scope and must not be modified.
-- `MC_AI_PROVIDER=fake` remains the safe default and must not require a routing file, Google credential, Admin token, or production quota DB.
-- `MC_AI_PROVIDER=gemini` requires a valid `data/ai-routing.json` (or `MC_AI_ROUTING_CONFIG`) and every referenced credential environment variable; missing values fail startup closed.
-- Routine route: `gemini-3.5-flash-lite`, thinking `low`.
-- Complex route: `gemini-3.8-flash`, thinking `medium`; high only for trusted manual deep-think, `consecutive_replan_count >= 2`, or trusted deterministic critical context.
-- Automatic routing can never use the Flash reserve region. Reserve use requires a valid ManualRouteGrant or local-admin capability.
-- Flash normal/reserve admission is per Project: first 70% normal, final 30% reserve. Each attempt is wholly `normal` or wholly `reserve`.
-- Credential health is keyed by stable anonymous `projectKey`; quota is keyed by `projectKey + model`.
-- Quota values are deployment input. Missing admission-critical limits fail closed; no production quota number is inferred from documentation or hard-coded into runtime code.
-- `data/ai-quota.sqlite3` is independent from `data/mc_memory.sqlite3` and must never contain prompts, chat text, objectives, raw API keys, real Google Project IDs, privileged UUIDs, raw provider bodies, or thought text.
-- Quota reservation and `dispatched` state must be durable before the HTTP request is sent.
-- Gemini SDK automatic retry must be disabled so one AttemptLease corresponds to one API attempt.
-- Provider `content_blocked` and local SafetyPolicy rejection are terminal and never trigger model/Project failover to bypass safety.
-- Runtime events never call Gemini directly. They only update state/evidence or enqueue work into the DecisionCoordinator mailbox.
-- AiTask, DecisionDemand, task queue, ManualRouteGrant, and in-flight decisions are volatile and are never replayed after process restart.
-- Minecraft usernames are never privileged credentials. Offline server identity mode always yields untrusted Minecraft-chat principals.
-- Admin API is a separate loopback-only listener and additionally requires `MC_ADMIN_TOKEN`.
-- Existing release gates remain evidence-driven: real Gemini live validation, production coordinator validation, 30-minute human collaboration, Pi/mini-PC measurement, 4-8h soak, missing storage/home skill wiring, and later DC_BOT integration.
+- `MC_AI_PROVIDER=fake` remains the safe default and requires no routing file, Google credential, Admin token, or production quota DB.
+- `MC_AI_PROVIDER=gemini` requires a valid `data/ai-routing.json` (or `MC_AI_ROUTING_CONFIG`) and every referenced credential environment variable; missing data fails startup closed.
+- Routine: `gemini-3.5-flash-lite` + `low`. Complex: `gemini-3.8-flash` + `medium`. High only for trusted manual deep-think, `consecutive_replan_count >= 2`, or trusted deterministic critical context.
+- Automatic routing never uses Flash reserve. Reserve requires a valid ManualRouteGrant or local-admin authority.
+- Flash budget is per Project: first 70% normal, final 30% reserve. One attempt is wholly `normal` or `reserve`.
+- Credential health key: stable anonymous `projectKey`. Quota key: `projectKey + model`.
+- Quota values are deployment input. Missing admission-critical limits fail closed; production values are never inferred or hard-coded.
+- `data/ai-quota.sqlite3` is independent from `data/mc_memory.sqlite3` and never stores prompts, chat, task objectives, raw API keys, real Google Project IDs, privileged UUIDs, raw provider bodies, or thought text.
+- Reservation and `dispatched` state are durable before HTTP send.
+- Gemini SDK automatic retry is disabled: one AttemptLease equals one actual provider attempt.
+- Provider `content_blocked` and local SafetyPolicy rejection are terminal; no failover may be used to bypass them.
+- Runtime events never call Gemini directly; they update state/evidence or enqueue Coordinator work.
+- AiTask, DecisionDemand, task queue, ManualRouteGrant, and in-flight decisions are volatile and never replay after restart.
+- Minecraft username is never a privileged credential. Offline server identity mode always yields untrusted chat principals.
+- Admin API is a separate loopback-only listener and also requires `MC_ADMIN_TOKEN`.
+- Existing release gates remain evidence-driven: real Gemini live validation, production coordinator validation, 30-minute human collaboration, Pi/mini-PC measurement, 4–8h soak, missing home/storage skill wiring, and later DC_BOT integration.
 
 ---
 
@@ -56,13 +55,11 @@ git status clean
 feature/gemini-multi-model-routing
 ```
 
-If the baseline is red, stop implementation and diagnose the baseline before creating feature changes.
+If baseline is red, stop feature implementation and diagnose it first.
 
 ---
 
 ## Locked file map
-
-Keep responsibilities focused. Do not create a catch-all `utils.ts`.
 
 ```text
 src/
@@ -142,66 +139,51 @@ scripts/
 └─ validate-gemini-routing-live.ts
 ```
 
+Do not add a broad `utils.ts`; behavior belongs beside its owner.
+
 ---
 
-### Task 1: Replace legacy single-model environment authority with routing-config contracts
+### Task 1: Replace legacy single-model authority with routing-config contracts
 
 **Files:**
-- Modify: `src/config.ts` (`AiConfig`, new identity/admin loaders)
+- Modify: `src/config.ts`
 - Create: `src/agent/routing/config.ts`
-- Create: `tests/agent/routing/config.test.ts`
 - Modify: `tests/agent/provider-config.test.ts`
+- Create: `tests/agent/routing/config.test.ts`
 - Create: `config/ai-routing.example.json`
 - Modify: `.env.example`
 
 **Interfaces:**
-- Produces `AiConfig = {provider:'fake'} | {provider:'gemini'; routingConfigPath:string}`.
-- Produces `MinecraftServerIdentityMode = 'online' | 'offline'` via `loadMinecraftServerIdentityMode()`.
-- Produces `AdminApiConfig = {enabled:false} | {enabled:true; host:'127.0.0.1'; port:number; bearerToken:string}`.
-- Produces `ValidatedRoutingConfig` and `parseRoutingConfig(raw: unknown)`; no raw credential secret is part of this type.
+- `AiConfig = {provider:'fake'} | {provider:'gemini'; routingConfigPath:string}`.
+- `loadMinecraftServerIdentityMode(): 'online' | 'offline'`.
+- `AdminApiConfig = {enabled:false} | {enabled:true; host:'127.0.0.1'; port:number; bearerToken:string}`.
+- `parseRoutingConfig(raw): ValidatedRoutingConfig` contains `apiKeyEnv`, never key material.
 
-- [ ] **Step 1: Rewrite provider-config tests to establish the new authority boundary**
+- [ ] **Step 1: Rewrite RED provider-config tests**
 
 ```ts
-import assert from 'node:assert/strict'
-import test from 'node:test'
-import {
-  loadAdminApiConfig,
-  loadAiConfig,
-  loadMinecraftServerIdentityMode
-} from '../../src/config.js'
-
 test('fake provider remains secret-free and routing-file-free', () => {
   assert.deepEqual(loadAiConfig({}), { provider: 'fake' })
-  assert.deepEqual(loadAiConfig({ MC_AI_PROVIDER: 'fake' }), { provider: 'fake' })
 })
 
-test('gemini provider uses the routing file and ignores legacy single-model authority', () => {
+test('gemini uses routing-file authority, not legacy model/key values', () => {
   assert.deepEqual(loadAiConfig({
     MC_AI_PROVIDER: 'gemini',
-    MC_AI_MODEL: 'legacy-model-must-not-win',
-    MC_AI_API_KEY: 'legacy-key-must-not-win'
+    MC_AI_MODEL: 'ignored-model',
+    MC_AI_API_KEY: 'ignored-key'
   }), { provider: 'gemini', routingConfigPath: 'data/ai-routing.json' })
-
-  assert.deepEqual(loadAiConfig({
-    MC_AI_PROVIDER: 'gemini',
-    MC_AI_ROUTING_CONFIG: 'D:/private/router.json'
-  }), { provider: 'gemini', routingConfigPath: 'D:/private/router.json' })
 })
 
-test('server identity fails closed to offline', () => {
+test('identity mode fails closed to offline', () => {
   assert.equal(loadMinecraftServerIdentityMode({}), 'offline')
   assert.equal(loadMinecraftServerIdentityMode({ MC_SERVER_IDENTITY_MODE: 'online' }), 'online')
-  assert.equal(loadMinecraftServerIdentityMode({ MC_SERVER_IDENTITY_MODE: 'typo' }), 'offline')
+  assert.equal(loadMinecraftServerIdentityMode({ MC_SERVER_IDENTITY_MODE: 'bad' }), 'offline')
 })
 
 test('admin API is disabled without its dedicated token', () => {
   assert.deepEqual(loadAdminApiConfig({}), { enabled: false })
-  assert.deepEqual(loadAdminApiConfig({ MC_ADMIN_TOKEN: 'admin-secret', MC_ADMIN_PORT: '8767' }), {
-    enabled: true,
-    host: '127.0.0.1',
-    port: 8767,
-    bearerToken: 'admin-secret'
+  assert.deepEqual(loadAdminApiConfig({ MC_ADMIN_TOKEN: 'secret', MC_ADMIN_PORT: '8767' }), {
+    enabled: true, host: '127.0.0.1', port: 8767, bearerToken: 'secret'
   })
 })
 ```
@@ -212,108 +194,53 @@ test('admin API is disabled without its dedicated token', () => {
 npx tsx --test tests/agent/provider-config.test.ts
 ```
 
-Expected: FAIL because Gemini still requires `MC_AI_MODEL` / `MC_AI_API_KEY` and the identity/admin loaders do not exist.
+Expected: FAIL on new config types/loaders and legacy Gemini requirements.
 
-- [ ] **Step 3: Add startup config types/loaders**
+- [ ] **Step 3: Implement startup loaders**
 
 ```ts
 export type MinecraftServerIdentityMode = 'online' | 'offline'
-
 export type AiConfig =
   | { readonly provider: 'fake' }
   | { readonly provider: 'gemini'; readonly routingConfigPath: string }
-
 export type AdminApiConfig =
   | { readonly enabled: false }
-  | {
-      readonly enabled: true
-      readonly host: '127.0.0.1'
-      readonly port: number
-      readonly bearerToken: string
-    }
-
-const DEFAULT_AI_ROUTING_PATH = 'data/ai-routing.json'
-const DEFAULT_ADMIN_PORT = 8767
-
-export function loadMinecraftServerIdentityMode(
-  env: Readonly<Record<string, string | undefined>>
-): MinecraftServerIdentityMode {
-  return env.MC_SERVER_IDENTITY_MODE?.trim().toLowerCase() === 'online'
-    ? 'online'
-    : 'offline'
-}
+  | { readonly enabled: true; readonly host: '127.0.0.1'; readonly port: number; readonly bearerToken: string }
 ```
 
-`loadAiConfig()` ignores legacy `MC_AI_MODEL` / `MC_AI_API_KEY` as routing authority. `loadAdminApiConfig()` hard-codes `127.0.0.1`, validates port `1..65535`, caps token length at 4096, and returns `{enabled:false}` when the token is absent.
+`MC_AI_ROUTING_CONFIG` defaults to `data/ai-routing.json`; `MC_SERVER_IDENTITY_MODE` returns online only for exact normalized `online`; Admin host is fixed to `127.0.0.1`, port range `1..65535`, token max 4096 chars, and absent token means disabled. Legacy `MC_AI_MODEL` / `MC_AI_API_KEY` are ignored as routing authority.
 
-- [ ] **Step 4: Write routing JSON schema tests**
+- [ ] **Step 4: Write RED routing-schema tests**
+
+Use this valid shape and mutate one constraint per test:
 
 ```ts
-function validConfig() {
-  return {
-    version: 1,
-    models: {
-      routine: {
-        name: 'gemini-3.5-flash-lite',
-        reservation: { inputTokenOverhead: 256, generationTokenAllowance: { low: 512 } }
-      },
-      complex: {
-        name: 'gemini-3.8-flash',
-        reservation: {
-          inputTokenOverhead: 256,
-          generationTokenAllowance: { medium: 2048, high: 4096 }
-        }
-      }
+const valid = {
+  version: 1,
+  models: {
+    routine: { name: 'gemini-3.5-flash-lite', reservation: { inputTokenOverhead: 256, generationTokenAllowance: { low: 512 } } },
+    complex: { name: 'gemini-3.8-flash', reservation: { inputTokenOverhead: 256, generationTokenAllowance: { medium: 2048, high: 4096 } } }
+  },
+  projects: [{
+    projectKey: 'pool-a', apiKeyEnv: 'MC_AI_KEY_PRIMARY',
+    providerLimits: {
+      routine: { rpm: 10, inputTpm: 10000, rpd: 100 },
+      complex: { rpm: 10, inputTpm: 10000, rpd: 100 }
     },
-    projects: [{
-      projectKey: 'pool-a',
-      apiKeyEnv: 'MC_AI_KEY_PRIMARY',
-      providerLimits: {
-        routine: { rpm: 10, inputTpm: 10000, rpd: 100 },
-        complex: { rpm: 10, inputTpm: 10000, rpd: 100 }
-      },
-      flashBudget: {
-        requestLimit: 80,
-        totalTokenLimit: 100000,
-        resetWindow: 'america-los-angeles-day',
-        source: 'operator_policy'
-      }
-    }],
-    manualAccess: {
-      ownerUuid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      operatorAllowlistUuids: ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']
-    }
-  }
-}
-
-test('routing config is strict and requires positive admission limits', () => {
-  assert.equal(parseRoutingConfig(validConfig()).projects[0]?.projectKey, 'pool-a')
-  const duplicate = validConfig()
-  duplicate.projects.push({ ...duplicate.projects[0]! })
-  assert.throws(() => parseRoutingConfig(duplicate), /projectKey/i)
-  const noBudget = validConfig()
-  noBudget.projects[0]!.flashBudget.totalTokenLimit = 0
-  assert.throws(() => parseRoutingConfig(noBudget), /totalTokenLimit/i)
-})
-```
-
-- [ ] **Step 5: Implement strict schema + semantic validation**
-
-After Zod parsing:
-
-```ts
-const projectKeys = parsed.projects.map(project => project.projectKey)
-if (new Set(projectKeys).size !== projectKeys.length) {
-  throw new Error('routing config projectKey values must be unique')
-}
-for (const project of parsed.projects) {
-  if (project.flashBudget.requestLimit > project.providerLimits.complex.rpd) {
-    throw new Error(`flash requestLimit exceeds complex rpd for ${project.projectKey}`)
+    flashBudget: { requestLimit: 80, totalTokenLimit: 100000, resetWindow: 'america-los-angeles-day', source: 'operator_policy' }
+  }],
+  manualAccess: {
+    ownerUuid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    operatorAllowlistUuids: ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']
   }
 }
 ```
 
-Normalize privileged UUIDs to lowercase 32-hex and reject malformed values. Keep `apiKeyEnv`, never key material, in `ValidatedRoutingConfig`.
+Assert duplicate projectKey, zero/negative limits, malformed UUID, unknown fields, empty project pool, and `flashBudget.requestLimit > complex.rpd` fail.
+
+- [ ] **Step 5: Implement strict Zod + semantic validation**
+
+Normalize privileged UUIDs to lowercase 32-hex. Require unique projectKey and nonempty `apiKeyEnv`. Keep all quota/reservation numbers positive integers. Reject unknown keys via `.strict()`.
 
 - [ ] **Step 6: Run GREEN + typecheck**
 
@@ -322,25 +249,9 @@ npx tsx --test tests/agent/provider-config.test.ts tests/agent/routing/config.te
 npm run typecheck
 ```
 
-- [ ] **Step 7: Update public examples**
+- [ ] **Step 7: Add safe examples**
 
-`.env.example` must contain:
-
-```dotenv
-MC_AI_PROVIDER=fake
-MC_AI_ROUTING_CONFIG=data/ai-routing.json
-MC_SERVER_IDENTITY_MODE=offline
-MC_AI_KEY_PRIMARY=
-MC_AI_KEY_BACKUP=
-MC_ADMIN_PORT=8767
-MC_ADMIN_TOKEN=
-
-# Deprecated after multi-model routing; ignored as Gemini routing authority.
-MC_AI_MODEL=
-MC_AI_API_KEY=
-```
-
-`config/ai-routing.example.json` uses the exact schema, anonymous `pool-a` / `pool-b`, fake UUIDs, environment-variable names only, and visibly illustrative non-production quota numbers.
+`.env.example` adds `MC_AI_ROUTING_CONFIG`, `MC_SERVER_IDENTITY_MODE`, `MC_AI_KEY_PRIMARY`, `MC_AI_KEY_BACKUP`, `MC_ADMIN_PORT`, `MC_ADMIN_TOKEN`; marks `MC_AI_MODEL` and `MC_AI_API_KEY` deprecated/ignored. `config/ai-routing.example.json` uses anonymous project keys, fake UUIDs, environment-variable names, and clearly illustrative non-production quota values.
 
 - [ ] **Step 8: Commit**
 
@@ -351,7 +262,7 @@ git commit -m "feat: define multi-model routing configuration"
 
 ---
 
-### Task 2: Separate cancellation from failure and carry current-session player identity evidence
+### Task 2: Separate cancellation from failure and carry current-session identity evidence
 
 **Files:**
 - Modify: `src/contracts/events.ts`
@@ -365,25 +276,20 @@ git commit -m "feat: define multi-model routing configuration"
 - Modify: `tests/minecraft/observation-bridge.test.ts`
 - Modify: `tests/minecraft/mineflayer-adapter.test.ts`
 
-**Interfaces:**
-- Adds `player_left`, `goal_cancelled`, `skill_cancelled` RuntimeEvent branches.
-- `player_chat` optionally carries `playerId` from the current Mineflayer session.
+**Interfaces:** Adds RuntimeEvent branches `player_left`, `goal_cancelled`, `skill_cancelled`; `player_chat` gains optional `playerId`.
 
-- [ ] **Step 1: Add RED event tests**
+- [ ] **Step 1: Add RED event/cancellation tests**
 
 ```ts
 assert.deepEqual(bridge.chat('Boss', '墨雪跟我來', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), {
-  type: 'player_chat', at: 1234, player: 'Boss',
-  playerId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-  message: '墨雪跟我來'
+  type: 'player_chat', at: 1234, player: 'Boss', playerId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', message: '墨雪跟我來'
 })
 assert.deepEqual(bridge.playerLeft('Boss', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), {
-  type: 'player_left', at: 1234, player: 'Boss',
-  playerId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  type: 'player_left', at: 1234, player: 'Boss', playerId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 })
 ```
 
-GoalManager must publish `goal_cancelled` for `preempted_by_player`; SkillExecutor must publish `skill_cancelled` after AbortSignal cancellation.
+GoalManager player preemption must emit `goal_cancelled`, not `goal_failed`. Aborted SkillExecutor work must emit `skill_cancelled`, not `skill_failed`.
 
 - [ ] **Step 2: Run RED**
 
@@ -391,56 +297,17 @@ GoalManager must publish `goal_cancelled` for `preempted_by_player`; SkillExecut
 npx tsx --test tests/contracts/events.test.ts tests/goals/goal-manager.test.ts tests/skills/executor.test.ts tests/minecraft/observation-bridge.test.ts tests/minecraft/mineflayer-adapter.test.ts
 ```
 
-- [ ] **Step 3: Extend RuntimeEventSchema with strict bounded branches**
+- [ ] **Step 3: Add strict event branches**
 
-```ts
-const EventCodeSchema = z.string().trim().min(1).max(128)
+Use bounded `EventCodeSchema` max 128 chars; player names max 64, IDs max 128, chat max 1000. Add strict schemas for `player_left`, `goal_cancelled`, `skill_cancelled`.
 
-z.object({
-  type: z.literal('player_chat'), at: AtSchema,
-  player: z.string().trim().min(1).max(64),
-  playerId: z.string().trim().min(1).max(128).optional(),
-  message: z.string().max(1000)
-}).strict()
+- [ ] **Step 4: Split completion/cancellation/failure publishing**
 
-z.object({
-  type: z.literal('player_left'), at: AtSchema,
-  player: z.string().trim().min(1).max(64),
-  playerId: z.string().trim().min(1).max(128).optional()
-}).strict()
+SkillExecutor publishes one of completed/cancelled/failed. GoalManager publishes `goal_cancelled` for cancelled result, player preemption, emergency stop cancellation, and continuous-goal supersession; only true failed results publish `goal_failed`.
 
-z.object({ type: z.literal('goal_cancelled'), at: AtSchema, goalId: EventCodeSchema, code: EventCodeSchema }).strict()
-z.object({ type: z.literal('skill_cancelled'), at: AtSchema, skill: SkillNameSchema, code: EventCodeSchema }).strict()
-```
+- [ ] **Step 5: Carry current UUID evidence**
 
-- [ ] **Step 4: Emit cancellation-specific events**
-
-```ts
-if (result.status === 'succeeded') {
-  await this.events?.publish({ type: 'skill_completed', at: this.now(), skill: active.name })
-} else if (result.status === 'cancelled') {
-  await this.events?.publish({
-    type: 'skill_cancelled', at: this.now(), skill: active.name,
-    code: sanitizeCode(result.code, 'cancelled')
-  })
-} else {
-  await this.events?.publish({
-    type: 'skill_failed', at: this.now(), skill: active.name,
-    code: sanitizeCode(result.code, 'failed')
-  })
-}
-```
-
-GoalManager uses `goal_cancelled` for cancelled SkillResult, player preemption, emergency-stop cancellation, and continuous-goal supersession; only true failures emit `goal_failed`.
-
-- [ ] **Step 5: Carry current chat UUID / player-left evidence**
-
-```ts
-const playerId = bot.players[username]?.uuid?.trim()
-this.emit(this.bridge.chat(username, message, playerId || undefined))
-```
-
-Add `playerLeft` listener and bridge method using the leaving player's UUID when available.
+At chat event time use `bot.players[username]?.uuid`; emit through `ObservationBridge.chat(username,message,playerId)`. Add Mineflayer `playerLeft` listener and `ObservationBridge.playerLeft()`.
 
 - [ ] **Step 6: Run GREEN + typecheck**
 
@@ -458,59 +325,34 @@ git commit -m "refactor: separate runtime cancellation events"
 
 ---
 
-### Task 3: Upgrade the decision contract to action / complete / blocked and make context task-aware
+### Task 3: Upgrade decision contract and make context task-aware
 
 **Files:**
 - Modify: `src/contracts/decision.ts`
 - Modify: `src/agent/context-builder.ts`
 - Modify: `src/skills/registry.ts`
 - Create: `src/agent/skill-catalog.ts`
-- Modify: `tests/agent/context-builder.test.ts`
 - Modify: `tests/contracts/decision.test.ts`
+- Modify: `tests/agent/context-builder.test.ts`
 - Create: `tests/skills/registry.test.ts`
 
-**Interfaces:**
-- Produces `DecisionOutcomeV2Schema` / `DecisionOutcomeV2`.
-- Produces `DecisionContext.task`.
-- Produces `SkillRegistry.has(name)`, `registeredNames()`, and `registeredDecisionSkills(registry)`.
+**Interfaces:** Produces `DecisionOutcomeV2Schema`, `DecisionOutcomeV2`, `DecisionContext.task`, `SkillRegistry.has()`, `registeredNames()`, `registeredDecisionSkills()`.
 
-- [ ] **Step 1: Write RED DecisionOutcome tests**
+- [ ] **Step 1: Write RED outcome tests**
 
 ```ts
-assert.equal(DecisionOutcomeV2Schema.parse({
-  version: 2,
-  outcome: 'action',
+DecisionOutcomeV2Schema.parse({
+  version: 2, outcome: 'action',
   action: { intent: 'gather_resource', args: { resource: 'oak_log', quantity: 4 } }
-}).outcome, 'action')
-
-assert.deepEqual(DecisionOutcomeV2Schema.parse({ version: 2, outcome: 'complete' }), {
-  version: 2, outcome: 'complete'
 })
-
-assert.equal(DecisionOutcomeV2Schema.parse({
-  version: 2, outcome: 'blocked', reason: 'capability_unavailable'
-}).reason, 'capability_unavailable')
-
-assert.throws(() => DecisionOutcomeV2Schema.parse({
-  version: 2, outcome: 'blocked', reason: 'free text is forbidden'
-}))
+DecisionOutcomeV2Schema.parse({ version: 2, outcome: 'complete' })
+DecisionOutcomeV2Schema.parse({ version: 2, outcome: 'blocked', reason: 'capability_unavailable' })
+assert.throws(() => DecisionOutcomeV2Schema.parse({ version: 2, outcome: 'blocked', reason: 'free text' }))
 ```
 
 - [ ] **Step 2: Add RED context/registry tests**
 
-Context input/output contains:
-
-```ts
-task: {
-  taskId: 'task-1',
-  objective: '採 16 個橡木，回家後放進基地箱子',
-  phase: 'active',
-  consecutiveReplans: 0,
-  previousAction: null
-}
-```
-
-Registry test proves an unregistered `deposit_item` is not advertised even though `SkillNameSchema` knows the name.
+Context must preserve bounded semantic task fields `taskId`, `objective`, phase `active`, consecutiveReplans, previousAction, optional ephemeralDirective. Registry test proves schema-known but unregistered `deposit_item` is not advertised.
 
 - [ ] **Step 3: Run RED**
 
@@ -532,24 +374,17 @@ const DecisionActionSchema = z.discriminatedUnion('intent', [
   z.object({ intent: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
   z.object({ intent: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
 ])
-
-export const DecisionBlockedReasonSchema = z.enum([
-  'no_safe_action', 'missing_information', 'capability_unavailable'
-])
-
+export const DecisionBlockedReasonSchema = z.enum(['no_safe_action','missing_information','capability_unavailable'])
 export const DecisionOutcomeV2Schema = z.discriminatedUnion('outcome', [
   z.object({ version: z.literal(2), outcome: z.literal('action'), action: DecisionActionSchema }).strict(),
   z.object({ version: z.literal(2), outcome: z.literal('complete') }).strict(),
-  z.object({
-    version: z.literal(2), outcome: z.literal('blocked'),
-    reason: DecisionBlockedReasonSchema
-  }).strict()
+  z.object({ version: z.literal(2), outcome: z.literal('blocked'), reason: DecisionBlockedReasonSchema }).strict()
 ])
 ```
 
-No explanation/reasoning field is allowed.
+No reasoning/explanation field is allowed.
 
-- [ ] **Step 5: Add bounded task context and registered-skill catalog**
+- [ ] **Step 5: Implement task context and skill catalog**
 
 ```ts
 export interface DecisionTaskContext {
@@ -562,7 +397,7 @@ export interface DecisionTaskContext {
 }
 ```
 
-ContextBuilder truncates objective/directive before provider use. Add `SkillRegistry.has()` and `registeredNames()`. `skill-catalog.ts` contains a fixed description record and returns only registry-present decision intents.
+ContextBuilder truncates objective/directive before provider use. SkillRegistry adds `has()` and `registeredNames()`. `skill-catalog.ts` maps decision intents to fixed descriptions and filters through registry presence.
 
 - [ ] **Step 6: Run GREEN + typecheck, commit**
 
@@ -575,59 +410,32 @@ git commit -m "feat: add task-aware decision outcomes"
 
 ---
 
-### Task 4: Implement deterministic instruction analysis and `balanced-v1` complexity assessment
+### Task 4: Implement deterministic instruction analysis and `balanced-v1`
 
 **Files:**
 - Create: `src/agent/routing/contracts.ts`
 - Create: `src/agent/routing/complexity.ts`
 - Create: `tests/agent/routing/complexity.test.ts`
 
-**Interfaces:**
-- Produces `ComplexityEvidence`, `ComplexityAssessment`, `RoutePlan`, `ThinkingLevel`, `RouteClass`, `BudgetClass`.
-- Produces `analyzeInstructionComplexity(instruction)` and `assessComplexity(evidence)`.
-- Provider output can never modify these values for the current logical decision.
+**Interfaces:** Defines route/evidence contracts used by ProjectPool, both logical executors, and Coordinator.
 
 - [ ] **Step 1: Write RED instruction-analyzer tests**
 
-```ts
-assert.deepEqual(analyzeInstructionComplexity('跟我來'), {})
-assert.equal(analyzeInstructionComplexity('採木頭然後回基地放箱子').multiStep, true)
-assert.equal(analyzeInstructionComplexity('採木頭然後回基地放箱子').multiSkill, true)
-assert.equal(analyzeInstructionComplexity('自己想辦法找到鐵').openEndedMethod, true)
-assert.equal(analyzeInstructionComplexity('把之前說的木頭拿出來，背包不夠就再補').crossContextReasoning, true)
-assert.equal(analyzeInstructionComplexity('墨雪仔細想一下').manualComplexityHint, true)
-```
+Assert simple follow has no evidence; “採木頭然後回基地放箱子” sets `multiStep` and `multiSkill`; “自己想辦法找到鐵” sets openEndedMethod; explicit memory/inventory combination sets crossContextReasoning; “仔細想” sets only manualComplexityHint.
 
-V1 deterministic phrase/family tables are fixed program data:
+V1 phrase tables are fixed program data:
 
 ```ts
-const OPEN_ENDED = ['自己想辦法', '找個辦法', '你自己決定', 'figure it out', 'find a way']
-const MANUAL_HINTS = ['仔細想', '認真想', '用大模型', 'think hard', 'use the big model']
-const STEP_CONNECTORS = ['然後', '之後', '接著', '再', 'then', 'and then']
+const OPEN_ENDED = ['自己想辦法','找個辦法','你自己決定','figure it out','find a way']
+const MANUAL_HINTS = ['仔細想','認真想','用大模型','think hard','use the big model']
+const STEP_CONNECTORS = ['然後','之後','接著','再','then','and then']
 ```
 
-Skill-family keyword groups must cover gather, navigation, storage, survival, and equipment; `multiSkill` is true only when at least two distinct groups match. `crossContextReasoning` is true only when at least two explicit domain groups (memory-reference, inventory, world/location, player) match.
+Skill-family keyword groups cover gather/navigation/storage/survival/equipment. Cross-context domain groups cover memory-reference/inventory/world-location/player. `multiSkill`/`crossContextReasoning` require >=2 distinct matched groups.
 
 - [ ] **Step 2: Write RED score/high tests**
 
-```ts
-const cases = [
-  [{}, { score: 0, routeClass: 'routine', thinking: 'low' }],
-  [{ multiStep: true }, { score: 3, routeClass: 'routine', thinking: 'low' }],
-  [{ openEndedMethod: true }, { score: 4, routeClass: 'complex', thinking: 'medium' }],
-  [{ multiStep: true, multiSkill: true }, { score: 5, routeClass: 'complex', thinking: 'medium' }],
-  [{ goalFailed: true, stuck: true }, { score: 4, routeClass: 'complex', thinking: 'medium' }],
-  [{ manualComplexityHint: true }, { score: 2, routeClass: 'routine', thinking: 'low' }]
-] as const
-```
-
-Also assert:
-
-```ts
-assert.equal(assessComplexity({ replanCount: 2 }).highReason, 'repeated_replanning')
-assert.equal(assessComplexity({ criticalContext: true }).highReason, 'critical_context')
-assert.equal(assessComplexity({ manualDeep: true }).highReason, 'manual_deep_think')
-```
+Table: empty=0 routine/low; multiStep=3 routine/low; openEnded=4 complex/medium; multiStep+multiSkill=5 complex/medium; goalFailed+stuck=4 complex/medium; manualHint=2 routine/low. `replanCount:2` => highReason repeated_replanning; `criticalContext` => critical_context; `manualDeep` => manual_deep_think.
 
 - [ ] **Step 3: Run RED**
 
@@ -635,7 +443,7 @@ assert.equal(assessComplexity({ manualDeep: true }).highReason, 'manual_deep_thi
 npx tsx --test tests/agent/routing/complexity.test.ts
 ```
 
-- [ ] **Step 4: Implement routing contracts and exact weights**
+- [ ] **Step 4: Define exact shared routing contracts**
 
 ```ts
 export type RouteClass = 'routine' | 'complex'
@@ -643,25 +451,12 @@ export type ThinkingLevel = 'low' | 'medium' | 'high'
 export type BudgetClass = 'normal' | 'reserve'
 
 export interface ComplexityEvidence {
-  readonly multiStep?: boolean
-  readonly multiSkill?: boolean
-  readonly openEndedMethod?: boolean
-  readonly crossContextReasoning?: boolean
-  readonly goalFailed?: boolean
-  readonly stuck?: boolean
-  readonly manualComplexityHint?: boolean
-  readonly riskContext?: boolean
-  readonly replanCount?: number
-  readonly criticalContext?: boolean
-  readonly manualDeep?: boolean
+  readonly multiStep?: boolean; readonly multiSkill?: boolean; readonly openEndedMethod?: boolean
+  readonly crossContextReasoning?: boolean; readonly goalFailed?: boolean; readonly stuck?: boolean
+  readonly manualComplexityHint?: boolean; readonly riskContext?: boolean
+  readonly replanCount?: number; readonly criticalContext?: boolean; readonly manualDeep?: boolean
 }
-```
 
-Weights: multi-step 3, multi-skill 2, open-ended 4, cross-context 2, goal-failed 2, stuck 2, manual hint 2, risk 3. Score `<4` -> routine/low; `>=4` -> complex/medium. High overrides are independent of score.
-
-- [ ] **Step 5: Implement immutable RoutePlan**
-
-```ts
 export interface RoutePlan {
   readonly decisionId: string
   readonly policy: 'balanced-v1'
@@ -671,9 +466,37 @@ export interface RoutePlan {
   readonly reasons: readonly string[]
   readonly highReason: 'manual_deep_think' | 'repeated_replanning' | 'critical_context' | null
 }
+
+export interface AttemptLease {
+  readonly attemptId: string; readonly decisionId: string; readonly configGeneration: number
+  readonly projectKey: string; readonly projectLabel: string; readonly credentialHandle: string
+  readonly model: string; readonly thinking: ThinkingLevel; readonly budgetClass: BudgetClass
+  readonly reservationId: string
+}
+
+export interface LogicalDecisionRequest {
+  readonly context: DecisionContext
+  readonly routePlan: RoutePlan
+}
+
+export type LogicalDecisionResult =
+  | { readonly kind: 'success'; readonly providerResult: ProviderResult }
+  | { readonly kind: 'safety_blocked'; readonly code: 'content_blocked' }
+  | { readonly kind: 'unavailable'; readonly retryAt: number | null }
+  | { readonly kind: 'invalid_response'; readonly code: string }
+  | { readonly kind: 'configuration_error'; readonly code: string }
+  | { readonly kind: 'cancelled' }
+
+export interface LogicalDecisionExecutor {
+  execute(request: LogicalDecisionRequest, signal: AbortSignal): Promise<LogicalDecisionResult>
+}
 ```
 
-Freeze the object and reasons array. Retry/failover never recomputes it.
+Import `DecisionContext` and `ProviderResult` as types only. `LogicalDecisionResult` deliberately contains no AttemptLease/Project fields.
+
+- [ ] **Step 5: Implement exact weights and immutable RoutePlan**
+
+Weights: multi-step 3, multi-skill 2, open-ended 4, cross-context 2, goal-failed 2, stuck 2, manual hint 2, risk 3. Score `<4` -> routine/low; `>=4` -> complex/medium. High overrides do not change score. Freeze RoutePlan and reasons.
 
 - [ ] **Step 6: Run GREEN + typecheck, commit**
 
@@ -686,7 +509,7 @@ git commit -m "feat: add deterministic complexity routing policy"
 
 ---
 
-### Task 5: Add session-scoped Minecraft identity and Manual Deep command parsing
+### Task 5: Add session-scoped Minecraft identity and Manual Deep parsing
 
 **Files:**
 - Create: `src/minecraft/identity-registry.ts`
@@ -694,43 +517,18 @@ git commit -m "feat: add deterministic complexity routing policy"
 - Create: `tests/minecraft/identity-registry.test.ts`
 - Create: `tests/minecraft/manual-ai-command.test.ts`
 
-**Interfaces:**
-- Produces `MinecraftPrincipal`, `MinecraftIdentityRegistry`, and `parseManualAiCommand(message)`.
-- Natural-language complexity hints come from `analyzeInstructionComplexity()` in Task 4; this task grants capabilities only for explicit privileged commands.
+**Interfaces:** `MinecraftIdentityRegistry` resolves principals; parser recognizes only explicit privileged commands. Natural-language complexity hints remain Task 4 evidence, not capability.
 
 - [ ] **Step 1: Write RED identity tests**
 
-```ts
-const policy = {
-  ownerUuid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  operatorAllowlistUuids: ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']
-}
-assert.equal(registry.resolveChat({
-  mode: 'offline', player: 'Boss', playerId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', policy
-}).kind, 'minecraft_untrusted')
-assert.equal(registry.resolveChat({
-  mode: 'online', player: 'Boss', playerId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', policy
-}).kind, 'minecraft_owner')
-assert.equal(registry.resolveChat({
-  mode: 'online', player: 'Op', playerId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', policy
-}).kind, 'minecraft_operator')
-assert.equal(registry.resolveChat({ mode: 'online', player: 'Boss', policy }).kind, 'minecraft_untrusted')
-```
-
-Add tests for disconnect/new-session invalidation, player-left removal, and chat UUID/cache mismatch -> untrusted.
+Offline owner-looking UUID => untrusted. Online normalized owner UUID => owner. Online allowlisted UUID => operator. Missing/malformed/mismatched current chat UUID => untrusted. Disconnect/new session clears identity; player_left removes entry.
 
 - [ ] **Step 2: Write RED command tests**
 
 ```ts
-assert.deepEqual(parseManualAiCommand('!moxue deep 重新規劃採木頭'), {
-  kind: 'deep_new', instruction: '重新規劃採木頭'
-})
-assert.deepEqual(parseManualAiCommand('!moxue deep current 再確認背包和箱子'), {
-  kind: 'deep_current', directive: '再確認背包和箱子'
-})
-assert.deepEqual(parseManualAiCommand('!moxue deep current'), {
-  kind: 'deep_current'
-})
+assert.deepEqual(parseManualAiCommand('!moxue deep 重新規劃採木頭'), { kind:'deep_new', instruction:'重新規劃採木頭' })
+assert.deepEqual(parseManualAiCommand('!moxue deep current 再確認背包和箱子'), { kind:'deep_current', directive:'再確認背包和箱子' })
+assert.deepEqual(parseManualAiCommand('!moxue deep current'), { kind:'deep_current' })
 assert.equal(parseManualAiCommand('!moxue deep'), null)
 ```
 
@@ -740,7 +538,7 @@ assert.equal(parseManualAiCommand('!moxue deep'), null)
 npx tsx --test tests/minecraft/identity-registry.test.ts tests/minecraft/manual-ai-command.test.ts
 ```
 
-- [ ] **Step 4: Implement UUID normalization/principal resolution**
+- [ ] **Step 4: Implement UUID normalization/registry**
 
 ```ts
 export function normalizeMinecraftUuid(value: string | undefined): string | null {
@@ -749,11 +547,11 @@ export function normalizeMinecraftUuid(value: string | undefined): string | null
 }
 ```
 
-Registry keeps in-process `sessionGeneration`; connected starts a generation, disconnected clears, player_seen upserts, player_left removes. Online privileged resolution requires valid current chat UUID evidence and rejects mismatch with current-session cached identity. Offline always returns untrusted.
+Registry owns in-process sessionGeneration. Online privileged resolution requires current chat UUID evidence and agreement with current-session identity when cached. Offline always returns untrusted.
 
-- [ ] **Step 5: Implement bounded command parser**
+- [ ] **Step 5: Implement bounded parser**
 
-Accept exact case-insensitive `!moxue deep` and `!moxue deep current`. Trim whitespace; cap instruction/directive at 1000 characters; reject empty `deep_new`; never parse passwords/secrets.
+Accept case-insensitive exact `!moxue deep <nonempty instruction>` and `!moxue deep current [directive]`; max instruction/directive 1000 chars; no password/secret command path.
 
 - [ ] **Step 6: Run GREEN + typecheck, commit**
 
@@ -774,9 +572,7 @@ git commit -m "feat: add trusted Minecraft AI command identity"
 - Create: `tests/agent/routing/provider-day.test.ts`
 - Create: `tests/agent/routing/quota-ledger.test.ts`
 
-**Interfaces:**
-- Produces `SqliteQuotaLedger` with `allocateConfigGeneration()`, `admitAttempt()`, `markDispatched()`, `settleAttempt()`, `releaseReservation()`, `recoverIncompleteAttempts()`, health/cooldown methods, `adminSnapshot()`, and `close()`.
-- Later ProjectPool is the only production caller of admission.
+**Interfaces:** `SqliteQuotaLedger` owns config generation, reservations, dispatch/settlement, crash recovery, cooldown/quota state, process credential health, admin snapshots, and close.
 
 - [ ] **Step 1: Write RED provider-day tests**
 
@@ -785,11 +581,11 @@ assert.equal(providerDayKey(Date.parse('2026-09-12T06:59:59Z')), '2026-09-11')
 assert.equal(providerDayKey(Date.parse('2026-09-12T07:00:00Z')), '2026-09-12')
 ```
 
-Use `Intl.DateTimeFormat` with `timeZone:'America/Los_Angeles'`, never a fixed UTC offset.
+Use `Intl.DateTimeFormat` with `America/Los_Angeles`, not fixed offsets.
 
-- [ ] **Step 2: Write RED ledger lifecycle tests with a temp SQLite file**
+- [ ] **Step 2: Write RED ledger lifecycle tests**
 
-Prove: generation monotonic across reopen; transactional reservation; durable dispatch; actual settlement replaces hold; pre-dispatch release; crash recovery (`reserved -> released`, `dispatched -> uncertain`); rolling RPM/TPM includes active holds; RPD uses provider-day; normal admission blocks on either 70% request or token ceiling; actual-over-reservation sets overrun.
+Using temp SQLite, prove global generation monotonic across reopen; admission reserves transactionally; dispatch durable; actual usage replaces hold; release only before dispatch; startup recovery releases reserved and converts unsettled dispatched to terminal uncertain conservative charge; rolling RPM/TPM includes active holds; RPD uses provider-day; normal Flash admission blocks on either 70% request or token ceiling; actual over reservation sets `budget_overrun`.
 
 - [ ] **Step 3: Run RED**
 
@@ -799,64 +595,28 @@ npx tsx --test tests/agent/routing/provider-day.test.ts tests/agent/routing/quot
 
 - [ ] **Step 4: Create schema version 1**
 
-```sql
-CREATE TABLE quota_attempts (
-  attempt_id TEXT PRIMARY KEY,
-  decision_id TEXT NOT NULL,
-  config_generation INTEGER NOT NULL,
-  project_key TEXT NOT NULL,
-  model TEXT NOT NULL,
-  thinking TEXT NOT NULL,
-  budget_class TEXT NOT NULL,
-  state TEXT NOT NULL,
-  reserved_at INTEGER NOT NULL,
-  dispatched_at INTEGER,
-  settled_at INTEGER,
-  provider_day_key TEXT NOT NULL,
-  reserved_input_tokens INTEGER NOT NULL,
-  reserved_total_tokens INTEGER NOT NULL,
-  actual_input_tokens INTEGER,
-  actual_output_tokens INTEGER,
-  actual_thought_tokens INTEGER,
-  actual_tool_tokens INTEGER,
-  actual_total_tokens INTEGER,
-  accounted_input_tokens INTEGER NOT NULL,
-  accounted_total_tokens INTEGER NOT NULL,
-  usage_quality TEXT NOT NULL,
-  result_class TEXT,
-  safe_error_code TEXT,
-  budget_overrun INTEGER NOT NULL DEFAULT 0
-);
-```
+`quota_attempts` fields: attempt_id, decision_id, config_generation, project_key, model, thinking, budget_class, state, reserved/dispatched/settled timestamps, provider_day_key, reserved input/total, actual input/output/thought/tool/total, accounted input/total, usage_quality, result_class, safe_error_code, budget_overrun. Add indexed `quota_domain_state`, `credential_health`, and `quota_meta`. Apply foreign_keys ON, busy_timeout 5000, synchronous NORMAL, WAL for file DB, schema-version fail closed.
 
-Also create indexed `quota_domain_state`, `credential_health`, and `quota_meta`. Use WAL, foreign keys, busy timeout 5000, synchronous NORMAL, and schema-version fail-closed behavior matching memory SQLite style.
-
-- [ ] **Step 5: Implement transactional admission**
+- [ ] **Step 5: Implement transactional admission interface**
 
 ```ts
 export interface QuotaAdmissionRequest {
-  readonly attemptId: string
-  readonly decisionId: string
-  readonly configGeneration: number
-  readonly projectKey: string
-  readonly model: string
-  readonly thinking: ThinkingLevel
-  readonly budgetClass: BudgetClass
-  readonly now: number
-  readonly reservedInputTokens: number
-  readonly reservedTotalTokens: number
+  readonly attemptId: string; readonly decisionId: string; readonly configGeneration: number
+  readonly projectKey: string; readonly model: string; readonly thinking: ThinkingLevel
+  readonly budgetClass: BudgetClass; readonly now: number
+  readonly reservedInputTokens: number; readonly reservedTotalTokens: number
   readonly providerLimits: { readonly rpm: number; readonly inputTpm: number; readonly rpd: number }
   readonly flashBudget?: { readonly requestLimit: number; readonly totalTokenLimit: number }
 }
 ```
 
-Inside one transaction, query settled accounting + active holds, evaluate every limit, and insert `reserved` only when all gates pass. Normal Flash ceiling is `Math.floor(limit * 0.70)` for both request and token budgets; reserve may use full configured budget only when upstream selected reserve class.
+One SQLite transaction reads settled+active holds, evaluates all gates, and inserts `reserved` only on success. Normal Flash uses `floor(limit*0.70)` for request and token budgets; reserve can use full configured budget only when ProjectPool selected reserve.
 
-- [ ] **Step 6: Implement settlement/recovery exactly**
+- [ ] **Step 6: Implement settlement/recovery**
 
-`markDispatched`: only `reserved -> dispatched`. `releaseReservation`: only `reserved -> released`. `settleAttempt`: only dispatched. Actual usage replaces reservation accounting. Rejected pre-inference errors without usage account reserved input only; ambiguous timeout/network/5xx/local-abort/content-block/malformed/crash paths without usage account full reserved totals. Startup recovery releases `reserved`, converts unsettled `dispatched` to terminal `uncertain` conservative charge.
+`markDispatched`: reserved->dispatched only. `releaseReservation`: reserved->released only. `settleAttempt`: dispatched->settled only. Actual usage replaces reservation. Missing-usage early 400/401/403/404/429 charges request + reserved input. Ambiguous timeout/network/5xx/local-abort/content-block/malformed/crash without usage charges request + full reserved total. Startup turns reserved into released, dispatched into uncertain.
 
-- [ ] **Step 7: Implement domain/process health**
+- [ ] **Step 7: Implement health methods**
 
 ```ts
 recordTransientFailure(projectKey, model, now, retryAfterMs?): number
@@ -869,7 +629,7 @@ adminSnapshot(now): readonly AdminQuotaProjectSnapshot[]
 close(): void
 ```
 
-Transient policy: 5s -> 15s -> 30s -> 60s, and `max(policyDelay, retryAfterMs)` when Retry-After exists. Success resets transient counter.
+Cooldown sequence 5s,15s,30s,60s; effective cooldown uses max(policy delay, Retry-After). Success resets counter.
 
 - [ ] **Step 8: Run GREEN + typecheck, commit**
 
@@ -882,19 +642,17 @@ git commit -m "feat: add durable Gemini quota ledger"
 
 ---
 
-### Task 7: Add atomic RoutingConfigManager activation and generation-scoped credentials
+### Task 7: Add atomic RoutingConfigManager and generation-scoped credentials
 
 **Files:**
 - Create: `src/agent/routing/config-manager.ts`
 - Create: `tests/agent/routing/config-manager.test.ts`
 
-**Interfaces:**
-- Consumes `ValidatedRoutingConfig` and `SqliteQuotaLedger.allocateConfigGeneration()`.
-- Produces immutable `RoutingConfigSnapshot`, `activateInitial()`, `reload()`, `snapshot()`, and `resolveCredential(handle)`.
+**Interfaces:** Produces immutable `RoutingConfigSnapshot`, initial activation, reload, snapshot, and opaque credential resolution.
 
 - [ ] **Step 1: Write RED activation/reload tests**
 
-Prove: initial activation validates every `apiKeyEnv`; missing credential does not replace active config; valid reload increases generation atomically; old-generation credential handles remain resolvable for in-flight attempts; reordering does not alter `projectKey`; authorization changes are reported.
+Prove every apiKeyEnv is validated before activation; missing credential leaves active config untouched; valid reload gets higher generation; old credential handle remains resolvable for in-flight attempt; reordered Projects retain projectKey identity; changed manual access returns `authorizationChanged=true`.
 
 - [ ] **Step 2: Run RED**
 
@@ -902,7 +660,7 @@ Prove: initial activation validates every `apiKeyEnv`; missing credential does n
 npx tsx --test tests/agent/routing/config-manager.test.ts
 ```
 
-- [ ] **Step 3: Implement immutable snapshots**
+- [ ] **Step 3: Implement immutable snapshot shapes**
 
 ```ts
 export interface RoutingProjectSnapshot {
@@ -911,7 +669,6 @@ export interface RoutingProjectSnapshot {
   readonly providerLimits: ValidatedRoutingProject['providerLimits']
   readonly flashBudget: ValidatedRoutingProject['flashBudget']
 }
-
 export interface RoutingConfigSnapshot {
   readonly generation: number
   readonly models: ValidatedRoutingConfig['models']
@@ -920,17 +677,17 @@ export interface RoutingConfigSnapshot {
 }
 ```
 
-Credential handles are opaque generated IDs and never contain key material. Keep `handle -> secret` only in process memory; retain old handles until process exit so generation N attempts can finish after N+1 reload.
+Opaque generated handles map to raw secrets only in process memory and old handles remain until process exit.
 
 - [ ] **Step 4: Implement atomic reload result**
 
 ```ts
 export type RoutingReloadResult =
-  | { readonly kind: 'reloaded'; readonly generation: number; readonly authorizationChanged: boolean }
-  | { readonly kind: 'rejected'; readonly code: 'invalid_config' | 'missing_credential' }
+  | { readonly kind:'reloaded'; readonly generation:number; readonly authorizationChanged:boolean }
+  | { readonly kind:'rejected'; readonly code:'invalid_config'|'missing_credential' }
 ```
 
-Read/parse/credential-validate before generation allocation/swap. Failed reload leaves old snapshot active.
+Read, parse, semantic-validate, credential-validate, then allocate generation and swap. Failed candidate never clears old snapshot.
 
 - [ ] **Step 5: Run GREEN + typecheck, commit**
 
@@ -943,35 +700,28 @@ git commit -m "feat: add atomic routing config manager"
 
 ---
 
-### Task 8: Implement JIT ProjectPool admission and 70/30 reservation estimation
+### Task 8: Implement JIT ProjectPool admission and 70/30 estimation
 
 **Files:**
 - Create: `src/agent/routing/project-pool.ts`
 - Create: `tests/agent/routing/project-pool.test.ts`
 
-**Interfaces:**
-- Consumes immutable RoutePlan, current RoutingConfigSnapshot, prepared payload bytes, process instance ID, and QuotaLedger.
-- Produces exactly one AttemptLease or unavailable result with retryAt.
-- No network I/O/retry loop lives here.
+**Interfaces:** Consumes RoutePlan/current snapshot/prepared payload byte count/process instance ID/QuotaLedger; returns one AttemptLease or unavailable retryAt.
 
 - [ ] **Step 1: Write RED ordering tests**
 
-Prove: routine stays Lite across pool; automatic complex scans all normal and never reserve; manual complex scans all normal before any reserve; primary returns after cooldown; credential-disabled skips both models; Flash domain failure does not block Lite domain; all cooldowns return earliest retryAt; all credentials disabled return null retryAt.
+Prove routine stays Lite across pool; automatic complex scans all normal only; reserve-authorized complex scans every normal before any reserve; primary returns after cooldown; credential-disabled skips both models; Flash-domain failure does not block Lite-domain use; all cooldowns return earliest retryAt; all credentials disabled returns retryAt null.
 
-- [ ] **Step 2: Write RED reservation-estimator tests**
+- [ ] **Step 2: Write RED conservative reservation tests**
 
 ```ts
-export function estimateReservation(
-  utf8PayloadBytes: number,
-  inputTokenOverhead: number,
-  generationAllowance: number
-) {
-  const input = utf8PayloadBytes + inputTokenOverhead
-  return { inputTokens: input, totalTokens: input + generationAllowance }
+export function estimateReservation(bytes: number, overhead: number, generationAllowance: number) {
+  const inputTokens = bytes + overhead
+  return { inputTokens, totalTokens: inputTokens + generationAllowance }
 }
 ```
 
-This deliberately conservative estimate avoids a separate countTokens request.
+One UTF-8 byte reserves at most one input token plus configured overhead; no countTokens API call.
 
 - [ ] **Step 3: Run RED**
 
@@ -979,28 +729,13 @@ This deliberately conservative estimate avoids a separate countTokens request.
 npx tsx --test tests/agent/routing/project-pool.test.ts
 ```
 
-- [ ] **Step 4: Define AttemptLease with safe public role label**
+- [ ] **Step 4: Implement AttemptLease construction from shared contract**
 
-```ts
-export interface AttemptLease {
-  readonly attemptId: string
-  readonly decisionId: string
-  readonly configGeneration: number
-  readonly projectKey: string
-  readonly projectLabel: string // "primary", "backup-1", ... for public telemetry/status
-  readonly credentialHandle: string
-  readonly model: string
-  readonly thinking: ThinkingLevel
-  readonly budgetClass: BudgetClass
-  readonly reservationId: string
-}
-```
-
-`projectKey` is internal/admin anonymous identity; public status uses only `projectLabel`.
+Public `projectLabel` is `primary`, `backup-1`, ... derived from current ordered index. Internal/admin `projectKey` remains stable across reorders. Raw key is absent.
 
 - [ ] **Step 5: Implement scan policy**
 
-Routine: one normal scan using routine model. Complex automatic: one normal scan. Complex reserve-authorized: all normal candidates first, then all reserve candidates. Call ledger admission while scanning; skipped/non-admitted candidates do not consume API-attempt budget.
+Routine: normal scan using routine model. Automatic complex: normal scan using complex model. Reserve-authorized complex: complete normal scan then reserve scan. Each candidate calls ledger admission; rejected/skipped candidate does not consume API attempt budget.
 
 - [ ] **Step 6: Run GREEN + typecheck, commit**
 
@@ -1013,38 +748,22 @@ git commit -m "feat: add quota-aware Gemini project pool"
 
 ---
 
-### Task 9: Refactor Gemini into a one-attempt transport with usage and safe error normalization
+### Task 9: Refactor Gemini into a one-attempt transport with usage/error facts
 
 **Files:**
 - Modify: `src/agent/providers/gemini.ts`
 - Modify: `tests/agent/providers/gemini.test.ts`
 - Modify: `tests/agent/reasoning-isolation.test.ts`
 
-**Interfaces:**
-- Produces `PreparedGeminiPayload` and normalized AttemptResult.
-- Consumes AttemptLease and opaque CredentialResolver.
-- Exactly one SDK/API attempt per execute call; no routing policy here.
+**Interfaces:** `GeminiTransport.prepare(context)` returns immutable payload; `execute(prepared,lease,signal)` performs exactly one attempt and returns normalized facts.
 
 - [ ] **Step 1: Write RED per-attempt request tests**
 
-```ts
-const result = await transport.execute(prepared, {
-  attemptId: 'a1', decisionId: 'd1', configGeneration: 3,
-  projectKey: 'pool-b', projectLabel: 'backup-1', credentialHandle: 'cred-3-b',
-  model: 'gemini-3.8-flash', thinking: 'medium', budgetClass: 'normal', reservationId: 'a1'
-}, new AbortController().signal)
-
-assert.equal(fake.requests[0]?.request.model, 'gemini-3.8-flash')
-assert.equal(fake.requests[0]?.request.generation_config.thinking_level, 'medium')
-assert.equal(fake.requests[0]?.request.store, false)
-assert.equal(fake.requests[0]?.options.retryAttempts, 1)
-```
-
-Success response fixture includes actual usage fields and test asserts normalized input/output/thought/tool/total counts; thought text never appears.
+Use a lease containing configGeneration/projectKey/projectLabel/credentialHandle/model/thinking/budgetClass. Assert request uses lease model/thinking, store false, stream false, thinking_summaries none, tool_choice any, retryAttempts exactly 1. Success fixture includes actual input/output/thought/tool/total usage and result omits thought text.
 
 - [ ] **Step 2: Add RED safe-error tests**
 
-Fake structured SDK errors: 401 authentication, 403 permission_denied, 429 quota_exceeded, 503, TimeoutError, local AbortError, content_blocked, malformed function call. Raw error message is never returned.
+Fake 401 authentication, 403 permission_denied, 429 quota_exceeded, 503, TimeoutError, network error, local AbortError, content_blocked, and malformed function call. Normalized result must not carry raw error.message.
 
 - [ ] **Step 3: Run RED**
 
@@ -1052,7 +771,7 @@ Fake structured SDK errors: 401 authentication, 403 permission_denied, 429 quota
 npx tsx --test tests/agent/providers/gemini.test.ts tests/agent/reasoning-isolation.test.ts
 ```
 
-- [ ] **Step 4: Build V2 forced-function payload**
+- [ ] **Step 4: Implement prepared payload**
 
 ```ts
 export interface PreparedGeminiPayload {
@@ -1063,11 +782,9 @@ export interface PreparedGeminiPayload {
 }
 ```
 
-Tool schema mirrors `DecisionOutcomeV2`: action contains an intent-discriminated action object; complete and blocked are terminal branches. Keep one forced `submit_decision`, `store=false`, `stream=false`, `thinking_summaries='none'`.
+Tool schema mirrors DecisionOutcomeV2 exactly; only one forced `submit_decision`; no reasoning fields.
 
-- [ ] **Step 5: Implement one-attempt SDK adapter**
-
-Expose an injected test interface:
+- [ ] **Step 5: Implement single-attempt SDK adapter**
 
 ```ts
 export interface GeminiInteractionClient {
@@ -1078,21 +795,18 @@ export interface GeminiInteractionClient {
 }
 ```
 
-The real @google/genai 2.21.0 adapter maps `retryAttempts:1` to SDK `retryOptions: { attempts: 1 }`, maps timeout to the SDK timeout option, and passes AbortSignal through the SDK request abort field. Cache clients by opaque credential handle; resolve raw key only inside this boundary.
+Real @google/genai 2.21.0 mapping sets SDK retry attempts to 1, maps timeout, passes AbortSignal through SDK request abort option, and resolves raw key only from opaque credential handle inside transport.
 
-- [ ] **Step 6: Normalize usage/result facts**
+- [ ] **Step 6: Normalize usage/facts**
 
 ```ts
 export interface GeminiUsage {
-  readonly inputTokens: number
-  readonly outputTokens: number
-  readonly thoughtTokens: number
-  readonly toolTokens: number
-  readonly totalTokens: number
+  readonly inputTokens:number; readonly outputTokens:number; readonly thoughtTokens:number
+  readonly toolTokens:number; readonly totalTokens:number
 }
 ```
 
-Transport returns success/generation_error/content_blocked/api_error/timeout/network_error/cancelled facts only. It does not choose retry/failover policy.
+Transport result union is success/generation_error/content_blocked/api_error/timeout/network_error/cancelled. It chooses no retry/failover policy.
 
 - [ ] **Step 7: Run GREEN + typecheck, commit**
 
@@ -1105,7 +819,7 @@ git commit -m "refactor: make Gemini provider a routed single-attempt transport"
 
 ---
 
-### Task 10: Implement provider error policy and bounded RoutedDecisionExecutor
+### Task 10: Implement error policy and RoutedDecisionExecutor
 
 **Files:**
 - Create: `src/agent/routing/error-policy.ts`
@@ -1113,62 +827,39 @@ git commit -m "refactor: make Gemini provider a routed single-attempt transport"
 - Create: `tests/agent/routing/error-policy.test.ts`
 - Create: `tests/agent/routing/routed-executor.test.ts`
 
-**Interfaces:**
-- Produces pure `classifyAttemptResult()` and `RoutedDecisionExecutor.execute()`.
-- Coordinator sees only LogicalDecisionResult.
+**Interfaces:** Implements shared `LogicalDecisionExecutor`; Coordinator receives only shared LogicalDecisionResult and never AttemptLease/Project details.
 
-- [ ] **Step 1: Write RED error-policy matrix**
+- [ ] **Step 1: Write RED policy matrix**
 
-Exact policy table: 401/403 credential-fatal; quota_exceeded domain unavailable; rate_limit_exceeded/too_many_requests/unknown429 transient; 408/409-aborted/500/502/503/504/network/timeout transient; invalid_request/parameter_unknown/model_not_found/generic non-retry 4xx configuration error; content_blocked safety terminal; generation error one clean repair retry; local cancellation terminal cancelled.
+401/403 credential-fatal; quota_exceeded domain unavailable; rate_limit_exceeded/too_many_requests/unknown429 transient; 408/409-aborted/500/502/503/504/network/timeout transient; invalid_request/parameter_unknown/model_not_found/generic nonretry4xx configuration error; content_blocked safety terminal; generation error one clean repair; local cancellation terminal cancelled. Safety code classification precedes status-family fallback.
 
-- [ ] **Step 2: Implement pure closed union**
+- [ ] **Step 2: Implement closed AttemptPolicy union**
 
 ```ts
 export type AttemptPolicy =
-  | { kind: 'success' }
-  | { kind: 'credential_fatal'; safeCode: string }
-  | { kind: 'quota_unavailable'; safeCode: string; retryAt: number }
-  | { kind: 'transient'; safeCode: string; retryAfterMs?: number }
-  | { kind: 'safety_terminal'; safeCode: 'content_blocked' }
-  | { kind: 'generation_retry'; safeCode: string }
-  | { kind: 'configuration_error'; safeCode: string }
-  | { kind: 'cancelled' }
+  | { kind:'success' }
+  | { kind:'credential_fatal'; safeCode:string }
+  | { kind:'quota_unavailable'; safeCode:string; retryAt:number }
+  | { kind:'transient'; safeCode:string; retryAfterMs?:number }
+  | { kind:'safety_terminal'; safeCode:'content_blocked' }
+  | { kind:'generation_retry'; safeCode:string }
+  | { kind:'configuration_error'; safeCode:string }
+  | { kind:'cancelled' }
 ```
-
-Safety/content code classification precedes HTTP family classification.
 
 - [ ] **Step 3: Write RED executor tests**
 
-Prove immutable RoutePlan, A transient -> B success, A 401 -> B success, content block -> no B, one generation repair only, unavailable retryAt semantics, cancellation no penalty, settlement before next attempt, and `maxApiAttempts = configuredProjectCount + 4`.
+Prove immutable RoutePlan across attempts; A transient -> B success; A 401 -> disable then B; content block -> no B; generation error gets one clean retry only; all unavailable returns earliest retryAt; all process-disabled returns null retryAt; local cancellation gets no retry/health penalty; every dispatched attempt settles before next lease; max actual attempts = configuredProjectCount + 4; success returned to Coordinator contains only providerResult.
 
-- [ ] **Step 4: Define LogicalDecisionResult exactly**
+- [ ] **Step 4: Run RED**
 
-```ts
-export type LogicalDecisionResult =
-  | { readonly kind: 'success'; readonly providerResult: ProviderResult; readonly lease: AttemptLease }
-  | { readonly kind: 'safety_blocked'; readonly code: 'content_blocked' }
-  | { readonly kind: 'unavailable'; readonly retryAt: number | null }
-  | { readonly kind: 'invalid_response'; readonly code: string }
-  | { readonly kind: 'configuration_error'; readonly code: string }
-  | { readonly kind: 'cancelled' }
+```powershell
+npx tsx --test tests/agent/routing/error-policy.test.ts tests/agent/routing/routed-executor.test.ts
 ```
 
-- [ ] **Step 5: Implement sequential loop**
+- [ ] **Step 5: Implement shared LogicalDecisionExecutor**
 
-```ts
-for (let attempts = 0; attempts < maxAttempts; attempts += 1) {
-  if (signal.aborted) return { kind: 'cancelled' }
-  const leaseResult = this.pool.nextLease(plan, prepared)
-  if (leaseResult.kind === 'unavailable') return leaseResult
-  this.ledger.markDispatched(leaseResult.lease.reservationId, this.now())
-  const attempt = await this.transport.execute(prepared, leaseResult.lease, signal)
-  const policy = classifyAttemptResult(attempt, this.now())
-  this.settleAndRecord(leaseResult.lease, attempt, policy)
-  // branch only on the closed AttemptPolicy union
-}
-```
-
-Never recalculate RoutePlan. Immediately use another eligible Project instead of sleeping; sleep abortably only when every candidate is temporarily unavailable.
+`execute(request,signal)` first calls `transport.prepare(request.context)`, then uses `request.routePlan` unchanged. For each attempt: pool.nextLease -> ledger.markDispatched -> transport.execute -> classify -> settle/health update. JIT failover immediately uses another eligible Project; wait abortably only if every candidate is temporarily unavailable. Generation repair consumes at most one repair opportunity and does not alter plan/model/thinking/reserve authorization. Publish routing telemetry internally; strip lease before returning success.
 
 - [ ] **Step 6: Run GREEN + typecheck, commit**
 
@@ -1181,7 +872,7 @@ git commit -m "feat: add routed Gemini retry and failover executor"
 
 ---
 
-### Task 11: Refactor DecisionGate into a task-aware outcome gate with no direct Goal submission
+### Task 11: Refactor DecisionGate into task-aware outcome gate
 
 **Files:**
 - Modify: `src/agent/decision-gate.ts`
@@ -1189,25 +880,11 @@ git commit -m "feat: add routed Gemini retry and failover executor"
 - Modify: `tests/agent/decision-gate.test.ts`
 - Modify: `tests/agent/provider-capabilities.test.ts`
 
-**Interfaces:**
-- Produces `GatedOutcome = action | complete | blocked | rejected`.
-- DecisionGate accepts provider result + latest state + registered-skill predicate.
-- Removes direct DecisionPipeline goal submission.
+**Interfaces:** `GatedOutcome = action | complete | blocked | rejected`; no direct Goal submission path remains.
 
-- [ ] **Step 1: Write RED complete/blocked/unregistered tests**
+- [ ] **Step 1: Write RED tests**
 
-```ts
-assert.deepEqual(await gate.accept(structured({ version: 2, outcome: 'complete' }), state, () => true), {
-  kind: 'complete', provider: 'fake', mode: 'function_call'
-})
-assert.deepEqual(await gate.accept(structured({
-  version: 2, outcome: 'blocked', reason: 'missing_information'
-}), state, () => true), {
-  kind: 'blocked', provider: 'fake', mode: 'function_call', reason: 'missing_information'
-})
-```
-
-Action with unavailable skill returns rejected `skill_not_registered`. Keep malformed-result and SafetyPolicy tests.
+Complete returns gated complete; blocked returns bounded reason; unregistered action returns `skill_not_registered`; malformed provider result and SafetyPolicy rejection remain fail closed.
 
 - [ ] **Step 2: Run RED**
 
@@ -1215,9 +892,9 @@ Action with unavailable skill returns rejected `skill_not_registered`. Keep malf
 npx tsx --test tests/agent/decision-gate.test.ts tests/agent/provider-capabilities.test.ts
 ```
 
-- [ ] **Step 3: Implement V2 mapping**
+- [ ] **Step 3: Implement V2 gate**
 
-For action, map `outcome.action.intent/args` to GoalRequest, check registered skill, then SafetyPolicy. Complete/blocked create no goal. Remove `DecisionPipeline` so Coordinator owns final submission/stale checks.
+Parse ProviderResult -> DecisionOutcomeV2. Complete/blocked create no GoalRequest. Action maps nested action intent/args, verifies registered skill, then authorizeSkill + runtimeAction against latest WorldState. Remove `DecisionPipeline` direct submission so Coordinator owns generation/staleness and GoalManager submission.
 
 - [ ] **Step 4: Run GREEN + typecheck, commit**
 
@@ -1230,7 +907,7 @@ git commit -m "refactor: gate task outcomes before coordinator execution"
 
 ---
 
-### Task 12: Add volatile AiTask, one-shot grants, and deterministic trigger classification
+### Task 12: Add AiTask, one-shot grants, and trigger classification
 
 **Files:**
 - Create: `src/runtime/ai-task.ts`
@@ -1238,22 +915,15 @@ git commit -m "refactor: gate task outcomes before coordinator execution"
 - Create: `tests/runtime/ai-task.test.ts`
 - Create: `tests/runtime/trigger-classifier.test.ts`
 
-**Interfaces:**
-- Produces AiTask, ManualRouteGrant, AiTaskQueue, DecisionDemand, TriggerClassifier.
-- Uses `analyzeInstructionComplexity()` from Task 4 for base task evidence.
-- Queue policy: one active + max eight pending; reject newest at capacity.
+**Interfaces:** Produces AiTask, ManualRouteGrant, AiTaskQueue, DecisionDemand, TriggerClassifier; uses Task 4 analyzer for base instruction evidence.
 
 - [ ] **Step 1: Write RED task/grant tests**
 
-Prove objective/source/principal/generation storage; 8 pending limit; grant consumed once; invalid on task/session generation change; failure vs cancellation counters; success resets consecutive count; no persistence/replay.
+Prove bounded objective/source/principal/generation; max 8 pending; grant consumed once; task/session-generation invalidation; true failure increments consecutive+total; cancellation/supersede does not; successful action resets consecutive only; new process structures do not restore tasks/grants.
 
 - [ ] **Step 2: Write RED trigger tests**
 
-State-only event -> state_only. `stuck`/`skill_failed` attach evidence to one goal cause. `goal_failed` creates one replan boundary. `goal_cancelled` does not. `goal_completed` continues only active task goal. Different addressed instructions stay separate.
-
-V1 deterministic address prefixes: `!moxue`, `墨雪`, `moxue` case-insensitive, or configured Minecraft bot username. Strip one leading punctuation/comma/colon after address and reject empty instruction.
-
-Assert explicit task stores `analyzeInstructionComplexity(instruction)` output as base evidence.
+State-only event -> no demand. `stuck` and `skill_failed` add evidence under goal cause; `goal_failed` creates one replan boundary; `goal_cancelled` no replan; `goal_completed` continues only active task goal. Address prefixes: `!moxue`, `墨雪`, `moxue` case-insensitive, or configured bot username; strip one leading punctuation delimiter and reject empty instruction. Different explicit requests remain separate. New task base evidence equals `analyzeInstructionComplexity(instruction)`.
 
 - [ ] **Step 3: Run RED**
 
@@ -1261,19 +931,19 @@ Assert explicit task stores `analyzeInstructionComplexity(instruction)` output a
 npx tsx --test tests/runtime/ai-task.test.ts tests/runtime/trigger-classifier.test.ts
 ```
 
-- [ ] **Step 4: Implement bounded volatile types**
+- [ ] **Step 4: Implement bounded volatile contracts**
 
 ```ts
 export interface DecisionDemand {
-  readonly demandId: string
-  readonly taskId: string
-  readonly causeKeys: ReadonlySet<string>
-  readonly reasons: ReadonlySet<string>
-  readonly createdAt: number
+  readonly demandId:string
+  readonly taskId:string
+  readonly causeKeys:ReadonlySet<string>
+  readonly reasons:ReadonlySet<string>
+  readonly createdAt:number
 }
 ```
 
-Demand stores no WorldState snapshot. Task objective/directive max 1000 chars. Deep-current grant targets current task ID/generation and never arms a future task.
+No WorldState snapshot stored. Objective/directive max 1000 chars. Deep-current grant binds active task ID+generation+Minecraft session generation and never arms a future task.
 
 - [ ] **Step 5: Run GREEN + typecheck, commit**
 
@@ -1292,46 +962,43 @@ git commit -m "feat: add AI task and decision demand primitives"
 - Create: `src/runtime/decision-coordinator.ts`
 - Create: `tests/runtime/decision-coordinator.test.ts`
 
-**Interfaces:**
-- Consumes events, state, goals, memory, registry/catalog, identity, config/manual-access snapshot, complexity policy, DecisionGate, and logical decision executor.
-- Produces `start()`, `dispose()`, `status()`, `submitAdminDeepThink()`, `invalidateManualGrants()`, `clearAiWork(reason)`.
+**Interfaces:** Consumes events/state/goals/memory/registry+catalog/identity/manual policy/DecisionGate/LogicalDecisionExecutor; produces start, dispose, status, submitAdminDeepThink, invalidateManualGrants, clearAiWork.
 
 - [ ] **Step 1: Write RED non-blocking mailbox test**
 
-Use unresolved fake executor; `events.publish(player_chat)` must complete while decision promise remains pending. Inventory/emergency-stop events must still enter mailbox.
+Unresolved fake LogicalDecisionExecutor Promise must not block `RuntimeEventBus.publish(player_chat)`; inventory/emergency-stop events must still enqueue while decision is in flight.
 
 - [ ] **Step 2: Add RED single-flight/stale tests**
 
-Prove one decision in flight; state updates do not spawn a second; emergency stop invalidates result; direct player goal supersedes active AI task while preserving previously queued explicit tasks; ordinary inventory/position updates do not stale result; final gate uses latest state.
+One logical decision max; state updates do not spawn another; emergency stop invalidates result; direct player goal supersedes active AI task while existing queued explicit tasks remain queued; ordinary inventory/position does not stale; final gate uses latest state.
 
 - [ ] **Step 3: Add RED multi-step/replan tests**
 
-Flow: explicit -> action gather -> goal_completed -> continuation -> next registered action -> complete. `stuck + skill_failed + goal_failed` -> one replan. First failure can route Flash-medium via score; second consecutive failure makes next decision high with `reserveAuthorized=false`; action success resets consecutive count.
+Explicit task -> action gather -> goal_completed -> continuation -> next registered action -> complete. One stuck+skill_failed+goal_failed chain -> one replan. First failure may score Flash-medium; second consecutive failed execution makes next decision high with reserveAuthorized false; successful action resets consecutive count.
 
 - [ ] **Step 4: Add RED queue/continuous tests**
 
-Bounded skill + new task queues without abort. `follow_player` / `stay` can be safely superseded by a new explicit task and publish cancellation, not failure. Max eight pending. Different players never merge.
+Bounded skill + new task queues without abort. `follow_player`/`stay` may be safely superseded and emit cancellation. Eight pending allowed; ninth rejected. Different players do not merge.
 
 - [ ] **Step 5: Add RED unavailable/recovery/reconnect tests**
 
-AI unavailable lets active skill finish. `retryAt` creates exactly one wake-up. Recovery creates one fresh decision using latest state. Null retryAt causes no polling. Disconnect suspends ordinary task/invalidate decision; reconnect+spawn creates one fresh decision. Manual grant dies on disconnect and does not downgrade.
+Unavailable AI lets deterministic skill finish. retryAt schedules exactly one wake. Recovery dispatches one fresh decision using latest state. null retryAt causes no polling. Disconnect suspends ordinary task/invalidate decision; reconnect+spawn does one fresh decision. Manual grant invalidates on disconnect and is not downgraded.
 
 - [ ] **Step 6: Implement mailbox state ownership**
 
 ```ts
-coordinator: 'running' | 'stopped'
-activeTask: AiTask | null
-pendingTasks: AiTaskQueue
-execution: 'idle' | 'decision_pending' | 'decision_in_flight' | 'goal_running'
-aiAvailability: 'available' | 'unavailable'
+coordinator: 'running'|'stopped'
+activeTask: AiTask|null
+execution: 'idle'|'decision_pending'|'decision_in_flight'|'goal_running'
+aiAvailability: 'available'|'unavailable'
 minecraftReady: boolean
 ```
 
-RuntimeEvent subscriber clones/enqueues and returns void. A Promise tail or explicit queue serializes transitions; Gemini is awaited outside event publisher and completion is enqueued back.
+Pending queue is AiTaskQueue. RuntimeEvent listener clones/enqueues and returns immediately; serialized mailbox processes transitions. Provider completion is enqueued back.
 
-- [ ] **Step 7: Implement decision dispatch/finalization**
+- [ ] **Step 7: Implement dispatch/finalization**
 
-At safe boundary: latest state -> task-aware context -> current memory/registered skills -> evidence + one-shot grant -> assessment -> immutable RoutePlan -> one AbortController executor call. Consume grant only when dispatch occurs. On result, verify task/session generation, call DecisionGate with latest state and `registry.has`, then action submit / complete / blocked. Safety rejection is terminal.
+At safe boundary: latest state + task + memories + registered skills -> DecisionContext; combine base/causal/grant evidence; assess; build immutable RoutePlan; call `logicalExecutor.execute({context,routePlan},signal)`. Consume grant only on dispatch. On success verify task/session generation then DecisionGate latest state + registry; action -> GoalManager, complete/blocked -> close task/start next. Safety terminal never re-prompts.
 
 - [ ] **Step 8: Run GREEN + typecheck, commit**
 
@@ -1344,23 +1011,21 @@ git commit -m "feat: add production AI decision coordinator"
 
 ---
 
-### Task 14: Add loopback-only Admin API and local deep-think/reload entrypoints
+### Task 14: Add loopback-only Admin API
 
 **Files:**
 - Create: `src/api/admin-server.ts`
 - Create: `tests/api/admin-server.test.ts`
 
-**Interfaces:**
-- Consumes RoutingConfigManager, QuotaLedger admin snapshot, Coordinator admin port.
-- Exposes quota/reload/deep-think endpoints; host structurally fixed to 127.0.0.1 and token compared constant-time.
+**Interfaces:** Quota snapshot, routing reload, local-admin deep-think; host fixed 127.0.0.1; dedicated token constant-time checked.
 
 - [ ] **Step 1: Write RED auth/bind tests**
 
-Prove no non-loopback host option exists; missing/wrong Authorization -> 401; correct Admin token works; Control token does not; token never appears in error JSON.
+No non-loopback host input exists; missing/wrong bearer ->401; correct Admin token works; Control token does not; errors never echo token.
 
 - [ ] **Step 2: Write RED endpoint tests**
 
-Quota returns anonymous projectKey + bounded metrics only. Reload valid -> new generation; invalid -> safe error + old generation. Deep-think requires instruction and supports `Idempotency-Key`: same key+same body returns original response; same key+different body ->409. Cache max 256 oldest-first.
+Quota shows anonymous projectKey + safe metrics only. Valid reload -> generation; invalid -> old config stays. Deep-think requires nonempty instruction and Idempotency-Key behavior: same key/body returns original; same key/different body ->409; cache max 256 oldest-first.
 
 - [ ] **Step 3: Run RED**
 
@@ -1374,12 +1039,12 @@ npx tsx --test tests/api/admin-server.test.ts
 export interface AdminQuotaPort { snapshot(): unknown }
 export interface AdminRoutingPort { reload(): Promise<RoutingReloadResult> }
 export interface AdminDecisionPort {
-  submitDeepThink(instruction: string): Promise<{ taskId: string }>
-  invalidateManualGrants(reason: string): void
+  submitDeepThink(instruction:string): Promise<{taskId:string}>
+  invalidateManualGrants(reason:string): void
 }
 ```
 
-On successful authorization-changing reload, invalidate pending privileged grants before response.
+Authorization-changing reload invalidates pending privileged grants before success response.
 
 - [ ] **Step 5: Run GREEN + typecheck, commit**
 
@@ -1392,7 +1057,7 @@ git commit -m "feat: add protected AI admin API"
 
 ---
 
-### Task 15: Add safe telemetry and extend `/v1/status`
+### Task 15: Add safe telemetry and `/v1/status` AI summary
 
 **Files:**
 - Modify: `src/contracts/events.ts`
@@ -1402,43 +1067,15 @@ git commit -m "feat: add protected AI admin API"
 - Modify: `tests/contracts/events.test.ts`
 - Modify: `tests/api/control-server.test.ts`
 
-**Interfaces:**
-- Safe events: complexity_assessment, model_route, attempt_result, ai_availability_changed, task_started/completed/blocked/superseded.
-- Adds `ControlAiStatusPort`.
+**Interfaces:** Safe telemetry events and ControlAiStatusPort only; public uses projectLabel, never projectKey.
 
-- [ ] **Step 1: Write RED safe-event schema tests**
+- [ ] **Step 1: Write RED event-schema tests**
 
-```ts
-{
-  type: 'model_route', at: 1, decisionId: 'd1',
-  model: 'gemini-3.8-flash', thinking: 'medium', project: 'backup-1',
-  reasons: ['multi_step', 'multi_skill'], reserveAuthorized: false, reserveUsed: false
-}
-```
-
-No raw projectKey in public event, no API key/prompt/objective/UUID/raw provider body.
+Model-route event includes decisionId/model/thinking/project label/reasons/reserveAuthorized/reserveUsed; rejects extra prompt/objective/UUID/key fields. Add bounded complexity_assessment, attempt_result, ai_availability_changed, task_started/completed/blocked/superseded schemas.
 
 - [ ] **Step 2: Write RED status test**
 
-```json
-{
-  "ai": {
-    "routine_model": "gemini-3.5-flash-lite",
-    "complex_model": "gemini-3.8-flash",
-    "available": true,
-    "active_project": "primary",
-    "flash_auto_used_pct": 42,
-    "manual_deep_think_available": true,
-    "coordinator_state": "goal_running",
-    "active_task_id": "task-1",
-    "active_goal_kind": "gather_resource",
-    "pending_task_count": 1,
-    "decision_in_flight": false
-  }
-}
-```
-
-No objective/UUID/real Project ID/detailed reserve diagnostics.
+AI payload fields: routine_model, complex_model, available, active_project label, coarse flash_auto_used_pct, manual_deep_think_available, coordinator_state, active_task_id, active_goal_kind, pending_task_count, decision_in_flight. No objective, UUID, real project identity, raw error, or precise reserve diagnostics.
 
 - [ ] **Step 3: Run RED**
 
@@ -1446,13 +1083,13 @@ No objective/UUID/real Project ID/detailed reserve diagnostics.
 npx tsx --test tests/contracts/events.test.ts tests/api/control-server.test.ts
 ```
 
-- [ ] **Step 4: Publish only safe telemetry at owners**
+- [ ] **Step 4: Publish at ownership boundaries**
 
-Coordinator publishes task/complexity/availability; RoutedExecutor publishes route/attempt after admission/settlement using `AttemptLease.projectLabel` for public events. Raw provider errors never enter event bus.
+Coordinator publishes task/complexity/availability. RoutedExecutor publishes route/attempt after admission/settlement and uses `lease.projectLabel` publicly. Raw errors never enter event bus.
 
-- [ ] **Step 5: Extend status composition**
+- [ ] **Step 5: Extend ControlServer**
 
-Add `aiStatus` port to ControlServerOptions and clone only bounded safe fields into payload; existing Minecraft/goal status remains unchanged.
+Add `ControlAiStatusPort` to options and clone only safe bounded fields. Existing Minecraft/goal status stays intact.
 
 - [ ] **Step 6: Run GREEN + typecheck, commit**
 
@@ -1465,24 +1102,22 @@ git commit -m "feat: expose safe AI routing observability"
 
 ---
 
-### Task 16: Wire fake and Gemini modes into the composition root
+### Task 16: Wire fake and Gemini stacks into the composition root
 
 **Files:**
 - Modify: `src/main.ts`
 - Modify: `tests/main.test.ts`
 - Modify: `tests/main-storage-bootstrap.test.ts`
 
-**Interfaces:**
-- Fake mode: direct provider-neutral logical executor; no routing file/quota DB/Admin unless explicitly injected.
-- Gemini mode: QuotaLedger -> RoutingConfigManager -> ProjectPool -> GeminiTransport -> RoutedDecisionExecutor -> Coordinator -> optional AdminServer.
+**Interfaces:** Fake mode has no routing file/quota DB/Admin dependency. Gemini mode composes QuotaLedger -> ConfigManager -> ProjectPool -> GeminiTransport -> RoutedDecisionExecutor. Both expose shared `LogicalDecisionExecutor` to Coordinator.
 
-- [ ] **Step 1: Update harness seam and write RED fake-mode test**
+- [ ] **Step 1: Write RED fake-mode composition test**
 
-Replace old `createDecisionProvider` dependency with a provider-neutral logical executor factory while retaining fake DecisionProvider capability checks inside the fake stack. Assert fake mode never reads routing JSON or creates `data/ai-quota.sqlite3`.
+Replace old `createDecisionProvider` dependency seam with `createLogicalDecisionExecutor` injection. Assert fake mode creates no quota DB, reads no routing JSON, and needs no Admin token/Google secret.
 
-- [ ] **Step 2: Write RED Gemini composition tests**
+- [ ] **Step 2: Write RED Gemini composition/shutdown tests**
 
-Use temp routing config + test credential env + fake Gemini transport. Assert: config activation/recovery before API exposure; Minecraft connect before Control/Admin start; Admin starts only with token; shutdown closes Admin then Control, clears AI work, stops goals/runtime, closes quota DB and memory.
+Temp routing JSON + test env + fake transport. Assert initial config activation and ledger recovery happen before API exposure; adapter connects before Control/Admin start; Admin starts only with token; shutdown closes Admin then Control, clears AI work, stops goals/runtime, closes quota ledger and memory.
 
 - [ ] **Step 3: Run RED**
 
@@ -1490,22 +1125,42 @@ Use temp routing config + test credential env + fake Gemini transport. Assert: c
 npx tsx --test tests/main.test.ts tests/main-storage-bootstrap.test.ts
 ```
 
-- [ ] **Step 4: Implement composition helpers**
+- [ ] **Step 4: Implement exact composition helper interfaces**
 
 ```ts
-function createFakeDecisionStack(/* narrow deps */): LogicalDecisionExecutor
-function createGeminiDecisionStack(/* narrow deps */): GeminiDecisionStack
+export interface FakeDecisionStackOptions {
+  readonly provider: DecisionProvider<DecisionContext>
+}
+
+export interface GeminiDecisionStackOptions {
+  readonly routingConfigPath: string
+  readonly env: Readonly<Record<string, string | undefined>>
+  readonly quotaFilename: string
+  readonly processInstanceId: string
+  readonly events: RuntimeEventBus
+  readonly now?: () => number
+}
+
+export interface GeminiDecisionStack {
+  readonly executor: LogicalDecisionExecutor
+  readonly configManager: RoutingConfigManager
+  readonly quotaLedger: SqliteQuotaLedger
+  close(): void
+}
+
+function createFakeDecisionStack(options: FakeDecisionStackOptions): LogicalDecisionExecutor
+function createGeminiDecisionStack(options: GeminiDecisionStackOptions): GeminiDecisionStack
 ```
 
-Use `DEFAULT_MEMORY_PATH='data/mc_memory.sqlite3'`, `DEFAULT_QUOTA_PATH='data/ai-quota.sqlite3'`, and one `processInstanceId = randomUUID()` per application process passed to ProjectPool/QuotaLedger health checks.
+Fake executor implements `execute({context},signal)` by calling the injected safe fake DecisionProvider once and mapping it to shared LogicalDecisionResult; it ignores infrastructure routing because fake mode must not consume production quota. Gemini helper activates config, recovers ledger, builds ProjectPool/GeminiTransport/RoutedDecisionExecutor, and returns the stack. Use `DEFAULT_MEMORY_PATH='data/mc_memory.sqlite3'`, `DEFAULT_QUOTA_PATH='data/ai-quota.sqlite3'`, and one `processInstanceId=randomUUID()` per application instance.
 
 - [ ] **Step 5: Wire Coordinator before adapter events**
 
-Coordinator subscribes before Minecraft emits chat/session events. Feed latest state, memory, registered skill catalog, identity mode/registry, active routing snapshot/manual policy, goals, and executor through narrow ports.
+Coordinator subscribes before Minecraft can emit chat/session events. Pass latest state, memory, registry/catalog, identity mode/registry, manual policy snapshot, goals, and shared logical executor through narrow ports.
 
-- [ ] **Step 6: Wire `/v1/stop` semantics through emergency_stop event**
+- [ ] **Step 6: Wire `/v1/stop` semantics**
 
-GoalManager still stops deterministic actuator. Coordinator consumes emergency_stop, clears active/pending AI work/grants, invalidates in-flight generation, then remains running+idle.
+GoalManager emergency stop remains deterministic actuator stop. Coordinator consumes emergency_stop, clears active/pending AI work and grants, aborts in-flight decision generation, then remains running+idle.
 
 - [ ] **Step 7: Run full automated suite**
 
@@ -1524,26 +1179,24 @@ git commit -m "feat: wire multi-model routing into MC_AI_Player"
 
 ---
 
-### Task 17: Add E2E scenarios, real Gemini validation harness, and final docs/gates
+### Task 17: Add E2E, real Gemini validation harness, and final docs/gates
 
 **Files:**
 - Create: `tests/scenarios/gemini-routing-coordinator.test.ts`
 - Create: `scripts/validate-gemini-routing-live.ts`
 - Modify: `package.json`
-- Modify: `package-lock.json` only if npm changes scripts/metadata in the lockfile
+- Modify: `package-lock.json` only if npm changes it
 - Modify: `README.md`
-- Modify: `.env.example` only for corrections discovered during validation
+- Modify: `.env.example` only for validation corrections
 - Modify: `docs/superpowers/specs/2026-09-12-gemini-multi-model-routing-design.md` status after verified implementation
 
-**Interfaces:**
-- Scenario uses real Coordinator + real QuotaLedger + real ProjectPool with fake transport.
-- Live harness runs real Gemini only under explicit opt-in and outputs safe evidence.
+**Interfaces:** Scenario uses real Coordinator+QuotaLedger+ProjectPool with fake transport; live harness uses real Gemini only under explicit opt-in and outputs safe evidence.
 
-- [ ] **Step 1: Write E2E fake-transport scenario**
+- [ ] **Step 1: Write deterministic E2E fake-transport scenario**
 
-Prove in one deterministic scenario: simple addressed task -> Lite/low pool-a; pool-a Lite transient -> pool-b; multi-step -> Flash/medium with no Lite waste; coalesced runtime failure -> one replan; second consecutive failure -> Flash/high no reserve; trusted online deep -> Flash/high, all normal checked before reserve; content_blocked terminal no failover; AI unavailable lets deterministic skill finish and recovery makes one fresh decision using latest state.
+One flow proves: simple addressed task -> Lite/low primary; primary Lite transient -> backup Lite; multi-step -> Flash/medium directly; coalesced runtime failure -> one replan; second consecutive failure -> Flash/high without reserve; trusted online deep -> Flash/high and all normal Projects checked before reserve; content_blocked terminal no failover; AI unavailable lets deterministic skill finish and recovery makes one fresh decision using latest state.
 
-- [ ] **Step 2: Run scenario and fix only owning components**
+- [ ] **Step 2: Run E2E and fix owning component only**
 
 ```powershell
 npx tsx --test tests/scenarios/gemini-routing-coordinator.test.ts
@@ -1553,25 +1206,11 @@ Do not weaken unit invariants to make E2E pass.
 
 - [ ] **Step 3: Implement opt-in live script**
 
-Skip unless all are true:
-
-```text
-MC_AI_LIVE_VALIDATION=1
-MC_AI_PROVIDER=gemini
-MC_AI_ROUTING_CONFIG=<private file>
-```
-
-Run routine -> Lite-low, complex multi-step -> Flash-medium, local-admin deep -> Flash-high, and verify response usage settles actual input/output/thought/total into quota ledger. Print only projectLabel/projectKey anonymous identity, model, thinking, safe reason, usage counts, PASS/FAIL. Never print instruction/prompt/key/raw error/real Project ID.
-
-Add:
-
-```json
-"validate:gemini-live": "tsx scripts/validate-gemini-routing-live.ts"
-```
+Skip unless `MC_AI_LIVE_VALIDATION=1`, `MC_AI_PROVIDER=gemini`, and private routing config is available. Validate routine Lite-low, complex Flash-medium, local-admin deep Flash-high, and actual usage settlement. Print only anonymous project label/key, model, thinking, safe reason, usage counts, PASS/FAIL; never print instruction/prompt/key/raw provider body/real Google Project ID. Add package script `validate:gemini-live`.
 
 - [ ] **Step 4: Update README operations**
 
-Document private config copy path, MC_AI_KEY_* secrets outside JSON, active AI Studio provider limits, fail-closed missing limits, online/offline trust, both deep commands, loopback Admin endpoints, 70/30 semantics, quota DB privacy, and remaining release gates.
+Document private config copy, MC_AI_KEY_* secrets outside JSON, current AI Studio provider limits, fail-closed missing limits, online/offline trust, both deep commands, loopback Admin endpoints, 70/30 semantics, quota DB privacy, and truthful remaining release gates.
 
 - [ ] **Step 5: Run automated final verification**
 
@@ -1590,9 +1229,9 @@ $env:MC_AI_LIVE_VALIDATION='1'
 npm run validate:gemini-live
 ```
 
-If unavailable/quota/config blocks it, keep live gate pending and record the safe result; fake evidence never substitutes for real Gemini evidence.
+If quota/config prevents execution, retain the gate as pending; fake evidence never substitutes.
 
-- [ ] **Step 7: Run final security searches**
+- [ ] **Step 7: Run security searches**
 
 ```powershell
 git diff main...HEAD -- . ':!package-lock.json'
@@ -1600,17 +1239,11 @@ git grep -n "MC_AI_KEY_" -- ':!config/ai-routing.example.json' ':!.env.example' 
 git grep -n -E "AIza[0-9A-Za-z_-]+" -- .
 ```
 
-Expected: no real key, no prompt/objective persistence in quota/telemetry, no Admin non-loopback bind, no raw provider error logging.
+Expected: no real keys; no prompt/objective persistence in quota/telemetry; no non-loopback Admin bind; no raw provider error logging.
 
 - [ ] **Step 8: Update spec status truthfully**
 
-If code/tests are complete but release evidence remains pending, use status text such as:
-
-```text
-Implemented architecture; real-environment release gates remain pending where listed below.
-```
-
-Do not mark 30-minute human, Pi measurement, 4-8h soak, missing skill wiring, or DC_BOT integration complete without evidence.
+If architecture is implemented but environmental gates remain, status says `Implemented architecture; real-environment release gates remain pending where listed below.` Never mark 30-minute human, Pi measurement, 4–8h soak, missing skill wiring, or DC_BOT integration complete without evidence.
 
 - [ ] **Step 9: Commit final tests/docs**
 
@@ -1631,9 +1264,9 @@ git status --short
 
 Expected: PASS and clean worktree.
 
-- [ ] **Step 11: Update Draft PR #4 for implementation review, never auto-merge**
+- [ ] **Step 11: Update Draft PR #4 for implementation review; never auto-merge**
 
-Summarize implemented routing, automated tests, live evidence, and still-pending release gates. Mark ready only after required CI is green on current head. Do not bypass protected-main requirements.
+Summarize implementation, automated/live evidence, and pending release gates. Mark ready only after required CI is green on current head. Never bypass protected-main rules.
 
 ---
 
@@ -1658,4 +1291,4 @@ Composition root / fake seam                   Task 16
 E2E + real Gemini release gate                 Task 17
 ```
 
-No task may broaden DC_BOT integration, proxy UUID trust, concurrent autonomous tasks, speculative parallel calls, server-side Gemini conversation state, or arbitrary complexity-weight hot reload. Those remain future architecture changes.
+No task may broaden DC_BOT integration, proxy UUID trust, concurrent autonomous tasks, speculative parallel calls, server-side Gemini conversation state, or arbitrary complexity-weight hot reload. Those remain separate future architecture changes.
