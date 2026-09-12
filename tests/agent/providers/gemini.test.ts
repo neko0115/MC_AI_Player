@@ -302,3 +302,93 @@ test('Gemini transport prepares one immutable V2 forced-function payload', async
   assert.equal(schema.includes('"analysis"'), false)
   assert.equal(schema.includes('"thought"'), false)
 })
+
+test('Gemini transport executes one lease-selected attempt and normalizes usage without thought leakage', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const calls: Array<{ request: any; options: any }> = []
+  const resolvedHandles: string[] = []
+  const factoryKeys: string[] = []
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new (options: any) => {
+    prepare(context: DecisionContext): any
+    execute(prepared: any, lease: any, signal: AbortSignal): Promise<any>
+  }
+  const transport = new Transport({
+    timeoutMs: 1234,
+    resolveCredential(handle: string) {
+      resolvedHandles.push(handle)
+      return 'TEST_KEY_ONLY_INSIDE_TRANSPORT'
+    },
+    createClient(apiKey: string) {
+      factoryKeys.push(apiKey)
+      return {
+        async create(request: any, options: any) {
+          calls.push({ request: structuredClone(request), options })
+          return {
+            status: 'requires_action',
+            steps: [
+              { type: 'thought', summary: [{ type: 'text', text: 'PRIVATE_THOUGHT_SENTINEL' }] },
+              {
+                type: 'function_call',
+                id: 'fc-v2',
+                name: 'submit_decision',
+                arguments: { version: 2, outcome: 'complete' }
+              }
+            ],
+            usage: {
+              total_input_tokens: 10,
+              total_output_tokens: 2,
+              total_thought_tokens: 3,
+              total_tool_use_tokens: 1,
+              total_tokens: 16
+            }
+          }
+        }
+      }
+    }
+  })
+  const controller = new AbortController()
+  const prepared = transport.prepare(context())
+  const lease = {
+    attemptId: 'attempt-1',
+    decisionId: 'decision-1',
+    configGeneration: 7,
+    projectKey: 'pool-b',
+    projectLabel: 'backup-1',
+    credentialHandle: 'credential-7-b',
+    model: 'gemini-3.8-flash',
+    thinking: 'medium',
+    budgetClass: 'normal',
+    reservationId: 'attempt-1'
+  }
+
+  const result = await transport.execute(prepared, lease, controller.signal)
+
+  assert.deepEqual(resolvedHandles, ['credential-7-b'])
+  assert.deepEqual(factoryKeys, ['TEST_KEY_ONLY_INSIDE_TRANSPORT'])
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.request.model, 'gemini-3.8-flash')
+  assert.equal(calls[0]?.request.generation_config.thinking_level, 'medium')
+  assert.equal(calls[0]?.request.store, false)
+  assert.equal(calls[0]?.request.stream, false)
+  assert.equal(calls[0]?.options.timeout, 1234)
+  assert.equal(calls[0]?.options.retryAttempts, 1)
+  assert.equal(calls[0]?.options.signal, controller.signal)
+  assert.deepEqual(result, {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured',
+      provider: 'gemini',
+      mode: 'function_call',
+      value: { version: 2, outcome: 'complete' }
+    },
+    usage: {
+      inputTokens: 10,
+      outputTokens: 2,
+      thoughtTokens: 3,
+      toolTokens: 1,
+      totalTokens: 16
+    }
+  })
+  assert.equal(JSON.stringify(result).includes('PRIVATE_THOUGHT_SENTINEL'), false)
+  assert.equal(JSON.stringify(result).includes('TEST_KEY_ONLY_INSIDE_TRANSPORT'), false)
+})
