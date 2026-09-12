@@ -136,3 +136,52 @@ test('ProviderResult never recovers JSON from raw text even when the text is pur
     code: 'unstructured_response'
   })
 })
+
+test('routed Gemini transport turns connection failures into safe facts without leaking raw error text', async () => {
+  const { GeminiTransport } = await import('../../src/agent/providers/gemini.js')
+  const raw = new Error('PRIVATE_NETWORK_SENTINEL_DO_NOT_LEAK')
+  raw.name = 'APIConnectionError'
+  const transport = new GeminiTransport({
+    resolveCredential: () => 'TEST_KEY',
+    createClient: () => ({
+      async create() {
+        throw raw
+      }
+    })
+  })
+  const prepared = transport.prepare({
+    worldKey: 'reasoning-isolation',
+    currentGoal: null,
+    self: {
+      connected: true,
+      spawned: true,
+      health: 20,
+      food: 20,
+      dimension: 'overworld',
+      position: { x: 0, y: 64, z: 0 }
+    },
+    nearbyPlayers: [],
+    inventory: [],
+    recentEvents: [],
+    memories: [],
+    skills: [{ name: 'stay', description: 'Hold position.' }],
+    safetyConstraints: []
+  })
+  const lease = {
+    attemptId: 'attempt-safe-error',
+    decisionId: 'decision-safe-error',
+    configGeneration: 1,
+    projectKey: 'pool-a',
+    projectLabel: 'primary',
+    credentialHandle: 'cred-a',
+    model: 'gemini-3.5-flash-lite',
+    thinking: 'low' as const,
+    budgetClass: 'normal' as const,
+    reservationId: 'attempt-safe-error'
+  }
+
+  const result = await transport.execute(prepared, lease, new AbortController().signal)
+
+  assert.deepEqual(result, { kind: 'network_error' })
+  assert.equal(JSON.stringify(result).includes('PRIVATE_NETWORK_SENTINEL_DO_NOT_LEAK'), false)
+})
