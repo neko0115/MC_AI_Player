@@ -418,7 +418,7 @@ function createControlAiStatus(options: {
         flashAutoUsedPct: calculateFlashAutoUsedPct(
           routing.models.complex.name,
           routing.projects,
-          options.stack.quotaLedger.adminSnapshot()
+          options.stack.quotaLedger.adminSnapshot(Date.now())
         ),
         manualDeepThinkAvailable:
           options.adminEnabled ||
