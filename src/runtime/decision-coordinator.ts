@@ -268,6 +268,31 @@ export class DecisionCoordinator {
       return
     }
 
+    if (event.type === 'goal_started') {
+      const goal = this.options.goals.getGoal(event.goalId)
+      if (goal?.source === 'player') {
+        this.supersedeActiveTaskForPlayerGoal()
+        return
+      }
+    }
+
+    if (
+      event.type === 'goal_cancelled' &&
+      event.code === 'preempted_by_player' &&
+      this.activeTask?.activeGoalId === event.goalId
+    ) {
+      this.supersedeActiveTaskForPlayerGoal()
+      return
+    }
+
+    if (
+      this.activeTask === null &&
+      (event.type === 'goal_completed' || event.type === 'goal_failed' || event.type === 'goal_cancelled')
+    ) {
+      if (this.options.goals.activeGoal() === null) this.startNextPendingTask()
+      return
+    }
+
     if (event.type === 'player_chat') {
       const manual = parseManualAiCommand(event.message)
       if (manual) {
@@ -715,8 +740,22 @@ export class DecisionCoordinator {
     return true
   }
 
+  private supersedeActiveTaskForPlayerGoal(): void {
+    const task = this.activeTask
+    if (!task) return
+    this.invalidateInFlightDecision('preempted_by_player')
+    this.clearRecoveryTimer(true)
+    task.state = 'superseded'
+    this.clearActiveTaskState()
+    this.execution = 'idle'
+  }
+
   private startNextPendingTask(): void {
-    if (!this.running || this.activeTask !== null) return
+    if (
+      !this.running ||
+      this.activeTask !== null ||
+      this.options.goals.activeGoal() !== null
+    ) return
     const next = this.pendingTasks.dequeue()
     if (!next) return
     this.activateTask(next)
