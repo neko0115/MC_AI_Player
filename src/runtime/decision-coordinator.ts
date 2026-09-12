@@ -98,6 +98,7 @@ export class DecisionCoordinator {
   private pendingDecisionEvidence: ComplexityEvidence = {}
   private recoveryTimer: ReturnType<typeof setTimeout> | null = null
   private recoveryRetryAt: number | null = null
+  private pendingResumeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly options: DecisionCoordinatorOptions) {
     this.classifier = new TriggerClassifier({ botUsername: options.botUsername })
@@ -121,6 +122,7 @@ export class DecisionCoordinator {
     this.unsubscribe = null
     this.invalidateInFlightDecision('coordinator_disposed')
     this.clearRecoveryTimer(true)
+    this.clearPendingResumeTimer()
     this.invalidateManualGrants()
     this.pendingTasks.clear()
     this.clearActiveTaskState()
@@ -245,6 +247,7 @@ export class DecisionCoordinator {
       this.invalidateMinecraftManualGrants()
       this.invalidateInFlightDecision('minecraft_disconnected')
       this.clearRecoveryTimer(false)
+      this.clearPendingResumeTimer()
       const task = this.activeTask
       if (task) {
         if (task.activeGoalId) {
@@ -262,6 +265,7 @@ export class DecisionCoordinator {
     if (event.type === 'emergency_stop') {
       this.invalidateInFlightDecision('emergency_stop')
       this.clearRecoveryTimer(true)
+      this.clearPendingResumeTimer()
       if (this.activeTask) this.activeTask.state = 'superseded'
       this.clearActiveTaskState()
       this.execution = 'idle'
@@ -289,7 +293,7 @@ export class DecisionCoordinator {
       this.activeTask === null &&
       (event.type === 'goal_completed' || event.type === 'goal_failed' || event.type === 'goal_cancelled')
     ) {
-      if (this.options.goals.activeGoal() === null) this.startNextPendingTask()
+      if (this.pendingTasks.size() > 0) this.schedulePendingTaskResume()
       return
     }
 
@@ -605,6 +609,7 @@ export class DecisionCoordinator {
   private async handleClearAiWork(reason: string): Promise<void> {
     this.invalidateInFlightDecision(reason)
     this.clearRecoveryTimer(true)
+    this.clearPendingResumeTimer()
     this.invalidateManualGrants()
     this.pendingTasks.clear()
     const task = this.activeTask
@@ -649,6 +654,25 @@ export class DecisionCoordinator {
       this.recoveryTimer = null
       this.enqueueRecovery(taskId, taskGeneration)
     }, delay)
+  }
+
+  private schedulePendingTaskResume(): void {
+    if (this.pendingResumeTimer !== null) return
+    this.pendingResumeTimer = setTimeout(() => {
+      this.pendingResumeTimer = null
+      this.mailboxTail = this.mailboxTail
+        .then(() => {
+          this.startNextPendingTask()
+        })
+        .catch(() => {
+          // A failed resume check must not poison later mailbox work.
+        })
+    }, 0)
+  }
+
+  private clearPendingResumeTimer(): void {
+    if (this.pendingResumeTimer !== null) clearTimeout(this.pendingResumeTimer)
+    this.pendingResumeTimer = null
   }
 
   private clearRecoveryTimer(clearRetryAt: boolean): void {
