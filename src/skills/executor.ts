@@ -108,12 +108,19 @@ export class SkillExecutor {
         at: this.now(),
         skill: active.name
       })
+    } else if (result.status === 'cancelled') {
+      await this.events?.publish({
+        type: 'skill_cancelled',
+        at: this.now(),
+        skill: active.name,
+        code: sanitizeCode(result.code, 'cancelled')
+      })
     } else {
       await this.events?.publish({
         type: 'skill_failed',
         at: this.now(),
         skill: active.name,
-        code: sanitizeCode(result.code, result.status)
+        code: sanitizeCode(result.code, 'failed')
       })
     }
 

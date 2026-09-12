@@ -468,6 +468,11 @@ export class MineflayerAdapter implements MinecraftAdapter {
       this.emitPlayerIfPositioned(player)
     })
 
+    bot.on('playerLeft', player => {
+      if (this.bot !== bot || player.username === bot.username) return
+      this.emit(this.bridge.playerLeft(player.username, player.uuid))
+    })
+
     bot.on('entitySpawn', entity => {
       if (
         this.bot !== bot ||
@@ -486,7 +491,8 @@ export class MineflayerAdapter implements MinecraftAdapter {
 
     bot.on('chat', (username, message) => {
       if (this.bot !== bot || username === bot.username) return
-      this.emit(this.bridge.chat(username, message))
+      const playerId = bot.players[username]?.uuid?.trim()
+      this.emit(this.bridge.chat(username, message, playerId || undefined))
     })
 
     bot.on('health', () => {
