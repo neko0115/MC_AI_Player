@@ -135,7 +135,7 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
 
   let controlCreated = false
   let adminCreated = false
-  let adminOptions: AdminServerOptions | null = null
+  const adminCaptures: AdminServerOptions[] = []
   const application = createApplication(env(), {
     createRuntime: (_config: MinecraftConfig) => runtime(calls),
     createMemory: () => new FakeMemory(calls),
@@ -152,7 +152,7 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
     },
     createAdminServer: options => {
       adminCreated = true
-      adminOptions = options
+      adminCaptures.push(options)
       return new FakeAdminServer(calls, options)
     }
   })
@@ -160,7 +160,7 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
   assert.deepEqual(calls, ['gemini.create'])
   assert.equal(controlCreated, true)
   assert.equal(adminCreated, true)
-  const capturedAdmin = adminOptions
+  const capturedAdmin = adminCaptures[0]
   assert.ok(capturedAdmin)
   assert.equal(capturedAdmin.bearerToken, 'ADMIN_SECRET_DO_NOT_LEAK')
   assert.equal(capturedAdmin.routing, fakeStack.configManager)
