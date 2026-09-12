@@ -83,6 +83,7 @@ export class DecisionCoordinator {
   private readonly grantRequiredTasks = new Set<string>()
   private unsubscribe: (() => void) | null = null
   private mailboxTail: Promise<void> = Promise.resolve()
+  private telemetryTail: Promise<void> = Promise.resolve()
   private activeTask: AiTask | null = null
   private decisionAbort: AbortController | null = null
   private activeDecisionEpoch: number | null = null
@@ -205,6 +206,14 @@ export class DecisionCoordinator {
     })
   }
 
+  private publishTelemetry(event: RuntimeEvent): void {
+    this.telemetryTail = this.telemetryTail
+      .then(() => this.options.events.publish(event))
+      .catch(() => {
+        // Observability must never change coordinator/gameplay semantics.
+      })
+  }
+
   private async handleEvent(event: RuntimeEvent): Promise<void> {
     if (!this.running) return
 
@@ -266,7 +275,7 @@ export class DecisionCoordinator {
       this.invalidateInFlightDecision('emergency_stop')
       this.clearRecoveryTimer(true)
       this.clearPendingResumeTimer()
-      if (this.activeTask) this.activeTask.state = 'superseded'
+      if (this.activeTask) this.markTaskSuperseded(this.activeTask, 'emergency_stop')
       this.clearActiveTaskState()
       this.execution = 'idle'
       return
@@ -393,12 +402,7 @@ export class DecisionCoordinator {
     ) === true
 
     if (this.grantRequiredTasks.has(task.taskId) && !grantValid) {
-      task.state = 'blocked'
-      this.grantRequiredTasks.delete(task.taskId)
-      this.manualGrants.delete(task.taskId)
-      this.clearActiveTaskState()
-      this.execution = 'idle'
-      this.startNextPendingTask()
+      this.blockTask(task, 'manual_grant_invalid')
       return
     }
 
@@ -441,6 +445,17 @@ export class DecisionCoordinator {
       assessment,
       grantValid
     )
+    this.publishTelemetry({
+      type: 'complexity_assessment',
+      at: this.now(),
+      decisionId: routePlan.decisionId,
+      taskId: task.taskId,
+      score: assessment.score,
+      routeClass: assessment.routeClass,
+      thinking: assessment.thinking,
+      reasons: [...assessment.reasons],
+      highReason: assessment.highReason
+    })
     this.pendingDecisionEvidence = {}
 
     if (grantValid) {
@@ -490,16 +505,26 @@ export class DecisionCoordinator {
     this.execution = 'idle'
 
     if (result.kind === 'unavailable') {
-      this.aiAvailability = 'unavailable'
+      this.setAiAvailability('unavailable', result.retryAt)
       this.execution = 'decision_pending'
       this.recoveryRetryAt = result.retryAt
       if (result.retryAt !== null) this.scheduleRecovery(result.retryAt)
       return
     }
 
+    if (result.kind === 'safety_blocked') {
+      this.blockTask(task, result.code)
+      return
+    }
+
+    if (result.kind === 'configuration_error' || result.kind === 'invalid_response') {
+      this.blockTask(task, result.code)
+      return
+    }
+
     if (result.kind !== 'success') return
 
-    this.aiAvailability = 'available'
+    this.setAiAvailability('available', null)
     this.recoveryRetryAt = null
     const gated = await this.options.decisionGate.accept(
       result.providerResult,
@@ -532,12 +557,17 @@ export class DecisionCoordinator {
       return
     }
 
-    if (gated.kind === 'complete' || gated.kind === 'blocked' || gated.kind === 'rejected') {
-      task.state = gated.kind === 'complete' ? 'completed' : 'blocked'
-      this.clearActiveTaskState()
-      this.execution = 'idle'
-      this.startNextPendingTask()
+    if (gated.kind === 'complete') {
+      this.completeTask(task)
+      return
     }
+
+    if (gated.kind === 'blocked') {
+      this.blockTask(task, gated.reason)
+      return
+    }
+
+    this.blockTask(task, gated.code)
   }
 
   private async handleMinecraftManualCommand(
@@ -614,7 +644,7 @@ export class DecisionCoordinator {
     this.pendingTasks.clear()
     const task = this.activeTask
     if (task) {
-      task.state = 'superseded'
+      this.markTaskSuperseded(task, safeEventCode(reason, 'ai_work_cleared'))
       if (task.activeGoalId) {
         const active = this.options.goals.activeGoal()
         if (active?.goalId === task.activeGoalId && active.source === 'ai') {
@@ -624,7 +654,7 @@ export class DecisionCoordinator {
     }
     this.clearActiveTaskState()
     this.execution = 'idle'
-    this.aiAvailability = 'available'
+    this.setAiAvailability('available', null)
   }
 
   private async handleRecovery(taskId: string, taskGeneration: number): Promise<void> {
@@ -638,7 +668,7 @@ export class DecisionCoordinator {
     ) return
 
     this.recoveryRetryAt = null
-    this.aiAvailability = 'available'
+    this.setAiAvailability('available', null)
     this.execution = 'idle'
     this.dispatchActiveTask(true)
   }
@@ -734,6 +764,12 @@ export class DecisionCoordinator {
     if (this.activeTask !== null) {
       if (await this.supersedeContinuousGoal(task)) return
       if (!this.pendingTasks.enqueue(task)) {
+        this.publishTelemetry({
+          type: 'task_blocked',
+          at: this.now(),
+          taskId: task.taskId,
+          code: 'task_queue_full'
+        })
         this.manualGrants.get(task.taskId)?.invalidate()
         this.manualGrants.delete(task.taskId)
         this.grantRequiredTasks.delete(task.taskId)
@@ -755,7 +791,7 @@ export class DecisionCoordinator {
     }
 
     await this.options.goals.preemptActive('superseded_by_ai_task')
-    task.state = 'superseded'
+    this.markTaskSuperseded(task, 'superseded_by_ai_task')
     this.invalidateGrantForTask(task.taskId)
     this.clearActiveTaskState()
     this.execution = 'idle'
@@ -769,7 +805,7 @@ export class DecisionCoordinator {
     if (!task) return
     this.invalidateInFlightDecision('preempted_by_player')
     this.clearRecoveryTimer(true)
-    task.state = 'superseded'
+    this.markTaskSuperseded(task, 'preempted_by_player')
     this.clearActiveTaskState()
     this.execution = 'idle'
   }
@@ -792,6 +828,61 @@ export class DecisionCoordinator {
     this.previousAction = null
     this.failureEvidence.clear()
     this.pendingDecisionEvidence = {}
+    this.publishTelemetry({
+      type: 'task_started',
+      at: this.now(),
+      taskId: task.taskId,
+      source: task.source
+    })
+  }
+
+  private completeTask(task: AiTask): void {
+    task.state = 'completed'
+    this.publishTelemetry({
+      type: 'task_completed',
+      at: this.now(),
+      taskId: task.taskId
+    })
+    this.clearActiveTaskState()
+    this.execution = 'idle'
+    this.startNextPendingTask()
+  }
+
+  private blockTask(task: AiTask, code: string): void {
+    task.state = 'blocked'
+    this.publishTelemetry({
+      type: 'task_blocked',
+      at: this.now(),
+      taskId: task.taskId,
+      code: safeEventCode(code, 'task_blocked')
+    })
+    this.clearActiveTaskState()
+    this.execution = 'idle'
+    this.startNextPendingTask()
+  }
+
+  private markTaskSuperseded(task: AiTask, code: string): void {
+    task.state = 'superseded'
+    this.publishTelemetry({
+      type: 'task_superseded',
+      at: this.now(),
+      taskId: task.taskId,
+      code: safeEventCode(code, 'task_superseded')
+    })
+  }
+
+  private setAiAvailability(
+    next: DecisionCoordinatorStatus['aiAvailability'],
+    retryAt: number | null
+  ): void {
+    if (this.aiAvailability === next) return
+    this.aiAvailability = next
+    this.publishTelemetry({
+      type: 'ai_availability_changed',
+      at: this.now(),
+      available: next === 'available',
+      retryAt
+    })
   }
 
   private clearActiveTaskState(): void {
@@ -824,4 +915,9 @@ function isPrivilegedMinecraftPrincipal(
 function normalizeInstruction(value: string): string | null {
   const normalized = value.trim()
   return normalized.length >= 1 && normalized.length <= 1000 ? normalized : null
+}
+
+function safeEventCode(value: string, fallback: string): string {
+  const normalized = value.trim().replace(/\s+/g, '_').slice(0, 128)
+  return normalized || fallback
 }
