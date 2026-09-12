@@ -30,7 +30,7 @@ export interface LiveValidationStack {
 }
 
 export interface LiveValidationCaseEvidence {
-  readonly case: 'routine' | 'complex'
+  readonly case: 'routine' | 'complex' | 'admin_deep'
   readonly model: string
   readonly thinking: ThinkingLevel
   readonly project: string
@@ -109,6 +109,7 @@ export async function runGeminiRoutingLiveValidation(
       ),
       expectedModel: snapshot.models.routine.name,
       expectedThinking: 'low',
+      expectedReserveAuthorized: false,
       executor: stack.executor,
       capturedRoutes
     })
@@ -126,13 +127,32 @@ export async function runGeminiRoutingLiveValidation(
       ),
       expectedModel: snapshot.models.complex.name,
       expectedThinking: 'medium',
+      expectedReserveAuthorized: false,
+      executor: stack.executor,
+      capturedRoutes
+    })
+    const adminDeep = await executeCase({
+      caseName: 'admin_deep',
+      decisionId: 'live-validation-admin-deep',
+      context: validationContext(
+        'live-validation-admin-deep',
+        'Validate one trusted local-admin deep-think structured outcome without Minecraft side effects.'
+      ),
+      routePlan: createRoutePlan(
+        'live-validation-admin-deep',
+        assessComplexity({ manualDeep: true }),
+        true
+      ),
+      expectedModel: snapshot.models.complex.name,
+      expectedThinking: 'high',
+      expectedReserveAuthorized: true,
       executor: stack.executor,
       capturedRoutes
     })
 
     const passed: LiveValidationResult = {
       kind: 'passed',
-      cases: Object.freeze([routine, complex])
+      cases: Object.freeze([routine, complex, adminDeep])
     }
     writeLine(JSON.stringify(passed))
     return passed
@@ -156,6 +176,7 @@ async function executeCase(options: {
   readonly routePlan: Parameters<LogicalDecisionExecutor['execute']>[0]['routePlan']
   readonly expectedModel: string
   readonly expectedThinking: ThinkingLevel
+  readonly expectedReserveAuthorized: boolean
   readonly executor: LogicalDecisionExecutor
   readonly capturedRoutes: ReadonlyMap<string, CapturedRoute>
 }): Promise<LiveValidationCaseEvidence> {
@@ -175,8 +196,11 @@ async function executeCase(options: {
   if (!route) throw new Error('model route telemetry was not observed')
   if (route.model !== options.expectedModel) throw new Error('unexpected model route')
   if (route.thinking !== options.expectedThinking) throw new Error('unexpected thinking level')
-  if (route.reserveAuthorized || route.reserveUsed) {
-    throw new Error('live validation must not use Flash reserve')
+  if (route.reserveAuthorized !== options.expectedReserveAuthorized) {
+    throw new Error('unexpected reserve authorization')
+  }
+  if (route.reserveUsed) {
+    throw new Error('live validation must not consume Flash reserve')
   }
 
   return Object.freeze({
