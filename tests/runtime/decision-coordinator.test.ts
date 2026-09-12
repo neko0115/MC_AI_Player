@@ -84,7 +84,7 @@ function harness() {
     now: () => 1_000
   })
   coordinator.start()
-  return { coordinator, events, state, logicalExecutor }
+  return { coordinator, events, state, logicalExecutor, goals, registry }
 }
 
 async function ready(events: RuntimeEventBus): Promise<void> {
@@ -93,6 +93,30 @@ async function ready(events: RuntimeEventBus): Promise<void> {
     type: 'spawned', at: 2, dimension: 'overworld',
     position: { x: 0, y: 64, z: 0 }, health: 20, food: 20
   })
+}
+
+function completeResult(): LogicalDecisionResult {
+  return {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured', provider: 'fake', mode: 'function_call',
+      value: { version: 2, outcome: 'complete' }
+    }
+  }
+}
+
+function stayResult(): LogicalDecisionResult {
+  return {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured', provider: 'fake', mode: 'function_call',
+      value: {
+        version: 2,
+        outcome: 'action',
+        action: { intent: 'stay', args: {} }
+      }
+    }
+  }
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -142,6 +166,68 @@ test('state-only events update latest state during an in-flight decision without
   assert.equal(current.logicalExecutor.requests.length, 1)
   assert.deepEqual(current.state.snapshot().inventory, [{ name: 'bread', count: 2 }])
   assert.deepEqual(current.state.snapshot().position, { x: 5, y: 64, z: 5 })
+
+  current.coordinator.dispose()
+})
+
+test('successful action is gated against latest state before the Coordinator submits one AI goal', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 原地待命'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.source === 'ai')
+
+  const goal = current.goals.activeGoal()
+  assert.equal(goal?.request.kind, 'stay')
+  assert.equal(current.coordinator.status().activeGoalId, goal?.goalId ?? null)
+  assert.equal(current.coordinator.status().execution, 'goal_running')
+  assert.equal(current.coordinator.status().decisionInFlight, false)
+
+  current.coordinator.dispose()
+})
+
+test('complete closes the active task without creating a GoalRequest', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 看看是否已完成'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+
+  current.logicalExecutor.resolveNext(completeResult())
+  await waitFor(() => current.coordinator.status().activeTaskId === null)
+
+  assert.equal(current.goals.activeGoal(), null)
+  assert.equal(current.coordinator.status().execution, 'idle')
+
+  current.coordinator.dispose()
+})
+
+test('emergency stop aborts the in-flight decision and a late provider response cannot resurrect work', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 原地待命'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+  const signal = current.logicalExecutor.signals[0]
+  assert.ok(signal)
+
+  await current.events.publish({
+    type: 'emergency_stop', at: 4, reason: 'operator stop'
+  })
+  await waitFor(() => signal.aborted)
+  assert.equal(current.coordinator.status().activeTaskId, null)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await new Promise(resolve => setTimeout(resolve, 5))
+
+  assert.equal(current.goals.activeGoal(), null)
+  assert.equal(current.coordinator.status().execution, 'idle')
 
   current.coordinator.dispose()
 })
