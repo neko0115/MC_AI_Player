@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Review gate:** This plan is complete and self-reviewed, but implementation must not begin until the user explicitly approves this plan.
+> **Review gate:** The architecture/spec is approved. This implementation plan is complete and self-reviewed, but implementation must not begin until the user explicitly approves this plan.
 
 **Goal:** Implement the approved deterministic Gemini Lite/Flash routing architecture, including trusted manual deep-think, an ordered Google Project pool, durable quota accounting, a production decision coordinator, and a loopback-only Admin API without weakening deterministic gameplay or SafetyPolicy boundaries.
 
