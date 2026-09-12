@@ -31,7 +31,7 @@ Headless Minecraft Java cooperative-agent runtime for the Moxue project.
 
 ## Development status
 
-The runtime is implemented and testable on the feature branch, but it is not yet a completed v1 release. Anything under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
+The routing implementation and real Gemini compatibility gate are complete on the feature branch, but this repository is not yet a completed v1 release. Anything under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
 
 The design and implementation-plan documents are architecture/execution records. Historical wording or unchecked task boxes are not the authoritative source of runtime completion state; use this README together with concrete CI/live-validation evidence.
 
@@ -148,12 +148,25 @@ $env:MC_AI_KEY_PRIMARY='<secret>'
 npm run validate:gemini-live
 ```
 
-The validator performs two structured provider-compatibility decisions without executing Minecraft gameplay:
+The validator performs three structured provider-compatibility decisions without executing Minecraft gameplay:
 
 - routine route: configured routine model with `low` thinking;
-- complex route: configured complex model with `medium` thinking.
+- complex route: configured complex model with `medium` thinking;
+- trusted local-admin deep route: configured complex model with `high` thinking and reserve authorization.
 
-It requires a valid `DecisionOutcomeV2`, observes the anonymous `model_route` telemetry, forbids reserve use, and prints only sanitized evidence. Fake transport evidence or ordinary CI does **not** count as a real Gemini API PASS.
+It requires a valid `DecisionOutcomeV2`, observes anonymous `model_route` telemetry, forbids actual reserve consumption during validation, and requires each successful provider call to settle in `data/ai-quota.sqlite3` with `usage_quality='actual'`. Output contains only anonymous Project labels, model/thinking, PASS/FAIL, and token counts.
+
+### Captured real-provider evidence
+
+On 2026-09-12, the full opt-in gate passed against real Google Gemini projects on code HEAD `2d4e5746e2c20fd75e57eb4a264cffaae38deec2` immediately before this documentation update:
+
+```text
+routine     gemini-3.5-flash-lite / low    primary  PASS  input=723 output=20 thought=0   tool=0 total=743
+complex     gemini-3.8-flash      / medium primary  PASS  input=728 output=31 thought=273 tool=0 total=1032
+admin_deep  gemini-3.8-flash      / high   backup-1 PASS  input=734 output=31 thought=759 tool=0 total=1524
+```
+
+All three cases returned structured `DecisionOutcomeV2` output and actual usage settlement. The admin-deep route was reserve-authorized but completed in normal capacity; the validator rejects any run that actually consumes reserve. No raw API key, prompt, real Google Project ID, UUID allowlist, provider body, or thought text is included in the evidence.
 
 ## Control API
 
@@ -229,7 +242,7 @@ The automated suite covers, among other areas:
 - loopback Admin authentication, quota/status sanitization, routing reload, idempotent deep-think, and bounded cache behavior;
 - production composition-root ownership for Gemini routing, quota DB, Admin lifecycle, and safe Control API AI status;
 - cross-layer Gemini routing E2E with fake transport: Lite/low, Flash/medium, high replanning, privileged reserve, failover, terminal content block, and latest-state recovery;
-- opt-in live-validator behavior and secret-safe reporting without making a real API call in normal CI;
+- opt-in live-validator contract coverage for routine/complex/admin-deep routes, actual-usage settlement, and secret-safe reporting without making a real API call in normal CI;
 - replay-backed cooperative acceptance and zero raw-text reasoning actuator reachability;
 - soak telemetry contracts and chaos-harness convergence behavior.
 
@@ -241,7 +254,6 @@ Deployment and real-hardware measurement procedure is documented under `docs/ope
 
 Do not treat the following as validated yet:
 
-- **Real Gemini API compatibility:** the opt-in validator exists, but a real Google API/model/function-schema run still requires private routing config and credentials. Until captured as PASS, `fake` remains the safe default.
 - **30-minute private-server cooperative session:** still requires a real Minecraft server and human multiplayer validation.
 - **Production wiring for `return_home`, `deposit_item`, and `withdraw_item`:** the underlying schemas/skills exist, but the current production composition root does not yet register the complete storage/home workflow. This remains a release blocker.
 - **Real deployment evidence:** Linux ARM64 runtime measurements, Raspberry Pi 3B benchmark, intended mini-PC benchmark, runtime-probe evidence, and the required 4–8 hour soak have not yet been captured.
