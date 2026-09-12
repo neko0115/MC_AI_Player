@@ -209,6 +209,7 @@ export class DecisionCoordinator {
     })
 
     if (this.activeTask !== null) {
+      if (await this.supersedeContinuousGoal(task)) return
       this.pendingTasks.enqueue(task)
       return
     }
@@ -335,7 +336,35 @@ export class DecisionCoordinator {
       task.state = 'completed'
       this.clearActiveTaskState()
       this.execution = 'idle'
+      this.startNextPendingTask()
     }
+  }
+
+  private async supersedeContinuousGoal(nextTask: AiTask): Promise<boolean> {
+    const task = this.activeTask
+    if (!task || this.execution !== 'goal_running' || !task.activeGoalId) return false
+
+    const goal = this.options.goals.getGoal(task.activeGoalId)
+    if (!goal || (goal.request.kind !== 'stay' && goal.request.kind !== 'follow_player')) {
+      return false
+    }
+
+    await this.options.goals.preemptActive('superseded_by_ai_task')
+    task.state = 'superseded'
+    this.clearActiveTaskState()
+    this.execution = 'idle'
+    this.activateTask(nextTask)
+    this.dispatchActiveTask()
+    return true
+  }
+
+  private startNextPendingTask(): void {
+    if (!this.running || this.activeTask !== null) return
+    const next = this.pendingTasks.dequeue()
+    if (!next) return
+    this.activateTask(next)
+    this.execution = 'idle'
+    this.dispatchActiveTask()
   }
 
   private activateTask(task: AiTask): void {
