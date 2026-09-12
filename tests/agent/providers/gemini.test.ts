@@ -268,3 +268,8 @@ test('SDK TimeoutError maps only to ProviderResult timeout; other failures stay 
   })
   assert.equal(JSON.stringify(result).includes('SECRET_NETWORK_DETAIL'), false)
 })
+
+test('Gemini module exports the routed one-attempt transport', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  assert.equal(typeof (module as Record<string, unknown>).GeminiTransport, 'function')
+})
