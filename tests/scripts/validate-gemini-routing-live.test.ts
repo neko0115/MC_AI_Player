@@ -101,7 +101,7 @@ test('live validation is a zero-side-effect SKIP unless explicitly opted in', as
 
 test('opted-in live validation emits only sanitized routing evidence for routine and complex calls', async () => {
   const lines: string[] = []
-  let capturedOptions: GeminiDecisionStackOptions | null = null
+  const capturedOptions: GeminiDecisionStackOptions[] = []
   const env = {
     MC_AI_LIVE_VALIDATION: '1',
     MC_AI_ROUTING_CONFIG: 'data/ai-routing.json',
@@ -111,7 +111,7 @@ test('opted-in live validation emits only sanitized routing evidence for routine
 
   const result = await runGeminiRoutingLiveValidation(env, {
     createStack(options) {
-      capturedOptions = options
+      capturedOptions.push(options)
       return fakeStack(options.events)
     },
     writeLine: line => lines.push(line),
@@ -119,7 +119,7 @@ test('opted-in live validation emits only sanitized routing evidence for routine
   })
 
   assert.equal(result.kind, 'passed')
-  assert.equal(capturedOptions?.routingConfigPath, 'data/ai-routing.json')
+  assert.equal(capturedOptions[0]?.routingConfigPath, 'data/ai-routing.json')
   assert.equal(result.kind === 'passed' ? result.cases.length : 0, 2)
   if (result.kind === 'passed') {
     assert.deepEqual(result.cases.map(item => [item.case, item.model, item.thinking, item.project]), [
