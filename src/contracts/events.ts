@@ -5,6 +5,32 @@ const AtSchema = z.number().finite().nonnegative()
 const EventCodeSchema = z.string().trim().min(1).max(128)
 const PlayerNameSchema = z.string().trim().min(1).max(64)
 const PlayerIdSchema = z.string().trim().min(1).max(128)
+const TaskIdSchema = EventCodeSchema
+const DecisionIdSchema = EventCodeSchema
+const ModelNameSchema = z.string().trim().min(1).max(256)
+const ThinkingLevelSchema = z.enum(['low', 'medium', 'high'])
+const RouteClassSchema = z.enum(['routine', 'complex'])
+const RouteReasonSchema = z.string().trim().min(1).max(128)
+const RouteReasonsSchema = z.array(RouteReasonSchema).max(16)
+const HighReasonSchema = z.enum([
+  'manual_deep_think',
+  'repeated_replanning',
+  'critical_context'
+])
+const AnonymousProjectSchema = z
+  .string()
+  .regex(/^(primary|backup-[1-9][0-9]*)$/)
+const TaskSourceSchema = z.enum(['minecraft', 'local_admin', 'system'])
+const AttemptResultSchema = z.enum([
+  'success',
+  'credential_fatal',
+  'quota_unavailable',
+  'transient',
+  'safety_terminal',
+  'generation_retry',
+  'configuration_error',
+  'cancelled'
+])
 
 export const PositionSchema = z
   .object({
@@ -129,7 +155,77 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('decision_accepted'), at: AtSchema, intent: z.string().trim().min(1).max(64) }).strict(),
   z.object({ type: z.literal('decision_rejected'), at: AtSchema, code: EventCodeSchema }).strict(),
   z.object({ type: z.literal('memory_written'), at: AtSchema, memoryId: EventCodeSchema }).strict(),
-  z.object({ type: z.literal('stuck'), at: AtSchema, code: EventCodeSchema.optional() }).strict()
+  z.object({ type: z.literal('stuck'), at: AtSchema, code: EventCodeSchema.optional() }).strict(),
+  z
+    .object({
+      type: z.literal('complexity_assessment'),
+      at: AtSchema,
+      decisionId: DecisionIdSchema,
+      taskId: TaskIdSchema,
+      score: z.number().int().nonnegative().max(100),
+      routeClass: RouteClassSchema,
+      thinking: ThinkingLevelSchema,
+      reasons: RouteReasonsSchema,
+      highReason: HighReasonSchema.nullable()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('model_route'),
+      at: AtSchema,
+      decisionId: DecisionIdSchema,
+      model: ModelNameSchema,
+      thinking: ThinkingLevelSchema,
+      project: AnonymousProjectSchema,
+      reasons: RouteReasonsSchema,
+      reserveAuthorized: z.boolean(),
+      reserveUsed: z.boolean()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('attempt_result'),
+      at: AtSchema,
+      decisionId: DecisionIdSchema,
+      model: ModelNameSchema,
+      project: AnonymousProjectSchema,
+      result: AttemptResultSchema,
+      safeCode: EventCodeSchema.optional()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('ai_availability_changed'),
+      at: AtSchema,
+      available: z.boolean(),
+      retryAt: AtSchema.nullable()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('task_started'),
+      at: AtSchema,
+      taskId: TaskIdSchema,
+      source: TaskSourceSchema
+    })
+    .strict(),
+  z.object({ type: z.literal('task_completed'), at: AtSchema, taskId: TaskIdSchema }).strict(),
+  z
+    .object({
+      type: z.literal('task_blocked'),
+      at: AtSchema,
+      taskId: TaskIdSchema,
+      code: EventCodeSchema
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('task_superseded'),
+      at: AtSchema,
+      taskId: TaskIdSchema,
+      code: EventCodeSchema
+    })
+    .strict()
 ])
 
 export type RuntimeEvent = z.infer<typeof RuntimeEventSchema>
