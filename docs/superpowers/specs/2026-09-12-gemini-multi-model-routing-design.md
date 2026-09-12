@@ -344,6 +344,16 @@ DC_BOT integration must later receive a separate authenticated integration princ
 
 ## 13. Routing configuration and atomic reload
 
+The existing provider switch remains authoritative at the top level:
+
+```text
+MC_AI_PROVIDER=fake|gemini
+```
+
+For `fake`, no real Gemini routing file or Google credential is required; the fake path remains the deterministic CI/test seam and must not accidentally consume production quota state unless a quota-ledger test wires that behavior explicitly.
+
+For `gemini`, a valid multi-model routing configuration and all referenced credential environment variables required by the active Project pool are mandatory. Missing or invalid routing configuration fails Gemini startup closed rather than falling back to the legacy single-model path.
+
 Public repository configuration contains only:
 
 ```text
@@ -383,7 +393,7 @@ read candidate
 
 A failed reload leaves the previous configuration fully active. A successful authorization-policy reload invalidates pending Minecraft privileged grants.
 
-Legacy single-model values must not override the active multi-model routing configuration. Gemini routing authority belongs to the validated routing file plus referenced environment credentials.
+When `MC_AI_PROVIDER=gemini`, legacy `MC_AI_MODEL` and `MC_AI_API_KEY` values are tolerated for deployment migration but ignored as routing authority. They must never override or fill gaps in the validated multi-model routing configuration. The public environment example should mark them deprecated once the new path is implemented.
 
 ## 14. Config generation and reload races
 
@@ -803,10 +813,14 @@ Authenticated loopback admin may inspect detailed anonymous Project/model quota,
 
 Implementation must preserve the following configuration rules:
 
+- `MC_AI_PROVIDER=fake|gemini` remains the provider switch;
+- `fake` requires no real Gemini routing config and remains suitable for deterministic CI;
+- `gemini` requires a complete validated routing file plus referenced Project credentials and fails startup closed if they are missing or invalid;
 - Gemini routing uses `MC_AI_ROUTING_CONFIG` or `data/ai-routing.json`;
 - the public repository commits only `config/ai-routing.example.json`;
 - the real routing file is gitignored;
 - API keys are environment variables referenced by `apiKeyEnv`;
+- legacy `MC_AI_MODEL` and `MC_AI_API_KEY` are non-authoritative and ignored by the multi-model Gemini path;
 - `MC_SERVER_IDENTITY_MODE` is startup-only and defaults/fails closed to offline trust;
 - `MC_ADMIN_TOKEN` controls whether the loopback Admin listener exists;
 - quota numbers are supplied from active deployment limits/operator policy and are never guessed;
@@ -818,6 +832,8 @@ Implementation is RED -> GREEN TDD. At minimum, tests cover:
 
 ### Configuration
 
+- provider-mode split: fake succeeds without production routing credentials; Gemini fails closed without a valid routing file/credentials;
+- legacy single-model env values cannot override or fill gaps in Gemini routing;
 - schema validation and fail-closed missing quota;
 - stable `projectKey` behavior across reorder;
 - atomic reload and monotonically increasing generation;
