@@ -273,3 +273,32 @@ test('Gemini module exports the routed one-attempt transport', async () => {
   const module = await import('../../../src/agent/providers/gemini.js')
   assert.equal(typeof (module as Record<string, unknown>).GeminiTransport, 'function')
 })
+
+test('Gemini transport prepares one immutable V2 forced-function payload', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new () => {
+    prepare(context: DecisionContext): {
+      input: string
+      systemInstruction: string
+      tools: ReadonlyArray<{ name: string; parameters: Record<string, unknown> }>
+      utf8Bytes: number
+    }
+  }
+  const transport = new Transport()
+  const prepared = transport.prepare(context())
+
+  assert.equal(Object.isFrozen(prepared), true)
+  assert.equal(prepared.tools.length, 1)
+  assert.equal(prepared.tools[0]?.name, 'submit_decision')
+  assert.equal(prepared.utf8Bytes, Buffer.byteLength(prepared.input, 'utf8'))
+  assert.equal(prepared.input.includes('test-server:survival-v1'), true)
+
+  const schema = JSON.stringify(prepared.tools[0]?.parameters)
+  assert.equal(schema.includes('"version":{"const":2'), true)
+  assert.equal(schema.includes('"outcome":{"const":"action"'), true)
+  assert.equal(schema.includes('"outcome":{"const":"complete"'), true)
+  assert.equal(schema.includes('"outcome":{"const":"blocked"'), true)
+  assert.equal(schema.includes('"reasoning"'), false)
+  assert.equal(schema.includes('"analysis"'), false)
+  assert.equal(schema.includes('"thought"'), false)
+})
