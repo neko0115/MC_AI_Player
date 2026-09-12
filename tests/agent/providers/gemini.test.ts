@@ -392,3 +392,127 @@ test('Gemini transport executes one lease-selected attempt and normalizes usage 
   assert.equal(JSON.stringify(result).includes('PRIVATE_THOUGHT_SENTINEL'), false)
   assert.equal(JSON.stringify(result).includes('TEST_KEY_ONLY_INSIDE_TRANSPORT'), false)
 })
+
+test('Gemini transport caches one client per opaque credential handle', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new (options: any) => {
+    prepare(context: DecisionContext): any
+    execute(prepared: any, lease: any, signal: AbortSignal): Promise<any>
+  }
+  const resolvedHandles: string[] = []
+  const createdKeys: string[] = []
+  const transport = new Transport({
+    resolveCredential(handle: string) {
+      resolvedHandles.push(handle)
+      return `KEY:${handle}`
+    },
+    createClient(apiKey: string) {
+      createdKeys.push(apiKey)
+      return {
+        async create() {
+          return {
+            status: 'requires_action',
+            steps: [{
+              type: 'function_call',
+              name: 'submit_decision',
+              arguments: { version: 2, outcome: 'complete' }
+            }]
+          }
+        }
+      }
+    }
+  })
+  const prepared = transport.prepare(context())
+  const baseLease = {
+    attemptId: 'attempt-cache-1', decisionId: 'decision-cache', configGeneration: 1,
+    projectKey: 'pool-a', projectLabel: 'primary', credentialHandle: 'credential-a',
+    model: 'gemini-3.5-flash-lite', thinking: 'low', budgetClass: 'normal', reservationId: 'attempt-cache-1'
+  }
+
+  await transport.execute(prepared, baseLease, new AbortController().signal)
+  await transport.execute(prepared, { ...baseLease, attemptId: 'attempt-cache-2', reservationId: 'attempt-cache-2' }, new AbortController().signal)
+  await transport.execute(prepared, {
+    ...baseLease,
+    attemptId: 'attempt-cache-3',
+    reservationId: 'attempt-cache-3',
+    credentialHandle: 'credential-b',
+    projectKey: 'pool-b',
+    projectLabel: 'backup-1'
+  }, new AbortController().signal)
+
+  assert.deepEqual(resolvedHandles, ['credential-a', 'credential-b'])
+  assert.deepEqual(createdKeys, ['KEY:credential-a', 'KEY:credential-b'])
+})
+
+test('Gemini SDK attempt adapter disables automatic retries and forwards AbortSignal', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const createAttemptClient = (module as Record<string, unknown>).createGeminiAttemptClient as
+    | undefined
+    | ((apiKey: string, factory: (apiKey: string) => any) => {
+        create(request: GeminiInteractionRequest, options: {
+          timeout: number
+          retryAttempts: 1
+          signal: AbortSignal
+        }): Promise<GeminiInteractionResponse>
+      })
+  assert.equal(typeof createAttemptClient, 'function')
+  if (!createAttemptClient) return
+
+  const sdkCalls: Array<{ request: any; options: any }> = []
+  const controller = new AbortController()
+  const client = createAttemptClient('SDK_TEST_KEY', apiKey => {
+    assert.equal(apiKey, 'SDK_TEST_KEY')
+    return {
+      interactions: {
+        async create(request: any, options: any) {
+          sdkCalls.push({ request, options })
+          return {
+            status: 'requires_action',
+            steps: [{
+              type: 'function_call',
+              name: 'submit_decision',
+              arguments: { version: 2, outcome: 'complete' }
+            }],
+            usage: {
+              total_input_tokens: 3,
+              total_output_tokens: 1,
+              total_thought_tokens: 0,
+              total_tool_use_tokens: 0,
+              total_tokens: 4
+            }
+          }
+        }
+      }
+    }
+  })
+
+  const response = await client.create({
+    model: 'gemini-3.5-flash-lite',
+    input: '{}',
+    store: false,
+    stream: false,
+    system_instruction: 'test',
+    tools: [],
+    generation_config: {
+      thinking_level: 'low',
+      thinking_summaries: 'none',
+      tool_choice: 'any'
+    }
+  }, {
+    timeout: 321,
+    retryAttempts: 1,
+    signal: controller.signal
+  })
+
+  assert.equal(sdkCalls.length, 1)
+  assert.equal(sdkCalls[0]?.options.timeout, 321)
+  assert.equal(sdkCalls[0]?.options.maxRetries, 0)
+  assert.equal(sdkCalls[0]?.options.signal, controller.signal)
+  assert.deepEqual(response.usage, {
+    total_input_tokens: 3,
+    total_output_tokens: 1,
+    total_thought_tokens: 0,
+    total_tool_use_tokens: 0,
+    total_tokens: 4
+  })
+})
