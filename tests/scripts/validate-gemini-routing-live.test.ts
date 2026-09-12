@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { GeminiDecisionStackOptions } from '../../src/main.js'
-import type { LogicalDecisionExecutor } from '../../src/agent/routing/contracts.js'
+import type {
+  LogicalDecisionExecutor,
+  RoutePlan
+} from '../../src/agent/routing/contracts.js'
 import { RuntimeEventBus } from '../../src/telemetry/event-bus.js'
 import {
   runGeminiRoutingLiveValidation,
@@ -12,9 +15,13 @@ const SECRET = 'LIVE_SECRET_DO_NOT_LEAK'
 const INTERNAL_PROJECT = 'real-google-project-key-do-not-leak'
 const PRIVATE_PROMPT = 'PRIVATE_PROMPT_DO_NOT_LEAK'
 
-function fakeStack(events: RuntimeEventBus): LiveValidationStack {
+function fakeStack(
+  events: RuntimeEventBus,
+  capturedPlans: RoutePlan[] = []
+): LiveValidationStack {
   const executor: LogicalDecisionExecutor = {
     async execute(request) {
+      capturedPlans.push(request.routePlan)
       await events.publish({
         type: 'model_route',
         at: 1,
@@ -99,9 +106,10 @@ test('live validation is a zero-side-effect SKIP unless explicitly opted in', as
   assert.equal(lines.join('\n').includes(SECRET), false)
 })
 
-test('opted-in live validation emits only sanitized routing evidence for routine and complex calls', async () => {
+test('opted-in live validation covers routine, complex, and admin-deep routes without leaking secrets', async () => {
   const lines: string[] = []
   const capturedOptions: GeminiDecisionStackOptions[] = []
+  const capturedPlans: RoutePlan[] = []
   const env = {
     MC_AI_LIVE_VALIDATION: '1',
     MC_AI_ROUTING_CONFIG: 'data/ai-routing.json',
@@ -112,7 +120,7 @@ test('opted-in live validation emits only sanitized routing evidence for routine
   const result = await runGeminiRoutingLiveValidation(env, {
     createStack(options) {
       capturedOptions.push(options)
-      return fakeStack(options.events)
+      return fakeStack(options.events, capturedPlans)
     },
     writeLine: line => lines.push(line),
     quotaFilename: ':memory:'
@@ -120,13 +128,20 @@ test('opted-in live validation emits only sanitized routing evidence for routine
 
   assert.equal(result.kind, 'passed')
   assert.equal(capturedOptions[0]?.routingConfigPath, 'data/ai-routing.json')
-  assert.equal(result.kind === 'passed' ? result.cases.length : 0, 2)
+  assert.equal(result.kind === 'passed' ? result.cases.length : 0, 3)
   if (result.kind === 'passed') {
     assert.deepEqual(result.cases.map(item => [item.case, item.model, item.thinking, item.project]), [
       ['routine', 'gemini-3.5-flash-lite', 'low', 'primary'],
-      ['complex', 'gemini-3.8-flash', 'medium', 'backup-1']
+      ['complex', 'gemini-3.8-flash', 'medium', 'backup-1'],
+      ['admin_deep', 'gemini-3.8-flash', 'high', 'backup-1']
     ])
   }
+
+  assert.equal(capturedPlans.length, 3)
+  assert.equal(capturedPlans[0]?.reserveAuthorized, false)
+  assert.equal(capturedPlans[1]?.reserveAuthorized, false)
+  assert.equal(capturedPlans[2]?.reserveAuthorized, true)
+  assert.equal(capturedPlans[2]?.highReason, 'manual_deep_think')
 
   const output = lines.join('\n')
   assert.equal(output.includes(SECRET), false)
