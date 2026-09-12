@@ -2,38 +2,46 @@
 
 Headless Minecraft Java cooperative-agent runtime for the Moxue project.
 
-`MC_AI_Player` runs without the Minecraft Launcher or a rendered game client. Mineflayer handles deterministic game actions behind structured goal, safety, memory, and telemetry boundaries. This is a pre-release runtime: verified behavior is documented separately from release gates that still need evidence.
+`MC_AI_Player` runs without the Minecraft Launcher or a rendered game client. Mineflayer performs deterministic gameplay behind structured goal, safety, memory, quota, routing, and telemetry boundaries. The repository is still pre-release: automated behavior and production wiring are separated from release gates that still require live evidence.
 
 ## What it does today
 
-- observes players, chat, health, inventory, and bounded self-position changes;
+- observes players, chat, health, inventory, identity evidence, and bounded self-position changes;
 - executes allowlisted navigation, follow, survival, inventory, and scoped gather skills;
 - stores world-scoped SQLite memory and emits validated runtime telemetry;
-- exposes a local Control API and SSE stream for external orchestration;
-- supports fake and Gemini decision-provider adapters behind strict decision validation;
-- includes deterministic replay, regression, live-server, soak-contract, and chaos-harness tests.
+- exposes a Control API and SSE stream for deterministic external orchestration;
+- runs a production mailbox-style AI Decision Coordinator for addressed Minecraft instructions;
+- routes routine work to Gemini Flash-Lite and complex work to Gemini Flash through a quota-aware Project pool;
+- persists Gemini quota/accounting state separately from Minecraft memory;
+- supports one-shot trusted manual deep-think and a separate loopback-only Admin API;
+- includes deterministic replay, regression, routing E2E, live-server, soak-contract, and chaos-harness tests.
 
 ## Safety model
 
-- model output is parsed into strict structured decisions before gameplay execution;
+- model output is parsed into strict structured `DecisionOutcomeV2` values before gameplay execution;
 - raw model text and hidden reasoning have no direct actuator path;
+- AI chooses only allowlisted high-level actions; deterministic code performs Minecraft movement and mutation;
+- every action is checked against registered production skills, latest world state, and `SafetyPolicy` before Goal submission;
 - navigation defaults to `canDig=false`, and block mutation is limited to scoped gather flows;
 - PvP is disabled by policy;
-- non-loopback Control API binding requires bearer-token authentication.
+- provider safety/content blocking is terminal and is never bypassed by changing model or Google Project;
+- automatic routing cannot consume the reserved 30% Flash budget;
+- non-loopback Control API binding requires bearer-token authentication;
+- the AI Admin API is hard-bound to IPv4 loopback and uses a dedicated token.
 
 ## Development status
 
-The runtime currently on `main` is implemented and testable, but it is not a completed v1 release. Anything listed under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
+The runtime is implemented and testable on the feature branch, but it is not yet a completed v1 release. Anything under **Gates that are still pending** remains explicitly unvalidated until separate evidence exists.
 
-The design and implementation-plan documents are architectural and execution records. Historical wording or unchecked task boxes in those files are not the authoritative source of current completion state; use this README together with concrete validation evidence.
+The design and implementation-plan documents are architecture/execution records. Historical wording or unchecked task boxes are not the authoritative source of runtime completion state; use this README together with concrete CI/live-validation evidence.
 
 ## Architecture / project boundary
 
-- `MC_AI_Player` owns Minecraft connectivity, deterministic gameplay, safety, Minecraft-specific memory, telemetry, the Control API, replay fixtures, and AI decision-provider adapters.
-- The Discord-side Moxue runtime is outside this repository; DC_BOT integration remains a separate pending gate.
+- `MC_AI_Player` owns Minecraft connectivity, deterministic gameplay, safety, Minecraft-specific memory, Gemini routing/quota accounting, telemetry, Control/Admin APIs, and replay fixtures.
+- The Discord-side Moxue runtime is outside this repository; DC_BOT integration remains a separate trust-boundary project.
 - Normal gameplay is headless: no Minecraft Launcher, rendered Java client, OCR, screenshot loop, or GUI is required on the runtime host.
-- AI may choose only allowlisted high-level structured decisions. Deterministic runtime code performs Minecraft actions.
-- Raw or mixed model text and hidden reasoning have no gameplay actuator path.
+- AI task state and manual grants are intentionally volatile; quota/accounting state is durable.
+- Raw API keys remain environment-only. Routing config stores only environment-variable names and anonymous Project identities.
 
 ## Runtime baseline
 
@@ -70,7 +78,10 @@ MC_USERNAME
 MC_AUTH=offline|microsoft
 MC_VERSION              optional
 MC_LOG_LEVEL            optional
+MC_SERVER_IDENTITY_MODE=offline|online
 ```
+
+`MC_SERVER_IDENTITY_MODE` is a separate trust anchor from the bot login method. Missing or invalid values fail closed to `offline`; usernames alone never grant privileged Minecraft AI controls.
 
 The safe AI default is:
 
@@ -78,15 +89,73 @@ The safe AI default is:
 MC_AI_PROVIDER=fake
 ```
 
-Gemini requires both an explicit model and API key:
+Fake mode requires no Gemini routing file, Google credential, Admin token, or production quota DB.
+
+### Gemini multi-model mode
+
+Gemini mode uses a private routing file rather than `MC_AI_MODEL` / `MC_AI_API_KEY`:
 
 ```text
 MC_AI_PROVIDER=gemini
-MC_AI_MODEL=<explicit model>
-MC_AI_API_KEY=<secret>
+MC_AI_ROUTING_CONFIG=data/ai-routing.json
+MC_AI_KEY_PRIMARY=<secret>
+MC_AI_KEY_BACKUP=<secret>   optional if referenced by the routing file
 ```
 
-A real key must never be committed. The Gemini adapter is contract-tested with separated thought/function-call responses, but live Google API/model/schema compatibility is still a separate gate and is **not yet claimed as PASS**.
+`MC_AI_MODEL` and `MC_AI_API_KEY` are deprecated and ignored as routing authority.
+
+Copy `config/ai-routing.example.json` to a private gitignored deployment file and replace the illustrative quota limits with the active limits for the relevant Google AI Studio Projects. Each configured `apiKeyEnv` must exist in the process environment or Gemini startup fails closed.
+
+Current routing roles are:
+
+```text
+routine  -> gemini-3.5-flash-lite / low
+complex  -> gemini-3.8-flash      / medium
+high     -> gemini-3.8-flash      / high
+```
+
+High thinking is restricted to trusted manual deep-think, repeated replanning, or trusted deterministic critical context. Complexity scoring never grants reserve access by itself.
+
+Flash admission is per configured Google Project:
+
+```text
+0% .. 70%   normal automatic/manual budget
+70% .. 100% reserve, privileged manual deep-think only
+```
+
+A reserve-authorized request still scans every Project's normal region before any reserve region.
+
+Quota/accounting state lives in:
+
+```text
+data/ai-quota.sqlite3
+```
+
+It is separate from Minecraft memory. Reservations are durably committed before HTTP dispatch; actual Gemini usage settles the reservation when available, and ambiguous crash/network cases are conservatively accounted.
+
+## Real Gemini compatibility validator
+
+The real provider gate is explicit opt-in. With the flag unset or `0`, the command performs no Google call.
+
+PowerShell:
+
+```powershell
+$env:MC_AI_PROVIDER='gemini'
+$env:MC_AI_LIVE_VALIDATION='1'
+$env:MC_AI_ROUTING_CONFIG='data/ai-routing.json'
+$env:MC_AI_KEY_PRIMARY='<secret>'
+# Set every additional key referenced by data/ai-routing.json.
+npm run validate:gemini-live
+```
+
+The validator performs two structured provider-compatibility decisions without executing Minecraft gameplay:
+
+- routine route: configured routine model with `low` thinking;
+- complex route: configured complex model with `medium` thinking.
+
+It requires a valid `DecisionOutcomeV2`, observes the anonymous `model_route` telemetry, forbids reserve use, and prints only sanitized evidence. Fake transport evidence or ordinary CI does **not** count as a real Gemini API PASS.
+
+## Control API
 
 The Control API defaults to loopback. Binding to a non-loopback interface requires a bearer token at startup.
 
@@ -97,9 +166,7 @@ MC_CONTROL_TOKEN=        required for non-loopback bind
 MC_CONTROL_MAX_BODY_BYTES=16384
 ```
 
-## Control API
-
-Current standalone surface:
+Surface:
 
 ```text
 GET  /health
@@ -110,43 +177,77 @@ GET  /v1/memory/search
 GET  /v1/events          SSE
 ```
 
-Long-running goals return an accepted `goal_id`; HTTP requests do not remain open for gameplay completion. SSE carries validated `RuntimeEvent` objects only.
+`POST /v1/goals` is deterministic direct control and does not invoke Gemini. Long-running goals return an accepted `goal_id`; HTTP requests do not remain open for gameplay completion. SSE carries validated `RuntimeEvent` objects only.
 
-## Current automated validation status
+When Gemini mode is active, `/v1/status` adds only coarse AI state: routine/complex model names, availability, anonymous active Project label, automatic Flash usage percentage, manual-deep availability, active task/goal kind, pending task count, and in-flight state. It does not expose prompts, UUID allowlists, raw errors, API keys, or internal Project identities.
 
-The automated suite currently covers:
+## AI Admin API
 
-- strict decision / goal / event contracts;
-- reasoning isolation and zero raw-text actuator reachability;
-- deterministic GoalManager + SkillExecutor lifecycle and emergency cancellation;
-- hardened Mineflayer navigation with generic `canDig=false`;
-- scoped gather-resource block mutation;
-- survival and bounded inventory/container primitives;
-- SQLite Minecraft memory, deduplication, world isolation, and restart persistence;
-- local Control API authentication, body limits, async goal submission, memory search, and SSE lifecycle;
-- composition-root startup/shutdown and fresh-clone persistence directory bootstrap;
-- replay-backed component-integrated cooperative acceptance: player appears, follow, gather 16 oak logs, return to base, handoff surrogate, write base/resource/task memories, then resume follow;
-- invalid raw-text decision rejection inside that cooperative flow;
-- Gemini high-reasoning provider-adapter variation producing the same allowlisted gather GoalRequest while discarding thought content;
-- Task 16 soak telemetry contracts for RSS, heap, event-loop lag, and explicit missing runtime metrics;
-- Task 16 chaos-harness contracts covering disconnect/restart/stuck/target loss/inventory full/death/AI failures/memory failure/SSE disconnect storms with bounded timeouts.
+The Admin API is disabled unless a dedicated token is configured:
 
-The cooperative acceptance fixture is `fixtures/replay/cooperative-session.jsonl`. Its deterministic scenario lives in `tests/scenarios/cooperative-session.test.ts`; the Gemini adapter variation lives in `tests/scenarios/cooperative-provider.test.ts`.
+```text
+MC_ADMIN_PORT=8767
+MC_ADMIN_TOKEN=<secret>
+```
 
-Task 16 measurement tooling lives in `scripts/soak.ts` and `scripts/chaos.ts`. Deployment and real-hardware measurement procedure is documented in `docs/operations/pi-deployment.md`. Missing runtime probes are represented as `null` plus `missingMetrics`; the tooling must not invent deployment measurements.
+It always binds `127.0.0.1`; there is no configuration for LAN exposure.
+
+Surface:
+
+```text
+GET  /v1/admin/ai-quota
+POST /v1/admin/ai-routing/reload
+POST /v1/admin/ai/deep-think
+```
+
+Admin deep-think requires an `Idempotency-Key`. The Admin API may authorize high/reserve routing, but it cannot select a raw API key or bypass `SafetyPolicy`.
+
+## Minecraft manual deep-think
+
+On `MC_SERVER_IDENTITY_MODE=online`, a current-session UUID matching `manualAccess.ownerUuid` or `operatorAllowlistUuids` may use the explicit commands:
+
+```text
+!moxue deep <instruction>
+!moxue deep current [directive]
+```
+
+Offline-mode Minecraft identities can still submit ordinary addressed instructions and complexity hints, but they cannot gain reserve authority from chat.
+
+## Current automated validation coverage
+
+The automated suite covers, among other areas:
+
+- strict decision / goal / event contracts and reasoning isolation;
+- deterministic complexity scoring and immutable RoutePlans;
+- online/offline UUID trust and one-shot ManualRouteGrant behavior;
+- quota reservations, actual settlement, LA provider-day accounting, crash recovery, 70/30 normal/reserve admission, credential health, and cooldowns;
+- ordered Project failover and primary recovery;
+- one-attempt Gemini transport with SDK retries disabled;
+- 401/403/429/5xx/content-block/generation-error routing taxonomy;
+- bounded RoutedDecisionExecutor retries/failover;
+- mailbox Decision Coordinator single-flight, stale-response protection, multi-step continuation, causal replan coalescing, repeated-replan high thinking, task queueing, reconnect recovery, and direct-control takeover;
+- loopback Admin authentication, quota/status sanitization, routing reload, idempotent deep-think, and bounded cache behavior;
+- production composition-root ownership for Gemini routing, quota DB, Admin lifecycle, and safe Control API AI status;
+- cross-layer Gemini routing E2E with fake transport: Lite/low, Flash/medium, high replanning, privileged reserve, failover, terminal content block, and latest-state recovery;
+- opt-in live-validator behavior and secret-safe reporting without making a real API call in normal CI;
+- replay-backed cooperative acceptance and zero raw-text reasoning actuator reachability;
+- soak telemetry contracts and chaos-harness convergence behavior.
+
+The cooperative acceptance fixture is `fixtures/replay/cooperative-session.jsonl`. Its deterministic scenario lives in `tests/scenarios/cooperative-session.test.ts`; the routed Gemini E2E scenario lives in `tests/scenarios/gemini-routing-coordinator.test.ts`.
+
+Deployment and real-hardware measurement procedure is documented under `docs/operations/`. Missing runtime probes must remain explicit rather than being replaced with invented measurements.
 
 ## Gates that are still pending
 
 Do not treat the following as validated yet:
 
-- **Real Gemini API compatibility:** live Google API/model/function-schema call has not been approved as PASS. The safe runtime default remains `fake`.
-- **Production event-driven AI coordinator:** `src/main.ts` currently constructs and capability-checks the selected DecisionProvider, but it does not yet wire player chat/runtime decision points into an automatic ContextBuilder → DecisionProvider → DecisionGate/GoalManager loop. The Task 15 automated scenario invokes that pipeline explicitly, so autonomous cooperative-agent behavior is not yet claimed as PASS.
-- **30-minute private-server cooperative session:** still requires real server/human validation with the Task 15 checklist.
-- **Production wiring for `return_home`, `deposit_item`, and `withdraw_item`:** the underlying deterministic skill implementations exist, but the current production composition root does not yet register/resolve these three intents. The automated Task 15 scenario therefore uses explicit `go_to` plus a test-only handoff surrogate. This remains a release blocker, not a hidden PASS.
-- **Task 16 real deployment evidence:** Linux ARM64 runtime measurements, Pi 3B benchmark, intended mini-PC benchmark, runtime-probe integration, and the required 4–8 hour soak have not been captured. Automated x64 harness tests are not substitutes for these hardware/long-duration gates.
-- **Mock Moxue / DC_BOT integration:** not started in this repository and not claimed as validated.
+- **Real Gemini API compatibility:** the opt-in validator exists, but a real Google API/model/function-schema run still requires private routing config and credentials. Until captured as PASS, `fake` remains the safe default.
+- **30-minute private-server cooperative session:** still requires a real Minecraft server and human multiplayer validation.
+- **Production wiring for `return_home`, `deposit_item`, and `withdraw_item`:** the underlying schemas/skills exist, but the current production composition root does not yet register the complete storage/home workflow. This remains a release blocker.
+- **Real deployment evidence:** Linux ARM64 runtime measurements, Raspberry Pi 3B benchmark, intended mini-PC benchmark, runtime-probe evidence, and the required 4–8 hour soak have not yet been captured.
+- **DC_BOT integration:** separate authenticated integration/trust-boundary work remains pending and is not part of this routing implementation.
 
-For the 30-minute private-server gate, required evidence is:
+For the 30-minute private-server gate, required evidence remains:
 
 ```text
 uncommanded block destruction: 0
@@ -158,18 +259,21 @@ emergency stop failures: 0
 goal lifecycle inconsistencies: 0
 ```
 
-For the Task 16 release evidence, record real p50/p95/max measurements where applicable and retain the Git SHA, hardware/OS/Node details, power/throttling state, soak summary, and PASS/FAIL/BLOCKED decision. Do not copy CI x64 values into ARM64/Pi evidence.
+For real deployment evidence, retain the Git SHA, hardware/OS/Node details, power/throttling state, measured p50/p95/max values where applicable, soak summary, and PASS/FAIL/BLOCKED decision. Do not copy CI x64 values into ARM64/Pi evidence.
 
 ## Supported validation targets
 
 - Windows x64: primary development and interactive E2E target.
 - Linux x64: CI/release validation target.
 - Linux ARM64: required release validation target.
-- Raspberry Pi 3 Model B / 1 GB: constrained minimum-hardware experiment target; validation occurs later and does not require Minecraft GUI rendering.
+- Raspberry Pi 3 Model B / 1 GB: constrained minimum-hardware experiment target; validation occurs separately and does not require Minecraft GUI rendering.
 
 ## Operations / design references
 
-Architecture, implementation, platform-validation, and deployment plans live under `docs/superpowers/` and `docs/operations/`.
+- Architecture spec: `docs/superpowers/specs/2026-09-12-gemini-multi-model-routing-design.md`
+- Implementation plan: `docs/superpowers/plans/2026-09-12-gemini-multi-model-routing.md`
+- Routing example: `config/ai-routing.example.json`
+- Deployment/validation procedures: `docs/operations/`
 
 ## License
 
