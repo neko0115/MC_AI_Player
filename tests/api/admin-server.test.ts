@@ -51,7 +51,12 @@ class FakeRouting {
           routine: { rpm: 10, inputTpm: 10_000, rpd: 100 },
           complex: { rpm: 5, inputTpm: 5_000, rpd: 50 }
         },
-        flashBudget: { requestLimit: 50, totalTokenLimit: 50_000 }
+        flashBudget: {
+          requestLimit: 50,
+          totalTokenLimit: 50_000,
+          resetWindow: 'america-los-angeles-day',
+          source: 'operator_policy'
+        }
       },
       {
         projectKey: 'internal-project-b', credentialHandle: 'secret-handle-b',
@@ -59,7 +64,12 @@ class FakeRouting {
           routine: { rpm: 10, inputTpm: 10_000, rpd: 100 },
           complex: { rpm: 5, inputTpm: 5_000, rpd: 50 }
         },
-        flashBudget: { requestLimit: 50, totalTokenLimit: 50_000 }
+        flashBudget: {
+          requestLimit: 50,
+          totalTokenLimit: 50_000,
+          resetWindow: 'america-los-angeles-day',
+          source: 'operator_policy'
+        }
       }
     ],
     manualAccess: {
