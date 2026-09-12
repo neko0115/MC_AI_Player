@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -5,15 +6,15 @@ import type { AiConfig, MinecraftConfig } from './config.js'
 import {
   loadAiConfig,
   loadControlApiConfig,
-  loadMinecraftConfig
+  loadMinecraftConfig,
+  loadMinecraftServerIdentityMode
 } from './config.js'
 import type { RuntimeEvent } from './contracts/events.js'
-import type { DecisionContext } from './agent/context-builder.js'
+import { ContextBuilder, type DecisionContext } from './agent/context-builder.js'
+import { DecisionGate } from './agent/decision-gate.js'
 import type { LogicalDecisionExecutor } from './agent/routing/contracts.js'
 import type { DecisionProvider } from './agent/provider.js'
-import {
-  assertGameplayProviderCapabilities
-} from './agent/provider.js'
+import { assertGameplayProviderCapabilities } from './agent/provider.js'
 import { FakeDecisionProvider } from './agent/fake-provider.js'
 import {
   ControlServer,
@@ -23,10 +24,12 @@ import {
 import { GoalManager } from './goals/goal-manager.js'
 import type { MinecraftMemoryRepository } from './memory/repository.js'
 import { SqliteMemoryRepository } from './memory/sqlite-repository.js'
+import { MinecraftIdentityRegistry } from './minecraft/identity-registry.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
+import { DecisionCoordinator } from './runtime/decision-coordinator.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
 import { GatherResourceSkill, FindResourceSkill, RegionProtectionPolicy } from './skills/gathering.js'
@@ -42,6 +45,16 @@ const DEFAULT_MEMORY_PATH = 'data/mc_memory.sqlite3'
 const DEFAULT_EVENT_LOG_PATH = 'data/runtime-events.jsonl'
 const DEFAULT_EVENT_LOG_MAX_BYTES = 5 * 1024 * 1024
 const DEFAULT_RECENT_EVENT_LIMIT = 20
+const DENY_ALL_MANUAL_ACCESS = Object.freeze({
+  ownerUuid: '00000000000000000000000000000000',
+  operatorAllowlistUuids: Object.freeze([] as string[])
+})
+const DECISION_SAFETY_CONSTRAINTS = Object.freeze([
+  'PvP is disabled.',
+  'Generic navigation cannot dig or build.',
+  'Only registered high-level skills may reach deterministic gameplay execution.',
+  'SafetyPolicy remains authoritative after every model decision.'
+])
 
 const PREFERRED_FOOD = [
   'bread',
@@ -78,9 +91,7 @@ export function createFakeDecisionStack(
   return {
     async execute(request, signal) {
       if (signal.aborted) return { kind: 'cancelled' }
-      const providerResult = await options.provider.decide({
-        context: request.context
-      })
+      const providerResult = await options.provider.decide({ context: request.context })
       if (signal.aborted) return { kind: 'cancelled' }
       return { kind: 'success', providerResult }
     }
@@ -100,7 +111,10 @@ export interface ApplicationDependencies {
   readonly createRuntime?: (config: MinecraftConfig) => MineflayerRuntimeBundle
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
-  readonly createDecisionProvider?: (config: AiConfig) => DecisionProvider
+  readonly createLogicalDecisionExecutor?: (
+    config: AiConfig,
+    events: RuntimeEventBus
+  ) => LogicalDecisionExecutor
   readonly createControlServer?: (options: ControlServerOptions) => ApplicationControlServerPort
 }
 
@@ -116,10 +130,7 @@ export function createApplication(
   const minecraftConfig = loadMinecraftConfig(env)
   const aiConfig = loadAiConfig(env)
   const controlConfig = loadControlApiConfig(env)
-
-  const createDecisionProvider = dependencies.createDecisionProvider ?? createDefaultDecisionProvider
-  const decisionProvider = createDecisionProvider(aiConfig)
-  assertGameplayProviderCapabilities(decisionProvider)
+  const identityMode = loadMinecraftServerIdentityMode(env)
 
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: DEFAULT_RECENT_EVENT_LIMIT })
@@ -146,6 +157,30 @@ export function createApplication(
         // never stop gameplay or leak arbitrary error details.
       })
   })
+
+  const createLogicalDecisionExecutor = dependencies.createLogicalDecisionExecutor
+    ?? createDefaultLogicalDecisionExecutor
+  const logicalExecutor = createLogicalDecisionExecutor(aiConfig, events)
+  const identity = new MinecraftIdentityRegistry()
+  const coordinator = new DecisionCoordinator({
+    events,
+    state,
+    goals,
+    memory,
+    registry,
+    identity,
+    identityMode,
+    manualAccess: DENY_ALL_MANUAL_ACCESS,
+    worldKey: `${minecraftConfig.host}:${minecraftConfig.port}`,
+    botUsername: minecraftConfig.username,
+    logicalExecutor,
+    decisionGate: new DecisionGate({ safety, events }),
+    contextBuilder: new ContextBuilder(),
+    safetyConstraints: DECISION_SAFETY_CONSTRAINTS,
+    nextTaskId: randomUUID,
+    nextDecisionId: randomUUID
+  })
+  coordinator.start()
 
   let adapterEventTail: Promise<void> = Promise.resolve()
   const unsubscribeAdapter = runtime.adapter.onEvent(event => {
@@ -197,6 +232,8 @@ export function createApplication(
       closed = true
 
       await contain(() => controlServer.close())
+      await contain(() => coordinator.clearAiWork('application_shutdown'))
+      coordinator.dispose()
       await contain(() => goals.emergencyStop('application_shutdown'))
       executionBinding.dispose()
       await contain(() => runtime.adapter.disconnect())
@@ -272,14 +309,19 @@ function ensureParentDirectory(filename: string): void {
   mkdirSync(dirname(resolve(filename)), { recursive: true })
 }
 
-function createDefaultDecisionProvider(config: AiConfig): DecisionProvider<DecisionContext> {
+function createDefaultLogicalDecisionExecutor(
+  config: AiConfig,
+  _events: RuntimeEventBus
+): LogicalDecisionExecutor {
   if (config.provider === 'fake') {
-    return new FakeDecisionProvider<DecisionContext>([])
+    return createFakeDecisionStack({
+      provider: new FakeDecisionProvider<DecisionContext>([])
+    })
   }
 
-  // Transitional fail-closed seam. Task 16 replaces this legacy provider
-  // factory with the approved routed Gemini decision stack.
-  throw new Error('Gemini multi-model routing is not wired through the legacy DecisionProvider factory')
+  // Transitional fail-closed seam. The next Task 16 TDD cycle replaces this
+  // with the approved routed Gemini composition stack.
+  throw new Error('Gemini multi-model routing is not yet wired into the application composition root')
 }
 
 async function safeDisconnect(runtime: MineflayerRuntimeBundle): Promise<void> {
