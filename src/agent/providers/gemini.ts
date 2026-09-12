@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai'
 import type { DecisionContext } from '../context-builder.js'
+import type { AttemptLease } from '../routing/contracts.js'
 import {
   SAFE_GAMEPLAY_PROVIDER_CAPABILITIES,
   type DecisionProvider,
@@ -47,9 +48,18 @@ export type GeminiInteractionStep =
       readonly [key: string]: unknown
     }
 
+export interface GeminiInteractionUsage {
+  readonly total_input_tokens?: number
+  readonly total_output_tokens?: number
+  readonly total_thought_tokens?: number
+  readonly total_tool_use_tokens?: number
+  readonly total_tokens?: number
+}
+
 export interface GeminiInteractionResponse {
   readonly status: string
   readonly steps?: readonly GeminiInteractionStep[]
+  readonly usage?: GeminiInteractionUsage
 }
 
 export interface GeminiInteractionClient {
@@ -78,6 +88,37 @@ export interface PreparedGeminiPayload {
   readonly systemInstruction: string
   readonly tools: readonly GeminiFunctionTool[]
   readonly utf8Bytes: number
+}
+
+export interface GeminiAttemptClient {
+  create(
+    request: GeminiInteractionRequest,
+    options: {
+      readonly timeout: number
+      readonly retryAttempts: 1
+      readonly signal: AbortSignal
+    }
+  ): Promise<GeminiInteractionResponse>
+}
+
+export interface GeminiTransportOptions {
+  readonly timeoutMs?: number
+  readonly resolveCredential?: (credentialHandle: string) => string
+  readonly createClient?: (apiKey: string) => GeminiAttemptClient
+}
+
+export interface GeminiUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly thoughtTokens: number
+  readonly toolTokens: number
+  readonly totalTokens: number
+}
+
+export interface GeminiAttemptSuccess {
+  readonly kind: 'success'
+  readonly providerResult: ProviderResult
+  readonly usage?: GeminiUsage
 }
 
 const PROVIDER_NAME = 'gemini'
@@ -126,7 +167,7 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
     decisionBranch('withdraw_item', {
       item: stringSchema(128),
       quantity: integerSchema(1, 2304),
-      storage: stringSchema(128)
+      storage: IdentifierSchema()
     }, ['item', 'quantity', 'storage'])
   ]
 })
@@ -168,12 +209,12 @@ const DECISION_OUTCOME_V2_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = 
             actionBranch('deposit_item', {
               item: stringSchema(128),
               quantity: integerSchema(1, 2304),
-              storage: stringSchema(128)
+              storage: IdentifierSchema()
             }, ['item', 'quantity', 'storage']),
             actionBranch('withdraw_item', {
               item: stringSchema(128),
               quantity: integerSchema(1, 2304),
-              storage: stringSchema(128)
+              storage: IdentifierSchema()
             }, ['item', 'quantity', 'storage'])
           ]
         }
@@ -260,33 +301,11 @@ export function createGeminiDecisionProvider(
   const interactions: GeminiInteractionClient = {
     async create(request, callOptions) {
       const interaction = await client.interactions.create(
-        {
-          model: request.model,
-          input: request.input,
-          store: request.store,
-          stream: false,
-          system_instruction: request.system_instruction,
-          tools: request.tools.map(tool => ({
-            type: tool.type,
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters
-          })),
-          generation_config: {
-            thinking_level: request.generation_config.thinking_level,
-            thinking_summaries: request.generation_config.thinking_summaries,
-            tool_choice: request.generation_config.tool_choice
-          }
-        },
+        toSdkInteractionRequest(request),
         { timeout: callOptions.timeout }
       )
 
-      return {
-        status: interaction.status,
-        ...(Array.isArray(interaction.steps)
-          ? { steps: interaction.steps.map(normalizeSdkStep) }
-          : {})
-      }
+      return normalizeSdkInteraction(interaction)
     }
   }
 
@@ -344,33 +363,20 @@ function extractDecisionFunctionCall(response: GeminiInteractionResponse): Provi
     if (!step || typeof step !== 'object' || typeof step.type !== 'string') {
       return invalid('unexpected_provider_step')
     }
-    if (step.type === 'thought') {
-      continue
-    }
-    if (step.type !== 'function_call') {
-      return invalid('unexpected_provider_step')
-    }
+    if (step.type === 'thought') continue
+    if (step.type !== 'function_call') return invalid('unexpected_provider_step')
     calls.push(step as Extract<GeminiInteractionStep, { type: 'function_call' }>)
   }
 
-  if (calls.length === 0) {
-    return invalid('function_call_missing')
-  }
-  if (calls.length !== 1) {
-    return invalid('function_call_count_invalid')
-  }
+  if (calls.length === 0) return invalid('function_call_missing')
+  if (calls.length !== 1) return invalid('function_call_count_invalid')
 
   const call = calls[0]
-  if (!call || call.name !== FUNCTION_NAME) {
-    return invalid('unexpected_function_call')
-  }
+  if (!call || call.name !== FUNCTION_NAME) return invalid('unexpected_function_call')
   if (call.arguments === undefined || call.arguments === null) {
     return invalid('function_arguments_missing')
   }
-  if (
-    typeof call.arguments !== 'object' ||
-    Array.isArray(call.arguments)
-  ) {
+  if (typeof call.arguments !== 'object' || Array.isArray(call.arguments)) {
     return invalid('function_arguments_invalid')
   }
 
@@ -390,22 +396,15 @@ function extractDecisionFunctionCall(response: GeminiInteractionResponse): Provi
 }
 
 function normalizeSdkStep(step: unknown): GeminiInteractionStep {
-  if (!step || typeof step !== 'object') {
-    return { type: 'invalid_sdk_step' }
-  }
+  if (!step || typeof step !== 'object') return { type: 'invalid_sdk_step' }
   const candidate = step as {
     type?: unknown
     id?: unknown
     name?: unknown
     arguments?: unknown
   }
-  const type = typeof candidate.type === 'string'
-    ? candidate.type
-    : 'invalid_sdk_step'
-
-  if (type === 'thought') {
-    return { type: 'thought' }
-  }
+  const type = typeof candidate.type === 'string' ? candidate.type : 'invalid_sdk_step'
+  if (type === 'thought') return { type: 'thought' }
   if (type === 'function_call') {
     return {
       type: 'function_call',
@@ -417,12 +416,62 @@ function normalizeSdkStep(step: unknown): GeminiInteractionStep {
   return { type }
 }
 
-function invalid(code: string): ProviderResult {
-  return {
-    kind: 'invalid',
-    provider: PROVIDER_NAME,
-    code
+function normalizeSdkInteraction(interaction: unknown): GeminiInteractionResponse {
+  if (!interaction || typeof interaction !== 'object') {
+    return { status: 'invalid_sdk_response' }
   }
+  const candidate = interaction as {
+    status?: unknown
+    steps?: unknown
+    usage?: unknown
+  }
+  return {
+    status: typeof candidate.status === 'string' ? candidate.status : 'invalid_sdk_response',
+    ...(Array.isArray(candidate.steps)
+      ? { steps: candidate.steps.map(normalizeSdkStep) }
+      : {}),
+    ...(isRecord(candidate.usage) ? { usage: normalizeSdkUsage(candidate.usage) } : {})
+  }
+}
+
+function normalizeSdkUsage(usage: Record<string, unknown>): GeminiInteractionUsage {
+  return {
+    ...(nonNegativeInteger(usage.total_input_tokens) === undefined
+      ? {}
+      : { total_input_tokens: nonNegativeInteger(usage.total_input_tokens) }),
+    ...(nonNegativeInteger(usage.total_output_tokens) === undefined
+      ? {}
+      : { total_output_tokens: nonNegativeInteger(usage.total_output_tokens) }),
+    ...(nonNegativeInteger(usage.total_thought_tokens) === undefined
+      ? {}
+      : { total_thought_tokens: nonNegativeInteger(usage.total_thought_tokens) }),
+    ...(nonNegativeInteger(usage.total_tool_use_tokens) === undefined
+      ? {}
+      : { total_tool_use_tokens: nonNegativeInteger(usage.total_tool_use_tokens) }),
+    ...(nonNegativeInteger(usage.total_tokens) === undefined
+      ? {}
+      : { total_tokens: nonNegativeInteger(usage.total_tokens) })
+  }
+}
+
+function normalizeUsage(usage: GeminiInteractionUsage | undefined): GeminiUsage | undefined {
+  if (!usage) return undefined
+  const inputTokens = nonNegativeInteger(usage.total_input_tokens)
+  const outputTokens = nonNegativeInteger(usage.total_output_tokens)
+  const thoughtTokens = nonNegativeInteger(usage.total_thought_tokens)
+  const toolTokens = nonNegativeInteger(usage.total_tool_use_tokens)
+  const totalTokens = nonNegativeInteger(usage.total_tokens)
+  if (
+    inputTokens === undefined || outputTokens === undefined ||
+    thoughtTokens === undefined || toolTokens === undefined || totalTokens === undefined
+  ) {
+    return undefined
+  }
+  return { inputTokens, outputTokens, thoughtTokens, toolTokens, totalTokens }
+}
+
+function invalid(code: string): ProviderResult {
+  return { kind: 'invalid', provider: PROVIDER_NAME, code }
 }
 
 function isTimeoutError(error: unknown): boolean {
@@ -444,17 +493,11 @@ function decisionBranch(
   requiredArgs: readonly string[]
 ): Readonly<Record<string, unknown>> {
   return {
-    type: 'object',
-    additionalProperties: false,
+    type: 'object', additionalProperties: false,
     properties: {
       version: { const: 1, type: 'integer' },
       intent: { const: intent, type: 'string' },
-      args: {
-        type: 'object',
-        additionalProperties: false,
-        properties: argsProperties,
-        required: [...requiredArgs]
-      }
+      args: argsSchema(argsProperties, requiredArgs)
     },
     required: ['version', 'intent', 'args']
   }
@@ -466,19 +509,27 @@ function actionBranch(
   requiredArgs: readonly string[]
 ): Readonly<Record<string, unknown>> {
   return {
-    type: 'object',
-    additionalProperties: false,
+    type: 'object', additionalProperties: false,
     properties: {
       intent: { const: intent, type: 'string' },
-      args: {
-        type: 'object',
-        additionalProperties: false,
-        properties: argsProperties,
-        required: [...requiredArgs]
-      }
+      args: argsSchema(argsProperties, requiredArgs)
     },
     required: ['intent', 'args']
   }
+}
+
+function argsSchema(
+  properties: Record<string, unknown>,
+  required: readonly string[]
+): Readonly<Record<string, unknown>> {
+  return {
+    type: 'object', additionalProperties: false,
+    properties, required: [...required]
+  }
+}
+
+function IdentifierSchema(): Readonly<Record<string, unknown>> {
+  return stringSchema(128)
 }
 
 function stringSchema(maxLength: number): Readonly<Record<string, unknown>> {
@@ -497,7 +548,45 @@ function integerSchema(minimum: number, maximum: number): Readonly<Record<string
   return { type: 'integer', minimum, maximum }
 }
 
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function toSdkInteractionRequest(request: GeminiInteractionRequest) {
+  return {
+    model: request.model,
+    input: request.input,
+    store: request.store,
+    stream: false as const,
+    system_instruction: request.system_instruction,
+    tools: request.tools.map(tool => ({
+      type: tool.type,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    })),
+    generation_config: {
+      thinking_level: request.generation_config.thinking_level,
+      thinking_summaries: request.generation_config.thinking_summaries,
+      tool_choice: request.generation_config.tool_choice
+    }
+  }
+}
+
 export class GeminiTransport {
+  private readonly timeoutMs: number
+
+  constructor(private readonly options: GeminiTransportOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 300_000) {
+      throw new RangeError('timeoutMs must be an integer between 1 and 300000')
+    }
+  }
+
   prepare(context: DecisionContext): PreparedGeminiPayload {
     const input = JSON.stringify({
       task: 'Choose exactly one safe high-level Minecraft outcome from the available skills.',
@@ -515,5 +604,45 @@ export class GeminiTransport {
       tools: Object.freeze([tool]),
       utf8Bytes: Buffer.byteLength(input, 'utf8')
     })
+  }
+
+  async execute(
+    prepared: PreparedGeminiPayload,
+    lease: AttemptLease,
+    signal: AbortSignal
+  ): Promise<GeminiAttemptSuccess> {
+    const resolveCredential = this.options.resolveCredential
+    const createClient = this.options.createClient
+    if (!resolveCredential || !createClient) {
+      throw new Error('GeminiTransport execution dependencies are not configured')
+    }
+
+    const apiKey = resolveCredential(lease.credentialHandle)
+    const client = createClient(apiKey)
+    const response = await client.create({
+      model: normalizeModel(lease.model),
+      input: prepared.input,
+      store: false,
+      stream: false,
+      system_instruction: prepared.systemInstruction,
+      tools: prepared.tools,
+      generation_config: {
+        thinking_level: lease.thinking,
+        thinking_summaries: 'none',
+        tool_choice: 'any'
+      }
+    }, {
+      timeout: this.timeoutMs,
+      retryAttempts: 1,
+      signal
+    })
+
+    const providerResult = extractDecisionFunctionCall(response)
+    const usage = normalizeUsage(response.usage)
+    return {
+      kind: 'success',
+      providerResult,
+      ...(usage === undefined ? {} : { usage })
+    }
   }
 }
