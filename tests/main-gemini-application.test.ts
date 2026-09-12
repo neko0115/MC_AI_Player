@@ -133,8 +133,9 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
     close() { calls.push('gemini.close') }
   }
 
-  let control: FakeControlServer | null = null
-  let admin: FakeAdminServer | null = null
+  let controlCreated = false
+  let adminCreated = false
+  let adminOptions: AdminServerOptions | null = null
   const application = createApplication(env(), {
     createRuntime: (_config: MinecraftConfig) => runtime(calls),
     createMemory: () => new FakeMemory(calls),
@@ -146,21 +147,24 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
       return fakeStack
     },
     createControlServer: options => {
-      control = new FakeControlServer(calls, options)
-      return control
+      controlCreated = true
+      return new FakeControlServer(calls, options)
     },
     createAdminServer: options => {
-      admin = new FakeAdminServer(calls, options)
-      return admin
+      adminCreated = true
+      adminOptions = options
+      return new FakeAdminServer(calls, options)
     }
   })
 
   assert.deepEqual(calls, ['gemini.create'])
-  assert.ok(control)
-  assert.ok(admin)
-  assert.equal(admin.options.bearerToken, 'ADMIN_SECRET_DO_NOT_LEAK')
-  assert.equal(admin.options.routing, fakeStack.configManager)
-  assert.equal(admin.options.quota, fakeStack.quotaLedger)
+  assert.equal(controlCreated, true)
+  assert.equal(adminCreated, true)
+  const capturedAdmin = adminOptions
+  assert.ok(capturedAdmin)
+  assert.equal(capturedAdmin.bearerToken, 'ADMIN_SECRET_DO_NOT_LEAK')
+  assert.equal(capturedAdmin.routing, fakeStack.configManager)
+  assert.equal(capturedAdmin.quota, fakeStack.quotaLedger)
 
   await application.start()
   assert.deepEqual(calls.slice(0, 4), [
