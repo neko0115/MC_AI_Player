@@ -73,6 +73,13 @@ export interface CreateGeminiDecisionProviderOptions {
   readonly thinkingLevel?: GeminiThinkingLevel
 }
 
+export interface PreparedGeminiPayload {
+  readonly input: string
+  readonly systemInstruction: string
+  readonly tools: readonly GeminiFunctionTool[]
+  readonly utf8Bytes: number
+}
+
 const PROVIDER_NAME = 'gemini'
 const FUNCTION_NAME = 'submit_decision'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -121,6 +128,80 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
       quantity: integerSchema(1, 2304),
       storage: stringSchema(128)
     }, ['item', 'quantity', 'storage'])
+  ]
+})
+
+const DECISION_OUTCOME_V2_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.freeze({
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        version: { const: 2, type: 'integer' },
+        outcome: { const: 'action', type: 'string' },
+        action: {
+          oneOf: [
+            actionBranch('follow_player', {
+              player: stringSchema(64),
+              range: numberSchema(1, 16)
+            }, ['player']),
+            actionBranch('stay', {}, []),
+            actionBranch('go_to', {
+              x: finiteNumberSchema(),
+              y: finiteNumberSchema(),
+              z: finiteNumberSchema(),
+              radius: numberSchema(0, 16)
+            }, ['x', 'y', 'z']),
+            actionBranch('return_home', {}, []),
+            actionBranch('eat', {}, []),
+            actionBranch('equip', {
+              item: stringSchema(128),
+              destination: {
+                type: 'string',
+                enum: ['hand', 'off-hand', 'head', 'torso', 'legs', 'feet']
+              }
+            }, ['item']),
+            actionBranch('gather_resource', {
+              resource: stringSchema(128),
+              quantity: integerSchema(1, 2304)
+            }, ['resource', 'quantity']),
+            actionBranch('deposit_item', {
+              item: stringSchema(128),
+              quantity: integerSchema(1, 2304),
+              storage: stringSchema(128)
+            }, ['item', 'quantity', 'storage']),
+            actionBranch('withdraw_item', {
+              item: stringSchema(128),
+              quantity: integerSchema(1, 2304),
+              storage: stringSchema(128)
+            }, ['item', 'quantity', 'storage'])
+          ]
+        }
+      },
+      required: ['version', 'outcome', 'action']
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        version: { const: 2, type: 'integer' },
+        outcome: { const: 'complete', type: 'string' }
+      },
+      required: ['version', 'outcome']
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        version: { const: 2, type: 'integer' },
+        outcome: { const: 'blocked', type: 'string' },
+        reason: {
+          type: 'string',
+          enum: ['no_safe_action', 'missing_information', 'capability_unavailable']
+        }
+      },
+      required: ['version', 'outcome', 'reason']
+    }
   ]
 })
 
@@ -379,6 +460,27 @@ function decisionBranch(
   }
 }
 
+function actionBranch(
+  intent: string,
+  argsProperties: Record<string, unknown>,
+  requiredArgs: readonly string[]
+): Readonly<Record<string, unknown>> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      intent: { const: intent, type: 'string' },
+      args: {
+        type: 'object',
+        additionalProperties: false,
+        properties: argsProperties,
+        required: [...requiredArgs]
+      }
+    },
+    required: ['intent', 'args']
+  }
+}
+
 function stringSchema(maxLength: number): Readonly<Record<string, unknown>> {
   return { type: 'string', minLength: 1, maxLength }
 }
@@ -395,4 +497,23 @@ function integerSchema(minimum: number, maximum: number): Readonly<Record<string
   return { type: 'integer', minimum, maximum }
 }
 
-export class GeminiTransport {}
+export class GeminiTransport {
+  prepare(context: DecisionContext): PreparedGeminiPayload {
+    const input = JSON.stringify({
+      task: 'Choose exactly one safe high-level Minecraft outcome from the available skills.',
+      context
+    })
+    const tool: GeminiFunctionTool = Object.freeze({
+      type: 'function',
+      name: FUNCTION_NAME,
+      description: 'Submit exactly one validated high-level Minecraft outcome. Never include reasoning.',
+      parameters: DECISION_OUTCOME_V2_PARAMETER_SCHEMA
+    })
+    return Object.freeze({
+      input,
+      systemInstruction: SYSTEM_INSTRUCTION,
+      tools: Object.freeze([tool]),
+      utf8Bytes: Buffer.byteLength(input, 'utf8')
+    })
+  }
+}
