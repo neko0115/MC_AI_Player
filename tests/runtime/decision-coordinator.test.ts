@@ -127,6 +127,22 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   throw new Error('condition did not become true')
 }
 
+async function startStayGoal(
+  current: ReturnType<typeof harness>,
+  message = '墨雪 原地待命'
+): Promise<string> {
+  const beforeRequests = current.logicalExecutor.requests.length
+  await current.events.publish({
+    type: 'player_chat', at: 3 + beforeRequests, player: 'Boss', message
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === beforeRequests + 1)
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.source === 'ai')
+  const goalId = current.goals.activeGoal()?.goalId
+  assert.ok(goalId)
+  return goalId
+}
+
 test('addressed chat enqueues AI work without blocking RuntimeEventBus on an unresolved provider call', async () => {
   const current = harness()
   await ready(current.events)
@@ -228,6 +244,80 @@ test('emergency stop aborts the in-flight decision and a late provider response 
 
   assert.equal(current.goals.activeGoal(), null)
   assert.equal(current.coordinator.status().execution, 'idle')
+
+  current.coordinator.dispose()
+})
+
+test('goal completion continues the same task exactly once and carries the previous action into fresh context', async () => {
+  const current = harness()
+  await ready(current.events)
+  const goalId = await startStayGoal(current, '墨雪 原地待命然後再確認')
+
+  await current.goals.completeGoal(goalId, { status: 'succeeded', code: 'held' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  assert.equal(current.coordinator.status().activeTaskId, 'task-1')
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.previousAction, 'stay')
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.consecutiveReplans, 0)
+
+  current.logicalExecutor.resolveNext(completeResult())
+  await waitFor(() => current.coordinator.status().activeTaskId === null)
+  assert.equal(current.coordinator.status().execution, 'idle')
+
+  current.coordinator.dispose()
+})
+
+test('stuck and skill failure coalesce until goal_failed then dispatch one Flash-medium replan', async () => {
+  const current = harness()
+  await ready(current.events)
+  const goalId = await startStayGoal(current)
+
+  await current.events.publish({ type: 'stuck', at: 10, code: 'no_path' })
+  await current.events.publish({ type: 'skill_failed', at: 11, skill: 'stay', code: 'blocked' })
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(current.logicalExecutor.requests.length, 1)
+
+  await current.goals.completeGoal(goalId, { status: 'failed', code: 'blocked' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  const replan = current.logicalExecutor.requests[1]
+  assert.equal(replan?.routePlan.routeClass, 'complex')
+  assert.equal(replan?.routePlan.thinking, 'medium')
+  assert.equal(replan?.routePlan.reserveAuthorized, false)
+  assert.equal(replan?.routePlan.reasons.includes('stuck'), true)
+  assert.equal(replan?.routePlan.reasons.includes('goal_failed'), true)
+  assert.equal(replan?.context.task?.consecutiveReplans, 1)
+
+  current.coordinator.dispose()
+})
+
+test('second consecutive goal failure escalates to high without reserve and a later success resets consecutive replans', async () => {
+  const current = harness()
+  await ready(current.events)
+  const firstGoalId = await startStayGoal(current)
+
+  await current.events.publish({ type: 'stuck', at: 10, code: 'no_path' })
+  await current.goals.completeGoal(firstGoalId, { status: 'failed', code: 'blocked' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.goalId === 'goal-2')
+  await current.goals.completeGoal('goal-2', { status: 'failed', code: 'blocked_again' })
+  await waitFor(() => current.logicalExecutor.requests.length === 3)
+
+  const highReplan = current.logicalExecutor.requests[2]
+  assert.equal(highReplan?.routePlan.routeClass, 'complex')
+  assert.equal(highReplan?.routePlan.thinking, 'high')
+  assert.equal(highReplan?.routePlan.highReason, 'repeated_replanning')
+  assert.equal(highReplan?.routePlan.reserveAuthorized, false)
+  assert.equal(highReplan?.context.task?.consecutiveReplans, 2)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.goalId === 'goal-3')
+  await current.goals.completeGoal('goal-3', { status: 'succeeded', code: 'held' })
+  await waitFor(() => current.logicalExecutor.requests.length === 4)
+
+  assert.equal(current.logicalExecutor.requests[3]?.context.task?.consecutiveReplans, 0)
 
   current.coordinator.dispose()
 })
