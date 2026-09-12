@@ -2,7 +2,7 @@
 
 Headless Minecraft Java cooperative-agent runtime for the Moxue project.
 
-`MC_AI_Player` runs without the Minecraft Launcher or a rendered game client. Mineflayer performs deterministic gameplay behind structured goal, safety, memory, quota, routing, and telemetry boundaries. The repository is still pre-release: automated behavior and production wiring are separated from release gates that still require live evidence.
+`MC_AI_Player` runs without the Minecraft Launcher or a rendered game client. Mineflayer performs deterministic gameplay behind structured goal, safety, memory, quota, routing, and telemetry boundaries. The repository is still pre-release: automated behavior and production wiring are separated from release gates that still need live evidence.
 
 ## What it does today
 
