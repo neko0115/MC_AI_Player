@@ -162,7 +162,7 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
     decisionBranch('deposit_item', {
       item: stringSchema(128),
       quantity: integerSchema(1, 2304),
-      storage: stringSchema(128)
+      storage: IdentifierSchema()
     }, ['item', 'quantity', 'storage']),
     decisionBranch('withdraw_item', {
       item: stringSchema(128),
@@ -435,22 +435,17 @@ function normalizeSdkInteraction(interaction: unknown): GeminiInteractionRespons
 }
 
 function normalizeSdkUsage(usage: Record<string, unknown>): GeminiInteractionUsage {
+  const input = nonNegativeInteger(usage.total_input_tokens)
+  const output = nonNegativeInteger(usage.total_output_tokens)
+  const thought = nonNegativeInteger(usage.total_thought_tokens)
+  const tool = nonNegativeInteger(usage.total_tool_use_tokens)
+  const total = nonNegativeInteger(usage.total_tokens)
   return {
-    ...(nonNegativeInteger(usage.total_input_tokens) === undefined
-      ? {}
-      : { total_input_tokens: nonNegativeInteger(usage.total_input_tokens) }),
-    ...(nonNegativeInteger(usage.total_output_tokens) === undefined
-      ? {}
-      : { total_output_tokens: nonNegativeInteger(usage.total_output_tokens) }),
-    ...(nonNegativeInteger(usage.total_thought_tokens) === undefined
-      ? {}
-      : { total_thought_tokens: nonNegativeInteger(usage.total_thought_tokens) }),
-    ...(nonNegativeInteger(usage.total_tool_use_tokens) === undefined
-      ? {}
-      : { total_tool_use_tokens: nonNegativeInteger(usage.total_tool_use_tokens) }),
-    ...(nonNegativeInteger(usage.total_tokens) === undefined
-      ? {}
-      : { total_tokens: nonNegativeInteger(usage.total_tokens) })
+    ...(input === undefined ? {} : { total_input_tokens: input }),
+    ...(output === undefined ? {} : { total_output_tokens: output }),
+    ...(thought === undefined ? {} : { total_thought_tokens: thought }),
+    ...(tool === undefined ? {} : { total_tool_use_tokens: tool }),
+    ...(total === undefined ? {} : { total_tokens: total })
   }
 }
 
