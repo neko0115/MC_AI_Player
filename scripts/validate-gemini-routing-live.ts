@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { DecisionContext } from '../src/agent/context-builder.js'
@@ -20,6 +21,23 @@ import { RuntimeEventBus } from '../src/telemetry/event-bus.js'
 
 const DEFAULT_ROUTING_CONFIG = 'data/ai-routing.json'
 const DEFAULT_QUOTA_FILENAME = 'data/ai-quota.sqlite3'
+const require = createRequire(import.meta.url)
+
+interface ReadonlyStatementLike {
+  get(...params: unknown[]): unknown
+}
+
+interface ReadonlyDatabaseLike {
+  prepare(sql: string): ReadonlyStatementLike
+  close(): void
+}
+
+type ReadonlyDatabaseConstructor = new (
+  filename: string,
+  options?: { readonly readonly?: boolean; readonly fileMustExist?: boolean }
+) => ReadonlyDatabaseLike
+
+const Database = require('better-sqlite3') as ReadonlyDatabaseConstructor
 
 export interface LiveValidationStack {
   readonly executor: LogicalDecisionExecutor
@@ -29,12 +47,21 @@ export interface LiveValidationStack {
   close(): void
 }
 
+export interface LiveValidationUsageEvidence {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly thoughtTokens: number
+  readonly toolTokens: number
+  readonly totalTokens: number
+}
+
 export interface LiveValidationCaseEvidence {
   readonly case: 'routine' | 'complex' | 'admin_deep'
   readonly model: string
   readonly thinking: ThinkingLevel
   readonly project: string
   readonly result: 'success'
+  readonly usage: LiveValidationUsageEvidence
 }
 
 export type LiveValidationResult =
@@ -48,6 +75,11 @@ export interface LiveValidationDependencies {
   readonly quotaFilename?: string
   readonly processInstanceId?: string
   readonly now?: () => number
+  readonly readActualUsage?: (
+    quotaFilename: string,
+    decisionId: string,
+    model: string
+  ) => LiveValidationUsageEvidence | null
 }
 
 interface CapturedRoute {
@@ -85,13 +117,15 @@ export async function runGeminiRoutingLiveValidation(
     })
   })
 
+  const quotaFilename = dependencies.quotaFilename ?? DEFAULT_QUOTA_FILENAME
+  const readActualUsage = dependencies.readActualUsage ?? readActualUsageFromQuotaDb
   let stack: LiveValidationStack | null = null
   try {
     const createStack = dependencies.createStack ?? createGeminiDecisionStack
     stack = createStack({
       routingConfigPath: normalizedRoutingPath(env.MC_AI_ROUTING_CONFIG),
       env,
-      quotaFilename: dependencies.quotaFilename ?? DEFAULT_QUOTA_FILENAME,
+      quotaFilename,
       processInstanceId: dependencies.processInstanceId ?? randomUUID(),
       events,
       ...(dependencies.now === undefined ? {} : { now: dependencies.now })
@@ -111,7 +145,9 @@ export async function runGeminiRoutingLiveValidation(
       expectedThinking: 'low',
       expectedReserveAuthorized: false,
       executor: stack.executor,
-      capturedRoutes
+      capturedRoutes,
+      quotaFilename,
+      readActualUsage
     })
     const complex = await executeCase({
       caseName: 'complex',
@@ -129,7 +165,9 @@ export async function runGeminiRoutingLiveValidation(
       expectedThinking: 'medium',
       expectedReserveAuthorized: false,
       executor: stack.executor,
-      capturedRoutes
+      capturedRoutes,
+      quotaFilename,
+      readActualUsage
     })
     const adminDeep = await executeCase({
       caseName: 'admin_deep',
@@ -147,7 +185,9 @@ export async function runGeminiRoutingLiveValidation(
       expectedThinking: 'high',
       expectedReserveAuthorized: true,
       executor: stack.executor,
-      capturedRoutes
+      capturedRoutes,
+      quotaFilename,
+      readActualUsage
     })
 
     const passed: LiveValidationResult = {
@@ -179,6 +219,8 @@ async function executeCase(options: {
   readonly expectedReserveAuthorized: boolean
   readonly executor: LogicalDecisionExecutor
   readonly capturedRoutes: ReadonlyMap<string, CapturedRoute>
+  readonly quotaFilename: string
+  readonly readActualUsage: NonNullable<LiveValidationDependencies['readActualUsage']>
 }): Promise<LiveValidationCaseEvidence> {
   const result = await options.executor.execute(
     { context: options.context, routePlan: options.routePlan },
@@ -203,13 +245,77 @@ async function executeCase(options: {
     throw new Error('live validation must not consume Flash reserve')
   }
 
+  const usage = options.readActualUsage(
+    options.quotaFilename,
+    options.decisionId,
+    route.model
+  )
+  if (!usage) throw new Error('actual usage settlement was not observed')
+  validateUsageEvidence(usage)
+
   return Object.freeze({
     case: options.caseName,
     model: route.model,
     thinking: route.thinking,
     project: route.project,
-    result: 'success' as const
+    result: 'success' as const,
+    usage: Object.freeze({ ...usage })
   })
+}
+
+function readActualUsageFromQuotaDb(
+  quotaFilename: string,
+  decisionId: string,
+  model: string
+): LiveValidationUsageEvidence | null {
+  const db = new Database(quotaFilename, { readonly: true, fileMustExist: true })
+  try {
+    const value = db.prepare(`
+      SELECT usage_quality, actual_input_tokens, actual_output_tokens,
+             actual_thought_tokens, actual_tool_tokens, actual_total_tokens
+      FROM quota_attempts
+      WHERE decision_id = ? AND model = ? AND state = 'settled'
+      ORDER BY settled_at DESC, attempt_id DESC
+      LIMIT 1
+    `).get(decisionId, model)
+    if (!isRecord(value) || value.usage_quality !== 'actual') return null
+
+    const usage: LiveValidationUsageEvidence = {
+      inputTokens: nonNegativeInteger(value.actual_input_tokens),
+      outputTokens: nonNegativeInteger(value.actual_output_tokens),
+      thoughtTokens: nonNegativeInteger(value.actual_thought_tokens),
+      toolTokens: nonNegativeInteger(value.actual_tool_tokens),
+      totalTokens: nonNegativeInteger(value.actual_total_tokens)
+    }
+    validateUsageEvidence(usage)
+    return usage
+  } catch {
+    return null
+  } finally {
+    db.close()
+  }
+}
+
+function validateUsageEvidence(usage: LiveValidationUsageEvidence): void {
+  for (const value of Object.values(usage)) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error('invalid actual usage evidence')
+    }
+  }
+  if (usage.totalTokens < usage.inputTokens) {
+    throw new Error('invalid actual usage total')
+  }
+}
+
+function nonNegativeInteger(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error('invalid actual usage token count')
+  }
+  return value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function validationContext(taskId: string, objective: string): DecisionContext {
