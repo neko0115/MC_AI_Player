@@ -29,9 +29,10 @@ export interface ResolveMinecraftChatInput {
   readonly policy: MinecraftManualAccessPolicy
 }
 
+const UNTRUSTED_CAPABILITIES = Object.freeze([] as const)
 const UNTRUSTED: MinecraftPrincipal = Object.freeze({
   kind: 'minecraft_untrusted',
-  capabilities: Object.freeze([])
+  capabilities: UNTRUSTED_CAPABILITIES
 })
 
 const PRIVILEGED_CAPABILITIES = Object.freeze([
