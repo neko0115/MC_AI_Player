@@ -4,7 +4,7 @@
 
 **Goal:** Integrate durable multi-step Project orchestration with constrained Gemini project planning, multiplayer ownership/conflict rules, restart/offline continuation, circuit breakers, and full end-to-end conversational construction.
 
-**Architecture:** Add a durable task-DAG scheduler above the existing Goal/Skill executors. Project planning uses a separate schema/transport contract but reuses the existing routing/project-pool/quota/accounting machinery. Conversation state resolves the player/project/draft first; only ambiguous semantics or creative/structural planning reaches Gemini. Deterministic tasks continue when AI is unavailable as long as an already-approved plan remains executable.
+**Architecture:** Add a durable task-DAG scheduler above existing Goal/Skill executors. Project planning uses a separate schema/transport contract but reuses existing routing/project-pool/quota/accounting. Conversation resolves player/project/draft first; only ambiguous semantics or creative/structural planning reaches Gemini. Deterministic tasks continue while AI is unavailable when an approved plan remains executable.
 
 **Tech Stack:** TypeScript 7, Node.js 24, Mineflayer 4.39, @google/genai 2.21.0, better-sqlite3 12.11.1, Zod 4.5.4, node:test/tsx.
 
@@ -12,37 +12,27 @@
 
 ## Global Constraints
 
-- Preserve current exact action-tool Gemini contract for `stay`, `follow_player`, `gather_resource`, etc.; Project planning is a separate contract.
-- Reuse existing ProjectPool/quota/credential/failover accounting; do not create an unaccounted direct Gemini client path.
-- Level 0 mechanics never call AI.
-- First architectural planning uses complex/medium; repeated structural replanning >=2 may use existing high-thinking policy.
-- Project soft budgets and hard circuit breakers prevent unbounded semantic/planning/retry/death loops.
-- AI output is schema-constrained and cannot directly invoke Mineflayer mutation.
-- Owner/manager/helper ACL, storage ACL, approval envelope, hard safety, and server ceiling are checked before task scheduling/mutation.
-- Same-role conflicting commands block only affected DAG branches and wait for owner resolution.
-- Restart enters `recovering`; live world reconciliation happens before resuming.
-- Owner-offline continuation is allowed only for already-approved branches that require no new owner authority.
-- Chat remains concise and deterministic by default.
+- Preserve current exact action-tool contract for stay/follow/gather; Project planning is separate.
+- Reuse ProjectPool/quota/credential/failover accounting; no unaccounted direct Gemini path.
+- Level-0 mechanics never call AI.
+- Initial architectural planning uses complex/medium; repeated structural replanning >=2 may use existing high policy.
+- Project soft budgets and circuit breakers stop unbounded semantic/planning/retry/death loops.
+- AI output cannot directly invoke Mineflayer mutation.
+- ACL, storage ACL, approval envelope, hard safety, and server ceiling are checked before scheduling/mutation.
+- Same-role conflicts block only affected branches and wait for owner resolution.
+- Restart enters recovering and reconciles live world before resume.
+- Owner-offline continuation only runs already-approved branches needing no new owner authority.
+- Routine chat stays deterministic and low-noise.
 
 ---
 
 ## File structure
 
-- Create `src/projects/task-contracts.ts` — durable task kinds/status/dependencies/results.
-- Extend `src/projects/repository.ts`/`sqlite-repository.ts` — tasks, dependencies, conflicts/options, project AI budgets.
-- Create `src/projects/task-graph.ts` — pure DAG validation/runnable calculation/branch blocking.
-- Create `src/projects/orchestrator.ts` — single-body scheduler, locks, task dispatch, suspend/resume.
-- Create `src/projects/conflict-service.ts` — same-role conflict creation/resolution.
-- Create `src/projects/recovery.ts` — restart/world reconciliation and runnable reconstruction.
-- Create `src/projects/conversation-controller.ts` — player/project/draft resolution, one-question flow, project commands.
-- Create `src/agent/project-planning/contracts.ts` — semantic and architectural output schemas.
-- Create `src/agent/project-planning/gemini.ts` — project-specific Gemini payload/tool schema and strict parsing.
-- Create `src/agent/routing/generic-routed-executor.ts` — generic quota/failover attempt loop extracted from existing action executor.
-- Refactor `src/agent/routing/routed-executor.ts` to adapt current action transport through generic routed executor without semantic changes.
-- Create `src/agent/project-planning/executor.ts` — semantic/architectural/replan route requests.
-- Modify `src/main.ts` — production composition and lifecycle.
-- Extend `src/contracts/events.ts` with sanitized project lifecycle events.
-- Extend `src/agent/chat-feedback.ts` with project categories while retaining noise controls.
+- Create `src/projects/task-contracts.ts`, `task-graph.ts`, `orchestrator.ts`, `conflict-service.ts`, `recovery.ts`, `conversation-controller.ts`, `project-planner.ts`.
+- Extend `src/projects/repository.ts`/`sqlite-repository.ts` with tasks/dependencies/conflicts/AI usage.
+- Create `src/agent/project-planning/contracts.ts`, `gemini.ts`, `executor.ts`.
+- Create `src/agent/routing/generic-routed-executor.ts`; refactor `routed-executor.ts` without behavior change.
+- Modify `src/runtime/decision-coordinator.ts`, `src/contracts/events.ts`, `src/agent/chat-feedback.ts`, `src/main.ts`, `src/api/control-server.ts`.
 - Tests under `tests/projects/`, `tests/agent/project-planning/`, `tests/agent/routing/`, `tests/scenarios/`.
 
 ---
@@ -59,23 +49,17 @@
 
 ```ts
 export const ProjectTaskStatusSchema = z.enum([
-  'pending',
-  'runnable',
-  'running',
-  'suspended',
-  'blocked_by_conflict',
-  'dependency_blocked',
-  'paused_waiting_player',
-  'paused_safety',
-  'completed',
-  'failed',
-  'cancelled'
+  'pending', 'runnable', 'running', 'suspended', 'blocked_by_conflict',
+  'dependency_blocked', 'paused_waiting_player', 'paused_safety',
+  'completed', 'failed', 'cancelled'
 ])
+export type ProjectTaskStatus = z.infer<typeof ProjectTaskStatusSchema>
 
 export interface ProjectTaskRecord {
   readonly taskId: string
   readonly projectId: string
   readonly kind: string
+  readonly scope: string
   readonly status: ProjectTaskStatus
   readonly payload: Readonly<Record<string, unknown>>
   readonly progress: Readonly<Record<string, unknown>>
@@ -92,11 +76,7 @@ export interface ProjectTaskDependency {
   readonly dependsOnTaskId: string
   readonly dependencyType: 'success'
 }
-```
 
-Conflict:
-
-```ts
 export interface ProjectConflictRecord {
   readonly conflictId: string
   readonly projectId: string
@@ -107,11 +87,27 @@ export interface ProjectConflictRecord {
   readonly resolvedByUuid: string | null
   readonly resolution: Readonly<Record<string, unknown>> | null
 }
+
+export interface ProjectConflictOptionRecord {
+  readonly conflictId: string
+  readonly actorUuid: string
+  readonly actorRole: ProjectRole
+  readonly proposal: Readonly<Record<string, unknown>>
+  readonly createdAt: number
+}
+
+export interface ProjectAiUsageRecord {
+  readonly projectId: string
+  readonly semanticCalls: number
+  readonly architecturalCalls: number
+  readonly structuralReplanCalls: number
+  readonly updatedAt: number
+}
 ```
 
 - [ ] **Step 1: Write RED persistence tests**
 
-Cover task CRUD/status/progress attempt counters, dependency foreign keys, project restart reload, open conflict + two options, owner resolution, and active project AI soft-budget counters. Ensure a task cannot depend on itself and duplicate dependency edges are rejected.
+Cover task CRUD/progress/attempts, dependency foreign keys, restart reload, open conflict with two options, owner resolution, and project AI counters. Reject self-dependency and duplicate edges.
 
 - [ ] **Step 2: Run RED**
 
@@ -119,21 +115,11 @@ Cover task CRUD/status/progress attempt counters, dependency foreign keys, proje
 npm test -- tests/projects/task-persistence.test.ts
 ```
 
-- [ ] **Step 3: Add schema and repository API**
+- [ ] **Step 3: Add schema/repository API**
 
-Add tables:
+Create `project_tasks`, `project_task_dependencies`, `project_conflicts`, `project_conflict_options`, `project_ai_usage`. Add transactional `createTaskGraph`, `updateTaskState`, `incrementTaskAttempt`, `createConflict`, `resolveConflict`, `getProjectAiUsage`, `incrementProjectAiUsage`.
 
-```text
-project_tasks
-project_task_dependencies
-project_conflicts
-project_conflict_options
-project_ai_usage
-```
-
-Repository methods include transactional `createTaskGraph(projectId, tasks, dependencies)`, `updateTaskState`, `incrementTaskAttempt`, `createConflict`, `resolveConflict`, and `getProjectAiUsage`/`incrementProjectAiUsage`.
-
-- [ ] **Step 4: Run tests/typecheck and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/task-persistence.test.ts tests/projects/sqlite-repository.test.ts
@@ -168,34 +154,37 @@ export function runnableTaskIds(
   dependencies: readonly ProjectTaskDependency[]
 ): readonly string[]
 
-export function dependencyBlockedTaskIds(...): readonly string[]
-```
+export function dependencyBlockedTaskIds(
+  tasks: readonly ProjectTaskRecord[],
+  dependencies: readonly ProjectTaskDependency[]
+): readonly string[]
 
-Conflict service:
+export type ConflictInstructionResult =
+  | { readonly kind: 'accepted' }
+  | { readonly kind: 'conflict'; readonly conflict: ProjectConflictRecord }
 
-```ts
-registerInstruction(input: {
-  project: ProjectRecord
-  actorUuid: string
-  actorRole: ProjectRole
-  scope: string
-  proposal: Readonly<Record<string, unknown>>
-}): { kind: 'accepted' } | { kind: 'conflict'; conflict: ProjectConflictRecord }
+export function registerInstruction(input: {
+  readonly project: ProjectRecord
+  readonly actorUuid: string
+  readonly actorRole: ProjectRole
+  readonly scope: string
+  readonly proposal: Readonly<Record<string, unknown>>
+}): ConflictInstructionResult
 ```
 
 - [ ] **Step 1: Write RED DAG tests**
 
-Cover cycle rejection, completed prerequisite unlock, failed/cancelled prerequisite blocks downstream, independent branch stays runnable, priority ordering stable by `priority DESC, createdAt ASC, taskId ASC`.
+Cycle rejection, prerequisite unlock, failed/cancelled prerequisite downstream blocking, independent branch continuation, stable priority `priority DESC, createdAt ASC, taskId ASC`.
 
 - [ ] **Step 2: Write RED conflict tests**
 
-Owner instruction supersedes manager/helper when authorized; manager supersedes helper. Same-role contradictory proposals on same scope create one durable conflict, mark only tasks tagged with that scope `blocked_by_conflict`, and leave unrelated tasks runnable. Same proposal repeated is idempotent and does not create a conflict.
+Authorized owner supersedes manager/helper; manager supersedes helper. Same-role contradictory proposals on same scope create one conflict and block only tasks with that scope. Identical canonical proposal is idempotent.
 
-- [ ] **Step 3: Implement pure graph/conflict logic**
+- [ ] **Step 3: Implement canonical proposal comparison**
 
-Conflict equivalence uses canonical JSON of validated proposal records with sorted keys; do not compare raw chat text.
+Canonicalize validated proposal objects by recursively sorting keys; do not compare raw chat strings.
 
-- [ ] **Step 4: Run tests/typecheck and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/task-graph.test.ts tests/projects/conflict-service.test.ts
@@ -209,7 +198,7 @@ git commit -m "feat: schedule independent project branches safely"
 
 ---
 
-### Task 3: Extract a generic routed attempt engine without changing current action behavior
+### Task 3: Extract a generic routed attempt engine without changing action behavior
 
 **Files:**
 - Create: `src/agent/routing/generic-routed-executor.ts`
@@ -222,6 +211,30 @@ git commit -m "feat: schedule independent project branches safely"
 **Interfaces:**
 
 ```ts
+export interface GenericUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly thoughtTokens: number
+  readonly toolTokens: number
+  readonly totalTokens: number
+}
+
+export type GenericAttemptResult<TResult> =
+  | { readonly kind: 'success'; readonly value: TResult; readonly usage: GenericUsage }
+  | { readonly kind: 'api_error'; readonly httpStatus: number; readonly providerCode?: string; readonly retryAfterMs?: number; readonly usage?: GenericUsage }
+  | { readonly kind: 'content_blocked'; readonly usage?: GenericUsage }
+  | { readonly kind: 'generation_error'; readonly safeCode: string; readonly usage?: GenericUsage }
+  | { readonly kind: 'configuration_error'; readonly safeCode: string }
+  | { readonly kind: 'cancelled' }
+
+export type GenericRoutedResult<TResult> =
+  | { readonly kind: 'success'; readonly value: TResult }
+  | { readonly kind: 'safety_blocked'; readonly code: 'content_blocked' }
+  | { readonly kind: 'unavailable'; readonly retryAt: number | null }
+  | { readonly kind: 'invalid_response'; readonly code: string }
+  | { readonly kind: 'configuration_error'; readonly code: string }
+  | { readonly kind: 'cancelled' }
+
 export interface RoutedPreparedPayload<TPrepared> {
   readonly prepared: TPrepared
   readonly utf8Bytes: number
@@ -229,11 +242,7 @@ export interface RoutedPreparedPayload<TPrepared> {
 
 export interface GenericRoutedTransport<TInput, TPrepared, TResult> {
   prepare(input: TInput): RoutedPreparedPayload<TPrepared>
-  execute(
-    prepared: TPrepared,
-    lease: AttemptLease,
-    signal: AbortSignal
-  ): Promise<GenericAttemptResult<TResult>>
+  execute(prepared: TPrepared, lease: AttemptLease, signal: AbortSignal): Promise<GenericAttemptResult<TResult>>
 }
 
 export class GenericRoutedExecutor<TInput, TPrepared, TResult> {
@@ -241,22 +250,20 @@ export class GenericRoutedExecutor<TInput, TPrepared, TResult> {
 }
 ```
 
-- [ ] **Step 1: Characterize current action executor behavior with RED/locking tests before refactor**
+- [ ] **Step 1: Lock existing behavior with characterization tests**
 
-Add/confirm tests for project failover, quota-unavailable, credential fatal, transient backoff, one generation retry, content block terminal, cancellation, telemetry, settlement usage accounting. These must pass against current code before extraction.
+Confirm failover, quota unavailable, credential fatal, transient backoff, one generation retry, content block terminal, cancellation, telemetry, and settlement usage all pass against pre-refactor action executor.
 
-- [ ] **Step 2: Implement generic executor by moving policy loop, not changing it**
+- [ ] **Step 2: Move routing/accounting loop into generic executor**
 
-The generic executor owns lease/settlement/failover/telemetry mechanics. Current `RoutedDecisionExecutor` becomes a thin adapter that maps existing `GeminiAttemptResult`/`ProviderResult` to/from generic result types.
+Current `RoutedDecisionExecutor` becomes a thin adapter mapping current `GeminiAttemptResult`/`ProviderResult` to/from generic union. No action semantics change.
 
-- [ ] **Step 3: Run all routing/scenario tests**
+- [ ] **Step 3: Verify all routing/provider/scenario tests**
 
 ```powershell
 npm test -- tests/agent/routing tests/scenarios/gemini-routing-coordinator.test.ts tests/agent/providers
 npm run typecheck
 ```
-
-Expected: all existing action-routing behavior remains unchanged.
 
 - [ ] **Step 4: Commit**
 
@@ -277,8 +284,6 @@ git commit -m "refactor: generalize routed Gemini attempt execution"
 
 **Interfaces:**
 
-Semantic parse result:
-
 ```ts
 export const SemanticSlotResultSchema = z.object({
   slot: z.enum(['site', 'materials', 'scale', 'style', 'storage', 'protected_area']),
@@ -286,11 +291,7 @@ export const SemanticSlotResultSchema = z.object({
   value: z.unknown().nullable(),
   userFacingSummary: z.string().trim().max(180).optional()
 }).strict()
-```
 
-Architectural plan result uses bounded primitives from Phase 4:
-
-```ts
 export const ArchitecturalPlanSchema = z.object({
   version: z.literal(1),
   name: z.string().trim().min(1).max(128),
@@ -301,29 +302,23 @@ export const ArchitecturalPlanSchema = z.object({
   primitives: z.array(ArchitecturalPrimitiveSchema).min(1).max(512),
   userFacingSummary: z.string().trim().min(1).max(300)
 }).strict()
+
+export type ArchitecturalPlan = z.infer<typeof ArchitecturalPlanSchema>
 ```
 
-- [ ] **Step 1: Write RED schema/normalization tests**
+- [ ] **Step 1: Write RED schema tests**
 
-Reject arbitrary extra fields, raw block coordinate arrays, oversize plans, unknown primitive kinds, invalid material identifiers, and missing summaries. Accept constrained fixture plan.
+Reject extra fields, raw coordinate arrays as a plan substitute, oversize plans, unknown primitives, invalid material IDs, missing summary; accept constrained fixture.
 
-- [ ] **Step 2: Write RED Gemini exact-tool tests**
+- [ ] **Step 2: Write RED exact-tool transport tests**
 
-Use separate project-planning function declarations, not current action tools:
-
-```text
-submit_semantic_slot
-submit_architectural_plan
-submit_structural_replan
-```
-
-Each call has object-root schema with required fields. Strict parser maps the selected function to one contract result; unknown/multiple tool calls fail closed as `project_planning_schema_invalid`.
+Functions are exactly `submit_semantic_slot`, `submit_architectural_plan`, `submit_structural_replan`, each object-root with required fields. Unknown/multiple calls -> `project_planning_schema_invalid`.
 
 - [ ] **Step 3: Implement `ProjectPlanningGeminiTransport`**
 
-It resolves credentials through the same boundary as current Gemini transport and returns sanitized generic attempt results. Do not emit raw model reasoning or provider payload to telemetry.
+Reuse credential boundary; return sanitized `GenericAttemptResult`. No raw reasoning/provider payload in telemetry.
 
-- [ ] **Step 4: Run tests/typecheck and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/agent/project-planning
@@ -337,11 +332,11 @@ git commit -m "feat: add constrained Gemini project planning"
 
 ---
 
-### Task 5: Add Project Planning executor, route policy, and per-project AI soft budgets
+### Task 5: Add Project Planning executor, route policy, and project AI soft budgets
 
 **Files:**
 - Create: `src/agent/project-planning/executor.ts`
-- Modify: `src/agent/routing/complexity.ts` only by adding reusable evidence construction helpers if necessary; do not change existing balanced-v1 weights.
+- Modify: `src/agent/routing/complexity.ts` only for reusable evidence helpers; keep balanced-v1 weights unchanged.
 - Test: `tests/agent/project-planning/executor.test.ts`
 - Test: `tests/agent/routing/complexity.test.ts`
 
@@ -358,33 +353,23 @@ export interface ProjectPlanningRequest<T> {
   readonly replanCount: number
   readonly reserveAuthorized: boolean
 }
+
+export const PROJECT_AI_SOFT_LIMITS = Object.freeze({
+  semantic: 8,
+  architectural: 3,
+  structural_replan: 3
+} as const)
 ```
 
-- [ ] **Step 1: Write RED route tests**
+- [ ] **Step 1: Write RED route/budget tests**
 
-Assert:
+Semantic -> routine/low; first architecture -> complex/medium; first structural replan -> complex/medium; replan >=2 -> existing repeated-replanning high reason; blueprint size alone never selects high; soft budget exhaustion returns `planner_exhausted` before provider call.
 
-- semantic -> routine/low;
-- initial architecture -> complex/medium;
-- structural replan #1 -> complex/medium;
-- replan count >=2 -> existing repeated-replanning high reason;
-- physical blueprint size alone does not select high;
-- project soft budget exhaustion returns `planner_exhausted` before provider call;
-- provider unavailable returns bounded unavailable result without corrupting project state.
+- [ ] **Step 2: Implement on GenericRoutedExecutor**
 
-- [ ] **Step 2: Implement executor on `GenericRoutedExecutor`**
+Increment project AI usage according to admitted dispatch/settlement semantics. Provider unavailable returns bounded unavailable without corrupting Project state.
 
-Increment project AI usage only after an admitted dispatch/settlement according to existing accounting semantics. Suggested initial soft limits, encoded as named policy constants and covered by tests:
-
-```ts
-small/normal default semantic = 8
-architectural = 3
-structuralReplan = 3
-```
-
-These are project soft guards, not provider quota claims.
-
-- [ ] **Step 3: Run tests/typecheck and commit**
+- [ ] **Step 3: Verify and commit**
 
 ```powershell
 npm test -- tests/agent/project-planning/executor.test.ts tests/agent/routing/complexity.test.ts
@@ -398,7 +383,7 @@ git commit -m "feat: route bounded project planning calls"
 
 ---
 
-### Task 6: Implement Project Orchestrator, locks, task dispatch, suspension, and circuit breakers
+### Task 6: Implement Project Orchestrator, locks, task dispatch, and circuit breakers
 
 **Files:**
 - Create: `src/projects/orchestrator.ts`
@@ -407,13 +392,24 @@ git commit -m "feat: route bounded project planning calls"
 **Interfaces:**
 
 ```ts
+export interface ProjectTaskHandlerResult {
+  readonly status: 'completed' | 'progress' | 'suspended' | 'blocked' | 'failed'
+  readonly progress?: Readonly<Record<string, unknown>>
+  readonly code?: string
+}
+
 export interface ProjectTaskHandler {
   readonly kind: string
-  execute(task: ProjectTaskRecord, signal: AbortSignal): Promise<{
-    status: 'completed' | 'progress' | 'suspended' | 'blocked' | 'failed'
-    progress?: Readonly<Record<string, unknown>>
-    code?: string
-  }>
+  requiredLocks(task: ProjectTaskRecord): readonly string[]
+  execute(task: ProjectTaskRecord, signal: AbortSignal): Promise<ProjectTaskHandlerResult>
+}
+
+export interface ProjectRuntimeStatus {
+  readonly projectId: string
+  readonly runningTaskId: string | null
+  readonly runnableCount: number
+  readonly blockedCount: number
+  readonly state: 'idle' | 'running' | 'paused' | 'recovering'
 }
 
 export class ProjectOrchestrator {
@@ -427,49 +423,27 @@ export class ProjectOrchestrator {
 
 - [ ] **Step 1: Write RED scheduler tests**
 
-Cover:
+One physical task at a time; stable priority; completion unlocks dependencies; conflict branch blocked while unrelated branch runs; survival suspend/resume; shutdown persists suspension/releases locks; three identical local failures trip breaker; AI/provider failure affects only planner task; incompatible locks never overlap.
 
-- one physical task executes at a time even when multiple DAG branches are runnable;
-- stable priority selects next runnable task;
-- completion unlocks dependent task;
-- conflict branch stays blocked while unrelated branch executes;
-- survival directive suspends current task and later resumes from persisted progress;
-- shutdown aborts handler, persists suspended state, releases runtime locks;
-- three identical local failures -> task blocked/circuit breaker rather than infinite retry;
-- provider unavailable affects only planner task; deterministic construction/gather/craft branch can continue;
-- resource/container/movement/world-region locks prevent overlapping incompatible handlers.
+- [ ] **Step 2: Implement lexical deadlock-free lock manager**
 
-- [ ] **Step 2: Implement lock manager inside orchestrator module**
+Lock keys are concrete strings produced by helpers:
 
-Use named exclusive locks:
-
-```text
-movement
-inventory
-container:<storageId>
-world-region:<dimension>:<bounded-region-key>
-workstation:<infrastructureId>
+```ts
+const movementLock = 'movement'
+const inventoryLock = 'inventory'
+const containerLock = (storageId: string) => `container:${storageId}`
+const regionLock = (dimension: string, regionKey: string) => `world-region:${dimension}:${regionKey}`
+const workstationLock = (infrastructureId: string) => `workstation:${infrastructureId}`
 ```
 
-Handlers declare required locks before execution. Lock acquisition is deterministic and deadlock-free by lexical ordering.
+Acquire sorted unique keys and release in reverse order.
 
-- [ ] **Step 3: Map bounded task kinds to existing/new executors**
+- [ ] **Step 3: Register deterministic task handlers**
 
-Handlers include at minimum:
+At minimum `gather_resource`, `craft_item`, `process_item`, `prepare_project_terrain`, `construct_project_batch`, `cleanup_project`, `verify_project`. Delegate to Phase 1-4 systems; do not duplicate mechanics.
 
-```text
-gather_resource
-craft_item
-process_item
-prepare_project_terrain
-construct_project_batch
-cleanup_project
-verify_project
-```
-
-Each handler delegates to Phase 1-4 deterministic code; orchestrator does not reproduce Minecraft mechanics.
-
-- [ ] **Step 4: Run tests/typecheck and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/orchestrator.test.ts tests/projects/task-graph.test.ts
@@ -502,22 +476,13 @@ export interface ProjectRecoveryResult {
 
 - [ ] **Step 1: Write RED recovery tests**
 
-Cover:
+Running tasks become suspended before scan; correct live blocks verify progress; missing block becomes incomplete rather than blindly re-placed; chest replacing scaffold blocks cleanup; storage stock refresh invalidates stale reservations; owner offline allows approved branch but pauses new-approval branch; unresolved conflict survives restart.
 
-- restart moves running tasks to recoverable/suspended before world scan;
-- correct live blocks mark construction progress verified;
-- missing expected project block becomes incomplete, not blindly re-placed before policy/reachability checks;
-- temporary provenance now containing chest -> divergence/block, never cleanup break;
-- authorized storage stock re-read invalidates stale reservations and triggers supply recalculation;
-- owner offline + approved/risk-free branch -> resumable;
-- owner offline + new approval required -> `paused_waiting_player` for affected branch only;
-- unresolved same-role conflict remains blocked across restart.
+- [ ] **Step 2: Implement using live survey/runtime**
 
-- [ ] **Step 2: Implement reconciliation using Phase 4 survey/runtime**
+Never restore Mineflayer objects or AbortControllers. Rebuild runtime state from persisted intent + current world.
 
-Do not store/restore Mineflayer objects or in-flight AbortControllers. Persist intent/progress, rebuild runtime state from live observations.
-
-- [ ] **Step 3: Run tests/typecheck and commit**
+- [ ] **Step 3: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/recovery.test.ts
@@ -535,7 +500,7 @@ git commit -m "feat: reconcile projects safely after restart"
 
 **Files:**
 - Create: `src/projects/conversation-controller.ts`
-- Modify: `src/runtime/decision-coordinator.ts` only at the input-routing boundary needed to hand recognized project conversation to this controller; preserve ordinary action commands.
+- Modify: `src/runtime/decision-coordinator.ts` only at the chat input-routing boundary.
 - Modify: `src/contracts/events.ts`
 - Modify: `src/agent/chat-feedback.ts`
 - Test: `tests/projects/conversation-controller.test.ts`
@@ -543,8 +508,6 @@ git commit -m "feat: reconcile projects safely after restart"
 - Test: `tests/agent/chat-feedback.test.ts`
 
 **Interfaces:**
-- Consumes: trusted session identity, ProjectRepository, DraftService, ProjectResolver, ProjectPlanningExecutor, chat output.
-- Produces conversational dispositions:
 
 ```ts
 export type ProjectConversationResult =
@@ -554,51 +517,21 @@ export type ProjectConversationResult =
   | { readonly kind: 'blocked'; readonly code: string }
 ```
 
-- [ ] **Step 1: Write RED conversation tests**
+- [ ] **Step 1: Write RED short-dialog tests**
 
-Scenario:
+`墨雪幫我蓋個房子` asks site only; `就這裡` stores site deterministically and asks next slot; ambiguous `兩個人住，不要太大` causes exactly one semantic call; `你自己決定` delegates slot; reload resumes next unresolved slot.
 
-```text
-Player: 墨雪幫我蓋個房子
-Bot: 好呀～要蓋在哪？
-Player: 就這裡
-Bot: 大概要多大？
-Player: 兩個人住，不要太大
-```
+Also test autonomy/ACL project commands (`激進模式`, add helper, continue, pause) by UUID authorization.
 
-Assert first answer stores site deterministically; ambiguous scale invokes exactly one semantic planning call; only one question is emitted per turn; `你自己決定` marks pending slot delegated and advances; restart reload continues from next unresolved slot.
+- [ ] **Step 2: Implement deterministic project-command recognition before ordinary action AI**
 
-Also cover project commands:
+If not confidently project/draft input, return `not_project_command` and preserve existing DecisionCoordinator path.
 
-```text
-把這個工程改成激進模式
-讓 PlayerB 當這個工程的 helper
-繼續蓋
-暫停這個工程
-```
+- [ ] **Step 3: Add sanitized project chat events**
 
-Authorization must use project ACL and UUID identity, not player name equality.
+Use `project_question`, `project_progress_important`, `project_waiting`, `project_safety_pause`, `project_completed`, `project_failed`. Routine tool/craft/combat/scaffold details stay silent.
 
-- [ ] **Step 2: Implement project-command recognition before ordinary action AI**
-
-Use deterministic trigger patterns for create/manage/continue/pause project forms. If a message is not confidently a project command/draft answer, return `not_project_command` so existing DecisionCoordinator path handles it unchanged.
-
-- [ ] **Step 3: Wire lifecycle chat categories**
-
-Extend ChatFeedback with project events such as:
-
-```text
-project_question
-project_progress_important
-project_waiting
-project_safety_pause
-project_completed
-project_failed
-```
-
-Keep routine tool/craft/combat/scaffold details silent.
-
-- [ ] **Step 4: Run tests/full regressions and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/conversation-controller.test.ts tests/runtime/decision-coordinator.test.ts tests/agent/chat-feedback.test.ts
@@ -612,32 +545,32 @@ git commit -m "feat: create and manage projects through chat"
 
 ---
 
-### Task 9: Turn approved ArchitecturalPlan into Project DAG and start work
+### Task 9: Turn a ready draft into an approved plan/BOM/supply plan/DAG
 
 **Files:**
 - Create: `src/projects/project-planner.ts`
 - Test: `tests/projects/project-planner.test.ts`
 
 **Interfaces:**
-- Consumes: completed `BuildIntentDraft`, site survey summary, authorized storage/infrastructure summary, ProjectPlanningExecutor.
-- Produces approved plan version + compiled blueprint/BOM + supply plan + durable task graph.
 
-- [ ] **Step 1: Write RED planning tests**
+```ts
+export interface ProjectPlanBuildResult {
+  readonly projectId: string
+  readonly planVersion: number
+  readonly approval: 'approved' | 'awaiting_owner'
+  readonly taskIds: readonly string[]
+}
+```
 
-Assert:
+- [ ] **Step 1: Write RED plan-composition tests**
 
-- small build inside safe envelope can proceed without second approval when policy says ordinary;
-- destructive/large plan goes `awaiting_approval` and no mutation task becomes runnable;
-- AI architectural result compiles; invalid compiler output/unsupported material fails closed before task creation;
-- BOM/supply expansion produces task branches for gather/craft/process/workstation/terrain/build/cleanup/verify;
-- independent resource branches do not depend on each other unnecessarily;
-- approved plan snapshot is immutable/versioned.
+Ready `BuildDraftRecord` + site/storage/infrastructure summary -> one architectural call -> strict plan -> compiled blueprint/BOM -> supply plan -> durable task graph. Small ordinary build may auto-approve inside envelope; destructive/large build -> awaiting approval with no runnable mutation task. Invalid material/compiler result fails before task creation. Plan snapshot is immutable/versioned.
 
-- [ ] **Step 2: Implement planner composition**
+- [ ] **Step 2: Implement transaction boundary**
 
-Do not place blocks or execute tasks. This service only creates authoritative plan/task records transactionally after validation/approval decision.
+This service creates plan/task records only; it never executes Minecraft actions.
 
-- [ ] **Step 3: Run tests/typecheck and commit**
+- [ ] **Step 3: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/project-planner.test.ts tests/construction/blueprint-compiler.test.ts tests/supply/planner.test.ts
@@ -651,7 +584,7 @@ git commit -m "feat: expand approved build plans into project tasks"
 
 ---
 
-### Task 10: Production composition, startup recovery, and status surfaces
+### Task 10: Production composition, startup recovery, and status
 
 **Files:**
 - Modify: `src/main.ts`
@@ -660,33 +593,23 @@ git commit -m "feat: expand approved build plans into project tasks"
 - Test: `tests/api/control-server-project-status.test.ts`
 
 **Interfaces:**
-- Application creates/starts Project conversation controller, planner, orchestrator, recovery service, and project planning executor after existing runtime/routing services exist.
-- `/v1/status` gains a bounded `projects` summary without private UUIDs/coordinates unless already authorized by local control design.
-
-- [ ] **Step 1: Write RED composition tests**
-
-Assert startup order:
-
-```text
-runtime connect -> project recovery -> orchestrator start -> control ready
-```
-
-and shutdown order aborts project work before runtime disconnect/repository close.
-
-Status includes safe counts/status only, for example:
 
 ```ts
-projects: {
-  activeCount: number,
-  waitingPlayerCount: number,
-  recoveringCount: number,
-  runningProjectId: string | null
+export interface ProjectStatusSummary {
+  readonly activeCount: number
+  readonly waitingPlayerCount: number
+  readonly recoveringCount: number
+  readonly runningProjectId: string | null
 }
 ```
 
-- [ ] **Step 2: Implement startup recovery and lifecycle**
+- [ ] **Step 1: Write RED lifecycle tests**
 
-On spawn/start, scan nonterminal projects in this `worldKey`; set them recovering, reconcile, then wake resumable projects. Do not resume before Minecraft is spawned and world observations are available.
+Startup order is runtime connect/spawn -> project recovery -> orchestrator start -> control ready. Shutdown aborts project work before adapter disconnect/repository close. `/v1/status` exposes only safe aggregate project summary, not private UUIDs/coordinates.
+
+- [ ] **Step 2: Implement startup recovery/lifecycle**
+
+Scan nonterminal projects for current `worldKey`, set recovering, reconcile, wake resumable only after Minecraft is spawned.
 
 - [ ] **Step 3: Run full automated verification**
 
@@ -694,8 +617,6 @@ On spawn/start, scan nonterminal projects in this `worldKey`; set them recoverin
 npm test
 npm run typecheck
 ```
-
-Expected: PASS with no regression to current exact-tool action routing.
 
 - [ ] **Step 4: Commit**
 
@@ -710,49 +631,37 @@ git commit -m "feat: run durable autonomous projects"
 
 **Files:**
 - Modify: this plan to append measured evidence.
-- Add scenario fixtures/tests only if a discovered live regression needs a permanent reproduction.
+- Add scenario fixtures/tests only when a live regression needs a permanent reproduction.
 
 - [ ] **Step 1: Validate short conversational house request**
 
-Use a fresh safe test area and say a request equivalent to:
-
-```text
-墨雪，幫我蓋個房子
-```
-
-Verify one-question-at-a-time flow, deterministic answers do not call AI, ambiguous style/scale calls are bounded, owner UUID/default autonomy are correct, and the Project reaches an approved plan.
+Fresh safe test area: `墨雪，幫我蓋個房子`. Verify one-question flow, deterministic answers do not call AI, ambiguous style/scale calls are bounded, owner UUID/default autonomy are correct, and project reaches approved plan.
 
 - [ ] **Step 2: Validate supply/tool/production chain**
 
-Require at least one material that must be gathered, one that uses crafting, and one that uses processing/workstation/fuel. Give Moxue an appropriate tool and verify automatic equip. Confirm unauthorized nearby chest is not opened.
+Require gathering + crafting + processing/workstation/fuel. Give an appropriate tool and observe automatic equip. Confirm unauthorized nearby chest stays unopened.
 
 - [ ] **Step 3: Validate terrain/scaffold/construction**
 
-Use a build needing limited CUT/FILL and at least one high placement. With shears + legal leaves + no explicit scaffold, verify leaves can be selected. Confirm temporary access is removed and useful infrastructure follows lifecycle policy.
+Require limited CUT/FILL + high placement. With shears + legal leaves + no explicit scaffold, verify leaf scaffold eligibility, cleanup, and infrastructure lifecycle.
 
 - [ ] **Step 4: Validate multiplayer ACL/conflict**
 
-With two human players:
+Owner creates Project, adds collaborator, unauthorized third party cannot mutate, same-role contradiction blocks only affected scope, owner resolves and branch resumes.
 
-- owner creates project;
-- owner adds one manager/helper according to test case;
-- unauthorized third-party command cannot mutate project;
-- same-role contradictory instruction blocks only the affected scope;
-- owner resolves conflict and branch resumes.
+- [ ] **Step 5: Validate restart and owner-offline continuation**
 
-- [ ] **Step 5: Validate restart/offline-owner continuation**
-
-Stop MC_AI_Player mid-build after a checkpoint, restart, verify `recovering` reconciles live blocks and resumes without duplicate destructive work. Then disconnect owner while an approved branch continues. Trigger a condition requiring new owner approval and confirm only affected branch waits.
+Restart mid-build after checkpoint; recovering reconciles and resumes without duplicate destructive work. Disconnect owner; approved branch continues. Trigger new approval requirement and confirm affected branch waits.
 
 - [ ] **Step 6: Validate safety interruption**
 
-Observe at least one controlled hostile-mob/hunger interruption followed by task resume. Verify player is never targeted by combat runtime. Verify circuit breaker behavior via automated harness for repeated failure/death rather than risking an uncontrolled survival-world loop.
+Controlled hostile/hunger interruption resumes work; player is never combat target; repeated failure/death breaker is verified through automated harness.
 
-- [ ] **Step 7: Run required soak**
+- [ ] **Step 7: Run 4-8 hour release soak**
 
-Run the existing/private-server soak harness for the release duration required by the project release gates (4-8 hours). During soak track disconnects, unbounded retry, AI call count, task queue growth, DB growth, memory/resource leaks, and unintended world mutation. Any discovered failure gets a deterministic regression test before re-running the affected validation.
+Track disconnects, unbounded retries, AI call counts, queue/DB growth, resource leaks, and unintended world mutation. Any failure gets a deterministic regression before re-run.
 
-- [ ] **Step 8: Final verification and evidence commit**
+- [ ] **Step 8: Final verification/evidence commit**
 
 ```powershell
 npm test
@@ -761,11 +670,11 @@ git status --short
 git log -10 --oneline
 ```
 
-Append a table of PASS/FAIL evidence for every acceptance scenario, including commit SHA and Minecraft version, but no secrets/raw model reasoning/private API keys.
+Append PASS/FAIL table with commit SHA + Minecraft version and no secrets/reasoning.
 
 ```bash
 git add docs/superpowers/plans/2026-09-13-project-autonomy-phase5-orchestration-planning.md tests fixtures
 git commit -m "docs: record autonomous project acceptance evidence"
 ```
 
-Phase 5—and therefore the complete architecture—is release-ready only when automated tests/typecheck, short-dialog build, production chain, construction/scaffold cleanup, multiplayer ACL/conflict, restart recovery, offline-owner continuation, survival interruption/resume, and soak all pass. This does not authorize merging; merge still requires explicit user approval.
+Phase 5 and the complete architecture are release-ready only when automated tests/typecheck, short-dialog build, production chain, construction/scaffold cleanup, multiplayer ACL/conflict, restart recovery, owner-offline continuation, survival interruption/resume, and soak all pass. This does not authorize merging; merge still requires explicit user approval.
