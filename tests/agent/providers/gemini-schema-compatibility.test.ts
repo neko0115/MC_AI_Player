@@ -39,18 +39,38 @@ function containsKey(value: unknown, key: string): boolean {
   return Object.values(record).some(item => containsKey(item, key))
 }
 
-test('Gemini function parameters use an object-root schema without oneOf', () => {
+test('routed Gemini exposes exact object-root tools for registered actions and terminal outcomes', () => {
   const prepared = new GeminiTransport().prepare(context())
-  const parameters = prepared.tools[0]?.parameters as Record<string, unknown> | undefined
+  const names = prepared.tools.map(tool => tool.name).sort()
 
-  assert.ok(parameters)
-  assert.equal(parameters.type, 'object')
-  assert.equal(parameters.additionalProperties, false)
-  assert.equal(containsKey(parameters, 'oneOf'), false)
+  assert.deepEqual(names, [
+    'action_stay',
+    'decision_blocked',
+    'decision_complete'
+  ])
+  assert.equal(names.includes('submit_decision'), false)
 
-  const properties = parameters.properties as Record<string, unknown>
-  assert.deepEqual(
-    (properties.outcome as { enum?: unknown }).enum,
-    ['action', 'complete', 'blocked']
-  )
+  for (const tool of prepared.tools) {
+    assert.equal(tool.parameters.type, 'object', tool.name)
+    assert.equal(tool.parameters.additionalProperties, false, tool.name)
+    assert.equal(containsKey(tool.parameters, 'oneOf'), false, tool.name)
+  }
+
+  const stay = prepared.tools.find(tool => tool.name === 'action_stay')
+  assert.ok(stay)
+  assert.deepEqual(stay.parameters.properties, {})
+
+  const complete = prepared.tools.find(tool => tool.name === 'decision_complete')
+  assert.ok(complete)
+  assert.deepEqual(complete.parameters.properties, {})
+
+  const blocked = prepared.tools.find(tool => tool.name === 'decision_blocked')
+  assert.ok(blocked)
+  const blockedProperties = blocked.parameters.properties as Record<string, any>
+  assert.deepEqual(blockedProperties.reason?.enum, [
+    'no_safe_action',
+    'missing_information',
+    'capability_unavailable'
+  ])
+  assert.deepEqual(blocked.parameters.required, ['reason'])
 })
