@@ -234,6 +234,33 @@ const DECISION_OUTCOME_V2_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = 
   required: ['version', 'outcome']
 })
 
+const V2_TOP_LEVEL_KEYS = new Set(['version', 'outcome', 'action', 'reason'])
+const V2_ACTION_KEYS = new Set(['intent', 'args'])
+const V2_COMPAT_ARG_KEYS = new Set([
+  'player',
+  'range',
+  'x',
+  'y',
+  'z',
+  'radius',
+  'item',
+  'destination',
+  'resource',
+  'quantity',
+  'storage'
+])
+const V2_INTENT_ARG_KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  follow_player: Object.freeze(['player', 'range']),
+  stay: Object.freeze([]),
+  go_to: Object.freeze(['x', 'y', 'z', 'radius']),
+  return_home: Object.freeze([]),
+  eat: Object.freeze([]),
+  equip: Object.freeze(['item', 'destination']),
+  gather_resource: Object.freeze(['resource', 'quantity']),
+  deposit_item: Object.freeze(['item', 'quantity', 'storage']),
+  withdraw_item: Object.freeze(['item', 'quantity', 'storage'])
+})
+
 export class GeminiDecisionProvider implements DecisionProvider<DecisionContext> {
   readonly capabilities = SAFE_GAMEPLAY_PROVIDER_CAPABILITIES
   private readonly timeoutMs: number
@@ -328,6 +355,47 @@ function extractDecisionFunctionCall(response: GeminiInteractionResponse): Provi
   let value: unknown
   try { value = structuredClone(call.arguments) } catch { return invalid('function_arguments_invalid') }
   return { kind: 'structured', provider: PROVIDER_NAME, mode: 'function_call', value }
+}
+
+function projectDecisionOutcomeV2Compatibility(value: unknown): unknown {
+  if (!isRecord(value) || value.version !== 2 || !hasOnlyKeys(value, V2_TOP_LEVEL_KEYS)) {
+    return value
+  }
+
+  if (value.outcome === 'complete') {
+    return { version: 2, outcome: 'complete' }
+  }
+
+  if (value.outcome === 'blocked') {
+    return { version: 2, outcome: 'blocked', reason: value.reason }
+  }
+
+  if (value.outcome !== 'action' || !isRecord(value.action) || !hasOnlyKeys(value.action, V2_ACTION_KEYS)) {
+    return value
+  }
+
+  const intent = typeof value.action.intent === 'string' ? value.action.intent : ''
+  const allowedArgKeys = V2_INTENT_ARG_KEYS[intent]
+  if (!allowedArgKeys || !isRecord(value.action.args) || !hasOnlyKeys(value.action.args, V2_COMPAT_ARG_KEYS)) {
+    return value
+  }
+
+  const args: Record<string, unknown> = {}
+  for (const key of allowedArgKeys) {
+    if (Object.prototype.hasOwnProperty.call(value.action.args, key)) {
+      args[key] = value.action.args[key]
+    }
+  }
+
+  return {
+    version: 2,
+    outcome: 'action',
+    action: { intent, args }
+  }
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
+  return Object.keys(value).every(key => allowed.has(key))
 }
 
 function normalizeSdkStep(step: unknown): GeminiInteractionStep {
@@ -485,7 +553,11 @@ export class GeminiTransport {
       const code = providerResult.kind === 'invalid' ? providerResult.code : 'unexpected_provider_result'
       return { kind: 'generation_error', code, ...(usage === undefined ? {} : { usage }) }
     }
-    return { kind: 'success', providerResult, ...(usage === undefined ? {} : { usage }) }
+    const projectedProviderResult: ProviderResult = {
+      ...providerResult,
+      value: projectDecisionOutcomeV2Compatibility(providerResult.value)
+    }
+    return { kind: 'success', providerResult: projectedProviderResult, ...(usage === undefined ? {} : { usage }) }
   }
 
   private clientFor(credentialHandle: string): GeminiAttemptClient {
