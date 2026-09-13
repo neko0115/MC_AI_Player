@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai'
+import { DecisionOutcomeV2Schema } from '../../contracts/decision.js'
 import type { DecisionContext } from '../context-builder.js'
 import type { AttemptLease } from '../routing/contracts.js'
 import {
@@ -553,9 +554,18 @@ export class GeminiTransport {
       const code = providerResult.kind === 'invalid' ? providerResult.code : 'unexpected_provider_result'
       return { kind: 'generation_error', code, ...(usage === undefined ? {} : { usage }) }
     }
+    const projectedValue = projectDecisionOutcomeV2Compatibility(providerResult.value)
+    const strictOutcome = DecisionOutcomeV2Schema.safeParse(projectedValue)
+    if (!strictOutcome.success) {
+      return {
+        kind: 'generation_error',
+        code: 'decision_schema_invalid',
+        ...(usage === undefined ? {} : { usage })
+      }
+    }
     const projectedProviderResult: ProviderResult = {
       ...providerResult,
-      value: projectDecisionOutcomeV2Compatibility(providerResult.value)
+      value: strictOutcome.data
     }
     return { kind: 'success', providerResult: projectedProviderResult, ...(usage === undefined ? {} : { usage }) }
   }
