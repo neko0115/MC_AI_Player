@@ -6,7 +6,7 @@
 
 **Architecture:** Keep committed human-reviewable game facts separate from Moxue behavior policy. Load a pack keyed by the connected Minecraft version, build an in-memory production graph, then have a pure supply planner expand BOM requirements against inventory/authorized storage/world acquisition and reserve shared stock. Runtime adapters execute bounded craft/process operations; they do not choose production strategy themselves.
 
-**Tech Stack:** TypeScript 7, Node.js 24, Mineflayer 4.39, better-sqlite3 12.11.1, Zod 4.5.4, minecraft-data resolved/pinned to the exact version already used by the installed Mineflayer dependency, node:test/tsx.
+**Tech Stack:** TypeScript 7, Node.js 24, Mineflayer 4.39, better-sqlite3 12.11.1, Zod 4.5.4, `minecraft-data` pinned to the exact version already resolved by the installed Mineflayer dependency, node:test/tsx.
 
 **Spec:** `docs/superpowers/specs/2026-09-13-project-autonomy-construction-design.md`
 
@@ -28,17 +28,15 @@
 - Create `src/knowledge/contracts.ts` — pack schemas and normalized facts.
 - Create `src/knowledge/loader.ts` — exact-version pack loading/validation.
 - Create `src/knowledge/graph.ts` — production graph and bounded reverse expansion.
-- Create `src/knowledge/policy.ts` — Moxue-specific rarity/scaffold/tool-preservation policy, separate from game facts.
+- Create `src/knowledge/policy.ts` — Moxue-specific rarity/tool/resource policy, separate from game facts.
 - Create `scripts/generate-game-knowledge.ts` — deterministic pack generator from pinned `minecraft-data`.
-- Create `game-data/java/<runtime-version>/*.json` during implementation for the actual private-server version used in live validation.
-- Create `fixtures/game-data/java/test-1.0/*.json` — tiny deterministic test pack.
-- Create `src/projects/resource-reservations.ts` — repository-backed material reservation service.
-- Extend `src/projects/repository.ts` and `src/projects/sqlite-repository.ts` with `resource_reservations`.
+- Create `fixtures/game-data/java/test-1.0/*.json` — deterministic test-only pack.
+- During implementation, generate and commit `game-data/java/$minecraftVersion/*.json` for the exact private-server version used in live validation.
+- Create `src/projects/resource-reservations.ts` and extend the Phase 2 repository.
 - Create `src/supply/planner.ts` — BOM/source/production expansion.
-- Create `src/minecraft/production.ts` — runtime interfaces for crafting/processing/workstations.
-- Create `src/minecraft/mineflayer-production.ts` — Mineflayer implementation.
+- Create `src/minecraft/production.ts` and `src/minecraft/mineflayer-production.ts` — bounded production runtime.
 - Modify `src/minecraft/runtime-bundle.ts` — expose production runtime.
-- Create `src/skills/production.ts` — bounded craft/smelt/stonecut skills or executor helpers.
+- Create `src/skills/production.ts` — bounded internal production skills.
 - Tests under `tests/knowledge/`, `tests/supply/`, `tests/minecraft/`, `tests/skills/`, `tests/projects/`.
 
 ---
@@ -58,18 +56,33 @@
 - Test: `tests/knowledge/contracts.test.ts`
 
 **Interfaces:**
-- Produces Zod schemas and `GameKnowledgePack` consumed by all later tasks.
+- Produces every fact type used by later tasks.
 
-- [ ] **Step 1: Write RED schema tests**
+- [ ] **Step 1: Write the failing contract tests**
 
-Define normalized IDs as lowercase namespaced-or-vanilla identifiers matching `/^[a-z0-9_.:-]{1,128}$/`.
-
-Required core types:
+Define normalized IDs using `/^[a-z0-9_.:-]{1,128}$/` and add these exact shapes:
 
 ```ts
 export interface IngredientRequirement {
   readonly item: string
   readonly count: number
+}
+
+export interface BlockFact {
+  readonly id: string
+  readonly hardness: number | null
+  readonly harvestToolClasses: readonly string[]
+  readonly naturalTerrainCandidate: boolean
+  readonly replaceable: boolean
+  readonly gravityAffected: boolean
+  readonly liquid: boolean
+  readonly container: boolean
+  readonly redstoneLike: boolean
+}
+
+export interface ItemFact {
+  readonly id: string
+  readonly stackSize: number
 }
 
 export interface RecipeFact {
@@ -101,11 +114,21 @@ export interface ToolFact {
   readonly attackDamage: number | null
   readonly attackSpeed: number | null
 }
-```
 
-Pack metadata:
+export interface CombatFact {
+  readonly item: string
+  readonly attackDamage: number
+  readonly attackSpeed: number
+  readonly ranged: boolean
+  readonly ammoItem: string | null
+}
 
-```ts
+export interface WorkstationFact {
+  readonly id: string
+  readonly blockNames: readonly string[]
+  readonly supportedKinds: readonly ('crafting' | 'smelting' | 'blasting' | 'smoking' | 'stonecutting')[]
+}
+
 export interface GameKnowledgePack {
   readonly schemaVersion: 1
   readonly edition: 'java'
@@ -121,7 +144,7 @@ export interface GameKnowledgePack {
 }
 ```
 
-Test duplicate IDs, missing referenced items/workstations, invalid counts, zero/negative fuel, and unknown references are rejected by `validateKnowledgePackReferences(pack)`.
+Test duplicate IDs, invalid counts, zero/negative fuel, unknown item references, and unknown workstation references through `validateKnowledgePackReferences(pack)`.
 
 - [ ] **Step 2: Run RED**
 
@@ -133,19 +156,19 @@ Expected: module missing.
 
 - [ ] **Step 3: Implement schemas and fixture data**
 
-The fixture must include a multi-stage chain sufficient to test recursion, for example:
+The test pack must contain a recursive chain such as:
 
 ```text
 cobblestone -> smelt stone -> smelt smooth_stone
-stone -> stonecutting stone_bricks (test-only normalized fixture rule)
-sand -> smelt glass -> crafting glass_pane
-log -> crafting planks -> crafting crafting_table
-cobblestone -> crafting furnace
+stone -> stonecutting stone_bricks (test-only rule)
+sand -> smelt glass -> craft glass_pane
+log -> craft planks -> craft crafting_table
+cobblestone -> craft furnace
 ```
 
-The fixture is explicitly test data and must not claim to be a real Minecraft version.
+The fixture metadata uses `minecraftVersion = "test-1.0"` and is never presented as a real Minecraft release.
 
-- [ ] **Step 4: Run tests/typecheck and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/knowledge/contracts.test.ts
@@ -170,7 +193,6 @@ git commit -m "feat: define versioned Minecraft knowledge packs"
 - Test: `tests/scripts/generate-game-knowledge.test.ts`
 
 **Interfaces:**
-- Produces:
 
 ```ts
 export class GameKnowledgeLoader {
@@ -179,51 +201,55 @@ export class GameKnowledgeLoader {
 }
 ```
 
-Generator CLI:
+CLI contract:
 
 ```text
-node --import tsx scripts/generate-game-knowledge.ts --version <exact-java-version> --out game-data/java
+node --import tsx scripts/generate-game-knowledge.ts --version 1.21.8 --out game-data/java
 ```
 
-- [ ] **Step 1: Pin the existing Mineflayer-compatible `minecraft-data` version**
+The numeric version above is a CLI example only; live generation uses the actual configured private-server version as described below.
 
-Run:
+- [ ] **Step 1: Pin the already-resolved Mineflayer-compatible `minecraft-data` dependency**
+
+Use PowerShell so no manual version placeholder is needed:
 
 ```powershell
-npm ls minecraft-data --json
+$mdVersion = node -p "require('minecraft-data/package.json').version"
+if (-not $mdVersion) { throw 'minecraft-data is not resolved by the current install' }
+npm install --save-exact "minecraft-data@$mdVersion"
 ```
 
-Read the resolved version already installed under the Mineflayer dependency graph, then add that exact version as a direct dependency using:
-
-```powershell
-npm install --save-exact minecraft-data@<the-exact-version-reported-by-npm-ls>
-```
-
-Do not upgrade Mineflayer or choose a different minecraft-data release in this task.
+Do not upgrade Mineflayer in this task.
 
 - [ ] **Step 2: Write RED loader tests**
 
-Assert `loadJavaVersion('test-1.0')` succeeds from fixtures when a test root is supplied; missing version throws `knowledge_pack_missing:test-2.0`; mismatched metadata/version throws `knowledge_pack_version_mismatch`.
+Assert `loadJavaVersion('test-1.0')` succeeds from the fixture root. Missing `test-2.0` throws `knowledge_pack_missing:test-2.0`; mismatched metadata throws `knowledge_pack_version_mismatch`.
 
-- [ ] **Step 3: Implement loader**
+- [ ] **Step 3: Implement the loader**
 
-Read the eight JSON files from `<root>/java/<version>/`, parse JSON, combine into one pack, then run cross-reference validation. No nearest-version fallback.
+Read these exact filenames from `${rootDirectory}/java/${version}/`: `blocks.json`, `items.json`, `recipes.json`, `processing.json`, `fuels.json`, `tools.json`, `combat.json`, `workstations.json`; parse them through Zod and run cross-reference validation. Do not fall back to a nearest version.
 
-- [ ] **Step 4: Write RED generator tests around pure normalization functions**
+- [ ] **Step 4: Write RED generator normalization tests**
 
-Export pure helpers from the script module so tests can feed small minecraft-data-shaped objects and assert stable sorted JSON records. Ensure output ordering is lexical by ID so Git diffs stay stable.
+Export pure normalizers used by the CLI. Feed small minecraft-data-shaped objects and assert lexical stable ordering by ID and repeatable JSON output.
 
-- [ ] **Step 5: Implement generator**
+- [ ] **Step 5: Implement the generator**
 
-Use `minecraft-data(version)` as source and normalize only facts needed by this design. The CLI validates `--version`, creates `game-data/java/<version>/`, writes formatted JSON with trailing newline, and exits non-zero when the version is unsupported.
-
-Never scrape the web at runtime.
+The script parses `--version` and `--out`, loads `minecraft-data(version)`, writes the eight files with two-space JSON + trailing newline, and exits non-zero for unsupported versions.
 
 - [ ] **Step 6: Generate the actual private-server pack**
 
-Determine the exact connected Java version from the existing configured/runtime Minecraft version. If `.env` already fixes `MC_VERSION`, use that exact value; otherwise inspect the Mineflayer spawn/version value and pass it explicitly to the generator. Then run the generator and commit the resulting `game-data/java/<exact-version>/` directory.
+On the MC host, use the exact version configured for the real server. If `.env` already contains `MC_VERSION`, run:
 
-- [ ] **Step 7: Run tests/typecheck and commit**
+```powershell
+$version = (Get-Content .env | Where-Object { $_ -match '^MC_VERSION=' } | Select-Object -First 1) -replace '^MC_VERSION=', ''
+if (-not $version) { throw 'Set MC_VERSION locally to the exact Paper Java version before generating the release knowledge pack.' }
+node --import tsx scripts/generate-game-knowledge.ts --version $version --out game-data/java
+```
+
+If the deployment intentionally leaves `MC_VERSION` unset, determine the exact server protocol version from the current Paper/Mineflayer runtime first, set `MC_VERSION` locally, restart once to verify that exact version connects, then run the command above. Do not commit `.env`.
+
+- [ ] **Step 7: Verify and commit**
 
 ```powershell
 npm test -- tests/knowledge/loader.test.ts tests/scripts/generate-game-knowledge.test.ts
@@ -244,8 +270,6 @@ git commit -m "feat: generate exact-version game knowledge"
 - Test: `tests/knowledge/graph.test.ts`
 
 **Interfaces:**
-- Consumes: `GameKnowledgePack`.
-- Produces:
 
 ```ts
 export type ProductionRoute =
@@ -270,14 +294,7 @@ export function expandProductionRequirement(
 
 - [ ] **Step 1: Write RED graph tests**
 
-Cover:
-
-- output batch rounding (`3 panes per craft` requiring ceil division);
-- two-stage smelting chain;
-- workstation dependency preserved in route facts;
-- raw item leaf when no recipe exists;
-- cycle detection returns/throws `production_cycle_detected` with the cycle path;
-- max depth default 32 and max nodes default 2048 fail closed.
+Cover output-batch rounding, two-stage processing, workstation preservation, raw leaves, cycle detection with `production_cycle_detected`, default max depth 32, and default max node count 2048.
 
 - [ ] **Step 2: Run RED**
 
@@ -287,18 +304,9 @@ npm test -- tests/knowledge/graph.test.ts
 
 - [ ] **Step 3: Implement deterministic route ordering**
 
-When multiple routes exist, sort by a stable tuple before selecting a default route:
+Order candidate routes by explicit policy preference, processing-kind order, fewest distinct inputs, then lexical fact ID. Keep an internal API returning all candidates so the supply cost planner can compare allowed routes without AI.
 
-```text
-explicit policy preference
-processing kind order
-fewest distinct inputs
-lexical fact id
-```
-
-Do not introduce AI route selection. Preserve an API that can later expose multiple candidate routes to the supply cost planner.
-
-- [ ] **Step 4: Run tests/typecheck and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/knowledge/graph.test.ts
@@ -322,7 +330,6 @@ git commit -m "feat: expand Minecraft production dependencies"
 - Test: `tests/projects/sqlite-repository.test.ts`
 
 **Interfaces:**
-- Produces:
 
 ```ts
 export interface ResourceReservation {
@@ -336,21 +343,23 @@ export interface ResourceReservation {
   readonly status: 'reserved' | 'consumed' | 'released'
 }
 
-reserve(input: Omit<ResourceReservation, 'reservationId' | 'status'>): ResourceReservation
-consume(reservationId: string): ResourceReservation
-release(reservationId: string): ResourceReservation
-listActiveForSource(sourceKind: string, sourceId: string, item: string): ResourceReservation[]
+export interface ReservationService {
+  reserveAvailable(input: Omit<ResourceReservation, 'reservationId' | 'status'> & { readonly availableQuantity: number }): ResourceReservation
+  consume(reservationId: string): ResourceReservation
+  release(reservationId: string): ResourceReservation
+  listActiveForSource(sourceKind: ResourceReservation['sourceKind'], sourceId: string, item: string): ResourceReservation[]
+}
 ```
 
-- [ ] **Step 1: Write RED repository/reservation tests**
+- [ ] **Step 1: Write RED reservation tests**
 
-Assert two tasks cannot reserve more than the supplied `availableQuantity` when `ReservationService.reserveAvailable(...)` is called transactionally. Test consume/release idempotence rules explicitly: consuming an already consumed reservation returns the same consumed record; released reservations cannot later consume.
+Assert two tasks cannot reserve more than `availableQuantity` transactionally. Consuming an already consumed reservation is idempotent; a released reservation cannot later be consumed.
 
-- [ ] **Step 2: Add schema/table and service**
+- [ ] **Step 2: Add schema/table/service**
 
-Create `resource_reservations` with foreign key to project, indexes on `(source_kind, source_id, item, status)`, and all quantity/status validation through domain schemas.
+Create `resource_reservations` with a foreign key to project and index `(source_kind, source_id, item, status)`.
 
-- [ ] **Step 3: Run tests/typecheck and commit**
+- [ ] **Step 3: Verify and commit**
 
 ```powershell
 npm test -- tests/projects/resource-reservations.test.ts tests/projects/sqlite-repository.test.ts
@@ -372,8 +381,6 @@ git commit -m "feat: reserve shared project materials"
 - Test: `tests/supply/planner.test.ts`
 
 **Interfaces:**
-- Consumes: BOM requirements, knowledge graph, current inventory snapshot, authorized storage stock, legal world-resource candidates, active reservations.
-- Produces:
 
 ```ts
 export type SupplyStep =
@@ -389,32 +396,7 @@ export interface SupplyPlan {
   readonly steps: readonly SupplyStep[]
   readonly unresolved: readonly { item: string; quantity: number; code: string }[]
 }
-```
 
-- [ ] **Step 1: Write RED planning tests**
-
-Cover:
-
-- inventory is consumed before authorized storage when configured cost is lower;
-- unauthorized storage is absent from input/candidates and therefore never selected;
-- missing product recursively expands raw material + workstation + fuel steps;
-- existing furnace capacity reduces `ensure_workstation` quantity;
-- fuel quantity uses burn-time arithmetic and rounds up;
-- active reservation reduces apparent storage availability;
-- visually significant substitutions are not invented by the supply planner; only alternatives explicitly allowed by the plan/policy may be considered;
-- unresolved raw resource remains explicit rather than silently disappearing.
-
-- [ ] **Step 2: Run RED**
-
-```powershell
-npm test -- tests/supply/planner.test.ts
-```
-
-- [ ] **Step 3: Implement cost tuple and stable ordering**
-
-Use explicit deterministic cost fields:
-
-```ts
 export interface SupplyCost {
   readonly travel: number
   readonly gatherTime: number
@@ -426,9 +408,21 @@ export interface SupplyCost {
 }
 ```
 
-Compare lexically by weighted total then stable source ID. Keep weights in `src/knowledge/policy.ts`, versioned as code/policy rather than model prompt.
+- [ ] **Step 1: Write RED planner tests**
 
-- [ ] **Step 4: Run tests/typecheck and commit**
+Cover inventory/authorized storage ordering, recursive raw/workstation/fuel expansion, existing furnace capacity, burn-time rounding, active reservations reducing available stock, allowed substitutions only, and explicit unresolved resources.
+
+- [ ] **Step 2: Run RED**
+
+```powershell
+npm test -- tests/supply/planner.test.ts
+```
+
+- [ ] **Step 3: Implement deterministic cost comparison**
+
+Keep numeric weights in `src/knowledge/policy.ts`; compare weighted total then stable source ID. No Gemini call.
+
+- [ ] **Step 4: Verify and commit**
 
 ```powershell
 npm test -- tests/supply/planner.test.ts tests/knowledge/graph.test.ts
@@ -449,35 +443,34 @@ git commit -m "feat: plan project material supply"
 - Create: `src/minecraft/mineflayer-production.ts`
 - Modify: `src/minecraft/runtime-bundle.ts`
 - Test: `tests/minecraft/mineflayer-production.test.ts`
-- Test: `tests/minecraft/runtime-bundle.test.ts` if such test exists; otherwise create it.
+- Create or modify: `tests/minecraft/runtime-bundle.test.ts`
 
 **Interfaces:**
-- Produces:
 
 ```ts
+export interface ResolvedWorkstation {
+  readonly id: string
+  readonly kind: 'crafting_table' | 'furnace' | 'blast_furnace' | 'smoker' | 'stonecutter'
+  readonly position: Position
+  readonly expectedBlockNames: readonly string[]
+}
+
 export interface ProductionRuntime {
   craft(item: string, quantity: number, workstation: ResolvedWorkstation | null, signal: AbortSignal): Promise<SkillResult>
   process(request: {
-    kind: 'smelting' | 'blasting' | 'smoking' | 'stonecutting'
-    input: string
-    output: string
-    quantity: number
-    workstation: ResolvedWorkstation
-    fuel?: string
+    readonly kind: 'smelting' | 'blasting' | 'smoking' | 'stonecutting'
+    readonly input: string
+    readonly output: string
+    readonly quantity: number
+    readonly workstation: ResolvedWorkstation
+    readonly fuel?: string
   }, signal: AbortSignal): Promise<SkillResult>
 }
 ```
 
-- [ ] **Step 1: Write RED Mineflayer tests**
+- [ ] **Step 1: Write RED runtime tests**
 
-Mock bot crafting/container APIs and assert:
-
-- craft finds a recipe for the requested output and performs enough batches for requested quantity;
-- missing workstation returns `workstation_required`;
-- inventory shortage returns `insufficient_ingredients`;
-- smelting opens the exact resolved furnace block, loads input/fuel, waits/polls boundedly for output, withdraws output, closes on abort/disconnect;
-- stonecutting uses only the resolved stonecutter and validated recipe/result;
-- no arbitrary nearby workstation selection occurs inside runtime.
+Mock Mineflayer crafting/container APIs and assert exact workstation use, enough batches, missing workstation/ingredient failures, bounded smelting polling, abort/disconnect cleanup, and no implicit nearby-workstation search inside the runtime.
 
 - [ ] **Step 2: Run RED**
 
@@ -485,65 +478,57 @@ Mock bot crafting/container APIs and assert:
 npm test -- tests/minecraft/mineflayer-production.test.ts
 ```
 
-- [ ] **Step 3: Implement runtime with abort/disconnect cleanup**
+- [ ] **Step 3: Implement production runtime**
 
-Keep strategy out of this class. It receives exact item/quantity/workstation chosen by the supply/task layer. Every opened container/workstation closes in `finally`.
+The runtime performs only the exact operation chosen by the planner/task layer. Every opened workstation/container closes in `finally`.
 
-- [ ] **Step 4: Expose runtime bundle and run tests**
+- [ ] **Step 4: Expose through the runtime bundle**
 
-Add `readonly production: ProductionRuntime` to `MineflayerRuntimeBundle` and instantiate with the existing `readyBot()` provider.
+Add `readonly production: ProductionRuntime` to `MineflayerRuntimeBundle` and instantiate it from the existing ready-bot provider.
+
+- [ ] **Step 5: Verify and commit**
 
 ```powershell
-npm test -- tests/minecraft/mineflayer-production.test.ts
+npm test -- tests/minecraft/mineflayer-production.test.ts tests/minecraft/runtime-bundle.test.ts
 npm run typecheck
 ```
 
-- [ ] **Step 5: Commit**
-
 ```bash
-git add src/minecraft/production.ts src/minecraft/mineflayer-production.ts src/minecraft/runtime-bundle.ts tests/minecraft/mineflayer-production.test.ts
+git add src/minecraft/production.ts src/minecraft/mineflayer-production.ts src/minecraft/runtime-bundle.ts tests/minecraft/mineflayer-production.test.ts tests/minecraft/runtime-bundle.test.ts
 git commit -m "feat: execute bounded Minecraft production"
 ```
 
 ---
 
-### Task 7: Add production skills and focused live validation
+### Task 7: Register internal production skills and validate a real chain
 
 **Files:**
 - Create: `src/skills/production.ts`
-- Modify: `src/skills/registry.ts` only if helper changes are needed.
-- Modify: `src/main.ts` to register bounded production skills for later Project tasks without exposing new raw AI actions yet.
+- Modify: `src/main.ts`
 - Test: `tests/skills/production.test.ts`
-- Test: `tests/main.test.ts`
 - Modify: this plan to append live evidence after validation.
 
 **Interfaces:**
-- Produces skill names internal to Project orchestration, for example `craft_item`, `process_item`, `ensure_workstation`; they are registered but are not automatically advertised to current action Gemini unless explicitly added later.
+- Produces internal skill names `craft_item` and `process_item`. They are registered for Project orchestration but are not added to the current action-Gemini tool list in this phase.
 
 - [ ] **Step 1: Write RED skill tests**
 
-Each skill validates strict args, delegates once to `ProductionRuntime`, propagates cancellation/failure codes, and declares only required capabilities. Creating/placing a new workstation is not permitted in Phase 3; `ensure_workstation` may resolve/use existing infrastructure or return a bounded `workstation_missing` result until Phase 4 construction can place one.
+Each skill validates strict args, delegates exactly once to `ProductionRuntime`, propagates cancellation/failure codes, and declares only required capabilities. Creating/placing a missing workstation remains a later construction task; production returns `workstation_missing` when the supplied plan cannot resolve one.
 
-- [ ] **Step 2: Implement and register skills**
+- [ ] **Step 2: Implement/register skills**
 
-Keep current action schema unchanged. Project orchestration in Phase 5 will call these through `SkillExecutor`/bounded internal APIs.
+Keep current action DecisionOutcome schema unchanged.
 
-- [ ] **Step 3: Run full automated verification**
+- [ ] **Step 3: Run full verification**
 
 ```powershell
 npm test
 npm run typecheck
 ```
 
-- [ ] **Step 4: Live validate one production chain**
+- [ ] **Step 4: Live-validate one real production chain**
 
-On the private server, prepare an authorized storage/inventory scenario and run a focused harness or temporary local-admin Project test that proves:
-
-```text
-raw material -> furnace processing -> workstation recipe -> final requested block
-```
-
-Record observed quantities, workstation use, and that no unauthorized container was opened. Do not mark Phase 3 PASS if only unit tests ran.
+Prepare authorized inventory/storage and validate one chain containing raw material, fuel, furnace processing, and a workstation recipe. Record observed quantities/workstations and verify no unauthorized container opens.
 
 - [ ] **Step 5: Commit evidence**
 
@@ -552,4 +537,4 @@ git add src/skills/production.ts src/main.ts tests/skills/production.test.ts doc
 git commit -m "docs: record phase 3 supply validation"
 ```
 
-Phase 3 is complete when exact-version knowledge loads, recursive production/fuel/workstation tests pass, reservations prevent double counting, production runtime passes abort/disconnect tests, full CI/typecheck passes, and one real private-server production chain succeeds.
+Phase 3 is complete when exact-version knowledge loads, recursive production/fuel/workstation tests pass, reservations prevent double counting, the production runtime passes abort/disconnect tests, full suite/typecheck passes, and one real private-server production chain succeeds.
