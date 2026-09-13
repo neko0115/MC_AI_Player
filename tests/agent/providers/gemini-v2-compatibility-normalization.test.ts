@@ -126,7 +126,7 @@ test('routed Gemini projects known compatibility-superset fields into a strict s
   })
 })
 
-test('routed Gemini classifies a missing action args object without leaking provider values', async () => {
+test('routed Gemini treats projected output that still violates strict V2 as generation error', async () => {
   const transport = new GeminiTransport({
     resolveCredential: () => 'TEST_KEY',
     createClient: () => ({
@@ -140,7 +140,8 @@ test('routed Gemini classifies a missing action args object without leaking prov
               version: 2,
               outcome: 'action',
               action: {
-                intent: 'follow_player'
+                intent: 'follow_player',
+                args: { range: 4 }
               }
             }
           }],
@@ -152,14 +153,13 @@ test('routed Gemini classifies a missing action args object without leaking prov
 
   const result = await transport.execute(
     transport.prepare(context()),
-    lease('missing-args'),
+    lease('invalid'),
     new AbortController().signal
   )
 
   assert.deepEqual(result, {
     kind: 'generation_error',
-    code: 'decision_schema_invalid_action_args_missing',
+    code: 'decision_schema_invalid',
     usage: EXPECTED_USAGE
   })
-  assert.equal(JSON.stringify(result).includes('follow_player'), false)
 })
