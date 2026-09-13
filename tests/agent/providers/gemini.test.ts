@@ -274,7 +274,7 @@ test('Gemini module exports the routed one-attempt transport', async () => {
   assert.equal(typeof (module as Record<string, unknown>).GeminiTransport, 'function')
 })
 
-test('Gemini transport prepares one immutable V2 forced-function payload', async () => {
+test('Gemini transport prepares immutable exact V2 decision tools', async () => {
   const module = await import('../../../src/agent/providers/gemini.js')
   const Transport = (module as Record<string, unknown>).GeminiTransport as new () => {
     prepare(context: DecisionContext): {
@@ -288,22 +288,22 @@ test('Gemini transport prepares one immutable V2 forced-function payload', async
   const prepared = transport.prepare(context())
 
   assert.equal(Object.isFrozen(prepared), true)
-  assert.equal(prepared.tools.length, 1)
-  assert.equal(prepared.tools[0]?.name, 'submit_decision')
+  assert.deepEqual(
+    prepared.tools.map(tool => tool.name).sort(),
+    ['action_gather_resource', 'action_stay', 'decision_blocked', 'decision_complete']
+  )
   assert.equal(prepared.utf8Bytes, Buffer.byteLength(prepared.input, 'utf8'))
   assert.equal(prepared.input.includes('test-server:survival-v1'), true)
 
-  const parameters = prepared.tools[0]?.parameters as Record<string, any>
-  assert.equal(parameters.type, 'object')
-  assert.equal(parameters.additionalProperties, false)
-  assert.equal(parameters.properties?.version?.const, 2)
-  assert.deepEqual(parameters.properties?.outcome?.enum, ['action', 'complete', 'blocked'])
-
-  const schema = JSON.stringify(parameters)
-  assert.equal(schema.includes('"oneOf"'), false)
-  assert.equal(schema.includes('"reasoning"'), false)
-  assert.equal(schema.includes('"analysis"'), false)
-  assert.equal(schema.includes('"thought"'), false)
+  for (const tool of prepared.tools) {
+    assert.equal(tool.parameters.type, 'object', tool.name)
+    assert.equal(tool.parameters.additionalProperties, false, tool.name)
+    const schema = JSON.stringify(tool.parameters)
+    assert.equal(schema.includes('"oneOf"'), false, tool.name)
+    assert.equal(schema.includes('"reasoning"'), false, tool.name)
+    assert.equal(schema.includes('"analysis"'), false, tool.name)
+    assert.equal(schema.includes('"thought"'), false, tool.name)
+  }
 })
 
 test('Gemini transport executes one lease-selected attempt and normalizes usage without thought leakage', async () => {
@@ -333,8 +333,8 @@ test('Gemini transport executes one lease-selected attempt and normalizes usage 
               {
                 type: 'function_call',
                 id: 'fc-v2',
-                name: 'submit_decision',
-                arguments: { version: 2, outcome: 'complete' }
+                name: 'decision_complete',
+                arguments: {}
               }
             ],
             usage: {
@@ -417,8 +417,8 @@ test('Gemini transport caches one client per opaque credential handle', async ()
             status: 'requires_action',
             steps: [{
               type: 'function_call',
-              name: 'submit_decision',
-              arguments: { version: 2, outcome: 'complete' }
+              name: 'decision_complete',
+              arguments: {}
             }]
           }
         }
