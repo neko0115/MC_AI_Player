@@ -152,10 +152,22 @@ const SAFE_PROVIDER_CODES = new Set([
   'too_many_tool_calls',
   'missing_thought_signature'
 ])
+
 const SYSTEM_INSTRUCTION = [
   'You are the high-level Minecraft decision planner for a deterministic gameplay runtime.',
   'Use the supplied bounded context and safety constraints to choose exactly one high-level action.',
   `You MUST call the ${FUNCTION_NAME} function exactly once.`,
+  'Do not emit model text as the answer.',
+  'Keep internal reasoning private. Never put reasoning, analysis, thought, or explanations inside function arguments.',
+  'The deterministic runtime, not the model, performs movement, digging, inventory operations, and safety enforcement.'
+].join(' ')
+
+const ROUTED_SYSTEM_INSTRUCTION = [
+  'You are the high-level Minecraft decision planner for a deterministic gameplay runtime.',
+  'Choose exactly one outcome by calling exactly one of the provided decision functions exactly once.',
+  'Only action functions for currently registered gameplay skills are provided.',
+  'Use decision_complete only when the task is already complete.',
+  'Use decision_blocked only when no safe registered action can continue the task.',
   'Do not emit model text as the answer.',
   'Keep internal reasoning private. Never put reasoning, analysis, thought, or explanations inside function arguments.',
   'The deterministic runtime, not the model, performs movement, digging, inventory operations, and safety enforcement.'
@@ -180,87 +192,112 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
   ]
 })
 
-const DECISION_OUTCOME_V2_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.freeze({
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    version: { const: 2, type: 'integer' },
-    outcome: { type: 'string', enum: ['action', 'complete', 'blocked'] },
-    action: {
-      type: 'object',
-      additionalProperties: false,
-      description: 'Required when outcome is action. Omit for complete or blocked.',
-      properties: {
-        intent: {
-          type: 'string',
-          enum: [
-            'follow_player',
-            'stay',
-            'go_to',
-            'return_home',
-            'eat',
-            'equip',
-            'gather_resource',
-            'deposit_item',
-            'withdraw_item'
-          ]
-        },
-        args: {
-          type: 'object',
-          additionalProperties: false,
-          description: 'Arguments for the selected intent. Include only fields applicable to that intent.',
-          properties: {
-            player: stringSchema(64),
-            range: numberSchema(1, 16),
-            x: finiteNumberSchema(),
-            y: finiteNumberSchema(),
-            z: finiteNumberSchema(),
-            radius: numberSchema(0, 16),
-            item: stringSchema(128),
-            destination: { type: 'string', enum: ['hand', 'off-hand', 'head', 'torso', 'legs', 'feet'] },
-            resource: stringSchema(128),
-            quantity: integerSchema(1, 2304),
-            storage: identifierSchema()
-          }
-        }
-      },
-      required: ['intent', 'args']
+interface RoutedActionToolDefinition {
+  readonly skillName: DecisionContext['skills'][number]['name']
+  readonly intent:
+    | 'follow_player'
+    | 'stay'
+    | 'go_to'
+    | 'return_home'
+    | 'eat'
+    | 'equip'
+    | 'gather_resource'
+    | 'deposit_item'
+    | 'withdraw_item'
+  readonly tool: GeminiFunctionTool
+}
+
+const ROUTED_ACTION_TOOL_DEFINITIONS: readonly RoutedActionToolDefinition[] = Object.freeze([
+  routedActionTool(
+    'follow_player',
+    'action_follow_player',
+    'Follow one named nearby player at an optional bounded range.',
+    { player: stringSchema(64), range: numberSchema(1, 16) },
+    ['player']
+  ),
+  routedActionTool(
+    'stay',
+    'action_stay',
+    'Hold the current position until safely superseded.',
+    {},
+    []
+  ),
+  routedActionTool(
+    'go_to',
+    'action_go_to',
+    'Navigate to one bounded coordinate target without generic digging.',
+    { x: finiteNumberSchema(), y: finiteNumberSchema(), z: finiteNumberSchema(), radius: numberSchema(0, 16) },
+    ['x', 'y', 'z']
+  ),
+  routedActionTool(
+    'return_home',
+    'action_return_home',
+    'Return to the configured home location.',
+    {},
+    []
+  ),
+  routedActionTool(
+    'eat',
+    'action_eat',
+    'Eat one approved ordinary food item.',
+    {},
+    []
+  ),
+  routedActionTool(
+    'equip',
+    'action_equip',
+    'Equip one exact inventory item to an approved destination.',
+    {
+      item: stringSchema(128),
+      destination: { type: 'string', enum: ['hand', 'off-hand', 'head', 'torso', 'legs', 'feet'] }
     },
+    ['item']
+  ),
+  routedActionTool(
+    'gather_resource',
+    'action_gather_resource',
+    'Gather an exact bounded quantity of one resource.',
+    { resource: stringSchema(128), quantity: integerSchema(1, 2304) },
+    ['resource', 'quantity']
+  ),
+  routedActionTool(
+    'deposit_item',
+    'action_deposit_item',
+    'Deposit an exact bounded quantity into one named storage target.',
+    { item: stringSchema(128), quantity: integerSchema(1, 2304), storage: identifierSchema() },
+    ['item', 'quantity', 'storage']
+  ),
+  routedActionTool(
+    'withdraw_item',
+    'action_withdraw_item',
+    'Withdraw an exact bounded quantity from one named storage target.',
+    { item: stringSchema(128), quantity: integerSchema(1, 2304), storage: identifierSchema() },
+    ['item', 'quantity', 'storage']
+  )
+])
+
+const ROUTED_COMPLETE_TOOL = functionTool(
+  'decision_complete',
+  'Report that the current task is already complete and requires no further gameplay action.',
+  {},
+  []
+)
+
+const ROUTED_BLOCKED_TOOL = functionTool(
+  'decision_blocked',
+  'Report that no safe registered action can currently continue the task.',
+  {
     reason: {
       type: 'string',
-      enum: ['no_safe_action', 'missing_information', 'capability_unavailable'],
-      description: 'Required only when outcome is blocked.'
+      enum: ['no_safe_action', 'missing_information', 'capability_unavailable']
     }
   },
-  required: ['version', 'outcome']
-})
+  ['reason']
+)
 
-const V2_TOP_LEVEL_KEYS = new Set(['version', 'outcome', 'action', 'reason'])
-const V2_ACTION_KEYS = new Set(['intent', 'args'])
-const V2_COMPAT_ARG_KEYS = new Set([
-  'player',
-  'range',
-  'x',
-  'y',
-  'z',
-  'radius',
-  'item',
-  'destination',
-  'resource',
-  'quantity',
-  'storage'
-])
-const V2_INTENT_ARG_KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  follow_player: Object.freeze(['player', 'range']),
-  stay: Object.freeze([]),
-  go_to: Object.freeze(['x', 'y', 'z', 'radius']),
-  return_home: Object.freeze([]),
-  eat: Object.freeze([]),
-  equip: Object.freeze(['item', 'destination']),
-  gather_resource: Object.freeze(['resource', 'quantity']),
-  deposit_item: Object.freeze(['item', 'quantity', 'storage']),
-  withdraw_item: Object.freeze(['item', 'quantity', 'storage'])
-})
+const ROUTED_TOOL_TO_INTENT = new Map(
+  ROUTED_ACTION_TOOL_DEFINITIONS.map(definition => [definition.tool.name, definition.intent] as const)
+)
 
 export class GeminiDecisionProvider implements DecisionProvider<DecisionContext> {
   readonly capabilities = SAFE_GAMEPLAY_PROVIDER_CAPABILITIES
@@ -294,7 +331,10 @@ export function createGeminiDecisionProvider(options: CreateGeminiDecisionProvid
   const client = new GoogleGenAI({ apiKey })
   const interactions: GeminiInteractionClient = {
     async create(request, callOptions) {
-      const interaction = await client.interactions.create(toSdkInteractionRequest(request), { timeout: callOptions.timeout })
+      const interaction = await client.interactions.create(
+        toSdkInteractionRequest(request),
+        { timeout: callOptions.timeout }
+      )
       return normalizeSdkInteraction(interaction)
     }
   }
@@ -325,83 +365,176 @@ export function createGeminiAttemptClient(
   }
 }
 
-function buildInteractionRequest(model: string, thinkingLevel: GeminiThinkingLevel, context: DecisionContext): GeminiInteractionRequest {
+function buildInteractionRequest(
+  model: string,
+  thinkingLevel: GeminiThinkingLevel,
+  context: DecisionContext
+): GeminiInteractionRequest {
   return {
     model,
-    input: JSON.stringify({ task: 'Choose exactly one safe high-level Minecraft intent from the available skills.', context }),
+    input: JSON.stringify({
+      task: 'Choose exactly one safe high-level Minecraft intent from the available skills.',
+      context
+    }),
     store: false,
     stream: false,
     system_instruction: SYSTEM_INSTRUCTION,
-    tools: [{ type: 'function', name: FUNCTION_NAME, description: 'Submit exactly one validated high-level Minecraft decision. Never include reasoning.', parameters: DECISION_PARAMETER_SCHEMA }],
-    generation_config: { thinking_level: thinkingLevel, thinking_summaries: 'none', tool_choice: 'any' }
+    tools: [{
+      type: 'function',
+      name: FUNCTION_NAME,
+      description: 'Submit exactly one validated high-level Minecraft decision. Never include reasoning.',
+      parameters: DECISION_PARAMETER_SCHEMA
+    }],
+    generation_config: {
+      thinking_level: thinkingLevel,
+      thinking_summaries: 'none',
+      tool_choice: 'any'
+    }
   }
 }
 
 function extractDecisionFunctionCall(response: GeminiInteractionResponse): ProviderResult {
   if (response.status !== 'requires_action') return invalid('interaction_status_invalid')
   if (!Array.isArray(response.steps)) return invalid('response_steps_missing')
+
   const calls: Array<Extract<GeminiInteractionStep, { type: 'function_call' }>> = []
   for (const step of response.steps) {
-    if (!step || typeof step !== 'object' || typeof step.type !== 'string') return invalid('unexpected_provider_step')
+    if (!step || typeof step !== 'object' || typeof step.type !== 'string') {
+      return invalid('unexpected_provider_step')
+    }
     if (step.type === 'thought') continue
     if (step.type !== 'function_call') return invalid('unexpected_provider_step')
     calls.push(step as Extract<GeminiInteractionStep, { type: 'function_call' }>)
   }
+
   if (calls.length === 0) return invalid('function_call_missing')
   if (calls.length !== 1) return invalid('function_call_count_invalid')
   const call = calls[0]
   if (!call || call.name !== FUNCTION_NAME) return invalid('unexpected_function_call')
   if (call.arguments === undefined || call.arguments === null) return invalid('function_arguments_missing')
-  if (typeof call.arguments !== 'object' || Array.isArray(call.arguments)) return invalid('function_arguments_invalid')
+  if (!isRecord(call.arguments)) return invalid('function_arguments_invalid')
+
   let value: unknown
-  try { value = structuredClone(call.arguments) } catch { return invalid('function_arguments_invalid') }
+  try {
+    value = structuredClone(call.arguments)
+  } catch {
+    return invalid('function_arguments_invalid')
+  }
   return { kind: 'structured', provider: PROVIDER_NAME, mode: 'function_call', value }
 }
 
-function projectDecisionOutcomeV2Compatibility(value: unknown): unknown {
-  if (!isRecord(value) || value.version !== 2 || !hasOnlyKeys(value, V2_TOP_LEVEL_KEYS)) {
-    return value
+function extractRoutedDecisionFunctionCall(
+  response: GeminiInteractionResponse,
+  advertisedTools: readonly GeminiFunctionTool[]
+): ProviderResult {
+  if (response.status !== 'requires_action') return invalid('interaction_status_invalid')
+  if (!Array.isArray(response.steps)) return invalid('response_steps_missing')
+
+  const calls: Array<Extract<GeminiInteractionStep, { type: 'function_call' }>> = []
+  for (const step of response.steps) {
+    if (!step || typeof step !== 'object' || typeof step.type !== 'string') {
+      return invalid('unexpected_provider_step')
+    }
+    if (step.type === 'thought') continue
+    if (step.type !== 'function_call') return invalid('unexpected_provider_step')
+    calls.push(step as Extract<GeminiInteractionStep, { type: 'function_call' }>)
   }
 
-  if (value.outcome === 'complete') {
-    return { version: 2, outcome: 'complete' }
+  if (calls.length === 0) return invalid('function_call_missing')
+  if (calls.length !== 1) return invalid('function_call_count_invalid')
+
+  const call = calls[0]
+  if (!call || typeof call.name !== 'string') return invalid('unexpected_function_call')
+  const advertised = new Set(advertisedTools.map(tool => tool.name))
+  if (!advertised.has(call.name)) return invalid('unexpected_function_call')
+  if (call.arguments === undefined || call.arguments === null) return invalid('function_arguments_missing')
+  if (!isRecord(call.arguments)) return invalid('function_arguments_invalid')
+
+  let args: Record<string, unknown>
+  try {
+    args = structuredClone(call.arguments)
+  } catch {
+    return invalid('function_arguments_invalid')
   }
 
-  if (value.outcome === 'blocked') {
-    return { version: 2, outcome: 'blocked', reason: value.reason }
-  }
-
-  if (value.outcome !== 'action' || !isRecord(value.action) || !hasOnlyKeys(value.action, V2_ACTION_KEYS)) {
-    return value
-  }
-
-  const intent = typeof value.action.intent === 'string' ? value.action.intent : ''
-  const allowedArgKeys = V2_INTENT_ARG_KEYS[intent]
-  if (!allowedArgKeys || !isRecord(value.action.args) || !hasOnlyKeys(value.action.args, V2_COMPAT_ARG_KEYS)) {
-    return value
-  }
-
-  const args: Record<string, unknown> = {}
-  for (const key of allowedArgKeys) {
-    if (Object.prototype.hasOwnProperty.call(value.action.args, key)) {
-      args[key] = value.action.args[key]
+  let candidate: unknown
+  if (call.name === ROUTED_COMPLETE_TOOL.name) {
+    candidate = { ...args, version: 2, outcome: 'complete' }
+  } else if (call.name === ROUTED_BLOCKED_TOOL.name) {
+    candidate = { ...args, version: 2, outcome: 'blocked' }
+  } else {
+    const intent = ROUTED_TOOL_TO_INTENT.get(call.name)
+    if (!intent) return invalid('unexpected_function_call')
+    candidate = {
+      version: 2,
+      outcome: 'action',
+      action: { intent, args }
     }
   }
 
+  const parsed = DecisionOutcomeV2Schema.safeParse(candidate)
+  if (!parsed.success) return invalid('decision_schema_invalid')
   return {
-    version: 2,
-    outcome: 'action',
-    action: { intent, args }
+    kind: 'structured',
+    provider: PROVIDER_NAME,
+    mode: 'function_call',
+    value: parsed.data
   }
 }
 
-function hasOnlyKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
-  return Object.keys(value).every(key => allowed.has(key))
+function routedToolsForContext(context: DecisionContext): readonly GeminiFunctionTool[] {
+  const registered = new Set(context.skills.map(skill => skill.name))
+  return Object.freeze([
+    ...ROUTED_ACTION_TOOL_DEFINITIONS
+      .filter(definition => registered.has(definition.skillName))
+      .map(definition => definition.tool),
+    ROUTED_COMPLETE_TOOL,
+    ROUTED_BLOCKED_TOOL
+  ])
+}
+
+function routedActionTool(
+  skillName: RoutedActionToolDefinition['skillName'],
+  toolName: string,
+  description: string,
+  properties: Record<string, unknown>,
+  required: readonly string[]
+): RoutedActionToolDefinition {
+  return Object.freeze({
+    skillName,
+    intent: skillName as RoutedActionToolDefinition['intent'],
+    tool: functionTool(toolName, description, properties, required)
+  })
+}
+
+function functionTool(
+  name: string,
+  description: string,
+  properties: Record<string, unknown>,
+  required: readonly string[]
+): GeminiFunctionTool {
+  const parameters = Object.freeze({
+    type: 'object',
+    additionalProperties: false,
+    properties: Object.freeze({ ...properties }),
+    ...(required.length > 0 ? { required: Object.freeze([...required]) } : {})
+  })
+  return Object.freeze({
+    type: 'function',
+    name,
+    description,
+    parameters
+  })
 }
 
 function normalizeSdkStep(step: unknown): GeminiInteractionStep {
   if (!step || typeof step !== 'object') return { type: 'invalid_sdk_step' }
-  const candidate = step as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown }
+  const candidate = step as {
+    type?: unknown
+    id?: unknown
+    name?: unknown
+    arguments?: unknown
+  }
   const type = typeof candidate.type === 'string' ? candidate.type : 'invalid_sdk_step'
   if (type === 'thought') return { type: 'thought' }
   if (type === 'function_call') {
@@ -416,12 +549,24 @@ function normalizeSdkStep(step: unknown): GeminiInteractionStep {
 }
 
 function normalizeSdkInteraction(interaction: unknown): GeminiInteractionResponse {
-  if (!interaction || typeof interaction !== 'object') return { status: 'invalid_sdk_response' }
-  const candidate = interaction as { status?: unknown; steps?: unknown; usage?: unknown }
+  if (!interaction || typeof interaction !== 'object') {
+    return { status: 'invalid_sdk_response' }
+  }
+  const candidate = interaction as {
+    status?: unknown
+    steps?: unknown
+    usage?: unknown
+  }
   return {
-    status: typeof candidate.status === 'string' ? candidate.status : 'invalid_sdk_response',
-    ...(Array.isArray(candidate.steps) ? { steps: candidate.steps.map(normalizeSdkStep) } : {}),
-    ...(isRecord(candidate.usage) ? { usage: normalizeSdkUsage(candidate.usage) } : {})
+    status: typeof candidate.status === 'string'
+      ? candidate.status
+      : 'invalid_sdk_response',
+    ...(Array.isArray(candidate.steps)
+      ? { steps: candidate.steps.map(normalizeSdkStep) }
+      : {}),
+    ...(isRecord(candidate.usage)
+      ? { usage: normalizeSdkUsage(candidate.usage) }
+      : {})
   }
 }
 
@@ -447,7 +592,15 @@ function normalizeUsage(usage: GeminiInteractionUsage | undefined): GeminiUsage 
   const thoughtTokens = nonNegativeInteger(usage.total_thought_tokens)
   const toolTokens = nonNegativeInteger(usage.total_tool_use_tokens)
   const totalTokens = nonNegativeInteger(usage.total_tokens)
-  if (inputTokens === undefined || outputTokens === undefined || thoughtTokens === undefined || toolTokens === undefined || totalTokens === undefined) return undefined
+  if (
+    inputTokens === undefined ||
+    outputTokens === undefined ||
+    thoughtTokens === undefined ||
+    toolTokens === undefined ||
+    totalTokens === undefined
+  ) {
+    return undefined
+  }
   return { inputTokens, outputTokens, thoughtTokens, toolTokens, totalTokens }
 }
 
@@ -474,7 +627,8 @@ function normalizeTransportError(error: unknown, signal: AbortSignal): GeminiAtt
 
 function extractHttpStatus(error: unknown): number | null {
   if (!isRecord(error)) return null
-  const status = integerInRange(error.status, 100, 599) ?? integerInRange(error.statusCode, 100, 599)
+  const status = integerInRange(error.status, 100, 599)
+    ?? integerInRange(error.statusCode, 100, 599)
   return status ?? null
 }
 
@@ -493,33 +647,152 @@ function extractSafeProviderCode(error: unknown): string | null {
 function extractRetryAfterMs(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined
   const headers = error.headers
-  if (!headers || typeof (headers as { get?: unknown }).get !== 'function') return undefined
-  const raw = (headers as { get(name: string): string | null }).get('retry-after')?.trim()
+  if (!headers || typeof (headers as { get?: unknown }).get !== 'function') {
+    return undefined
+  }
+  const raw = (headers as { get(name: string): string | null })
+    .get('retry-after')
+    ?.trim()
   if (!raw) return undefined
   const seconds = Number(raw)
   if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000)
   const deadline = Date.parse(raw)
-  return Number.isFinite(deadline) ? Math.max(0, deadline - Date.now()) : undefined
+  return Number.isFinite(deadline)
+    ? Math.max(0, deadline - Date.now())
+    : undefined
 }
 
-function invalid(code: string): ProviderResult { return { kind: 'invalid', provider: PROVIDER_NAME, code } }
-function isTimeoutError(error: unknown): boolean { return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'RequestTimeoutError') }
-function isTransportTimeout(error: unknown): boolean { return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'RequestTimeoutError' || error.name === 'APIConnectionTimeoutError') }
-function isCancellationError(error: unknown): boolean { return error instanceof Error && (error.name === 'AbortError' || error.name === 'APIUserAbortError' || error.name === 'RequestAbortedError') }
-function validateTimeout(value: number): void { if (!Number.isInteger(value) || value < 1 || value > 300_000) throw new RangeError('timeoutMs must be an integer between 1 and 300000') }
-function normalizeModel(value: string): string { const model = value.trim(); if (model.length < 1 || model.length > 256) throw new RangeError('model must be between 1 and 256 characters'); return model }
-function decisionBranch(intent: string, argsProperties: Record<string, unknown>, requiredArgs: readonly string[]): Readonly<Record<string, unknown>> { return { type: 'object', additionalProperties: false, properties: { version: { const: 1, type: 'integer' }, intent: { const: intent, type: 'string' }, args: argsSchema(argsProperties, requiredArgs) }, required: ['version', 'intent', 'args'] } }
-function actionBranch(intent: string, argsProperties: Record<string, unknown>, requiredArgs: readonly string[]): Readonly<Record<string, unknown>> { return { type: 'object', additionalProperties: false, properties: { intent: { const: intent, type: 'string' }, args: argsSchema(argsProperties, requiredArgs) }, required: ['intent', 'args'] } }
-function argsSchema(properties: Record<string, unknown>, required: readonly string[]): Readonly<Record<string, unknown>> { return { type: 'object', additionalProperties: false, properties, required: [...required] } }
-function identifierSchema(): Readonly<Record<string, unknown>> { return stringSchema(128) }
-function stringSchema(maxLength: number): Readonly<Record<string, unknown>> { return { type: 'string', minLength: 1, maxLength } }
-function finiteNumberSchema(): Readonly<Record<string, unknown>> { return { type: 'number' } }
-function numberSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> { return { type: 'number', minimum, maximum } }
-function integerSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> { return { type: 'integer', minimum, maximum } }
-function integerInRange(value: unknown, minimum: number, maximum: number): number | undefined { return typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum ? value : undefined }
-function nonNegativeInteger(value: unknown): number | undefined { return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined }
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
-function toSdkInteractionRequest(request: GeminiInteractionRequest) { return { model: request.model, input: request.input, store: request.store, stream: false as const, system_instruction: request.system_instruction, tools: request.tools.map(tool => ({ type: tool.type, name: tool.name, description: tool.description, parameters: tool.parameters })), generation_config: { thinking_level: request.generation_config.thinking_level, thinking_summaries: request.generation_config.thinking_summaries, tool_choice: request.generation_config.tool_choice } } }
+function invalid(code: string): ProviderResult {
+  return { kind: 'invalid', provider: PROVIDER_NAME, code }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error &&
+    (error.name === 'TimeoutError' || error.name === 'RequestTimeoutError')
+}
+
+function isTransportTimeout(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === 'TimeoutError' ||
+    error.name === 'RequestTimeoutError' ||
+    error.name === 'APIConnectionTimeoutError'
+  )
+}
+
+function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === 'AbortError' ||
+    error.name === 'APIUserAbortError' ||
+    error.name === 'RequestAbortedError'
+  )
+}
+
+function validateTimeout(value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > 300_000) {
+    throw new RangeError('timeoutMs must be an integer between 1 and 300000')
+  }
+}
+
+function normalizeModel(value: string): string {
+  const model = value.trim()
+  if (model.length < 1 || model.length > 256) {
+    throw new RangeError('model must be between 1 and 256 characters')
+  }
+  return model
+}
+
+function decisionBranch(
+  intent: string,
+  argsProperties: Record<string, unknown>,
+  requiredArgs: readonly string[]
+): Readonly<Record<string, unknown>> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      version: { const: 1, type: 'integer' },
+      intent: { const: intent, type: 'string' },
+      args: argsSchema(argsProperties, requiredArgs)
+    },
+    required: ['version', 'intent', 'args']
+  }
+}
+
+function argsSchema(
+  properties: Record<string, unknown>,
+  required: readonly string[]
+): Readonly<Record<string, unknown>> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties,
+    required: [...required]
+  }
+}
+
+function identifierSchema(): Readonly<Record<string, unknown>> {
+  return stringSchema(128)
+}
+
+function stringSchema(maxLength: number): Readonly<Record<string, unknown>> {
+  return { type: 'string', minLength: 1, maxLength }
+}
+
+function finiteNumberSchema(): Readonly<Record<string, unknown>> {
+  return { type: 'number' }
+}
+
+function numberSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> {
+  return { type: 'number', minimum, maximum }
+}
+
+function integerSchema(minimum: number, maximum: number): Readonly<Record<string, unknown>> {
+  return { type: 'integer', minimum, maximum }
+}
+
+function integerInRange(
+  value: unknown,
+  minimum: number,
+  maximum: number
+): number | undefined {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= minimum &&
+    value <= maximum
+    ? value
+    : undefined
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function toSdkInteractionRequest(request: GeminiInteractionRequest) {
+  return {
+    model: request.model,
+    input: request.input,
+    store: request.store,
+    stream: false as const,
+    system_instruction: request.system_instruction,
+    tools: request.tools.map(tool => ({
+      type: tool.type,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    })),
+    generation_config: {
+      thinking_level: request.generation_config.thinking_level,
+      thinking_summaries: request.generation_config.thinking_summaries,
+      tool_choice: request.generation_config.tool_choice
+    }
+  }
+}
 
 export class GeminiTransport {
   private readonly timeoutMs: number
@@ -531,50 +804,74 @@ export class GeminiTransport {
   }
 
   prepare(context: DecisionContext): PreparedGeminiPayload {
-    const input = JSON.stringify({ task: 'Choose exactly one safe high-level Minecraft outcome from the available skills.', context })
-    const tool: GeminiFunctionTool = Object.freeze({ type: 'function', name: FUNCTION_NAME, description: 'Submit exactly one validated high-level Minecraft outcome. Never include reasoning.', parameters: DECISION_OUTCOME_V2_PARAMETER_SCHEMA })
-    return Object.freeze({ input, systemInstruction: SYSTEM_INSTRUCTION, tools: Object.freeze([tool]), utf8Bytes: Buffer.byteLength(input, 'utf8') })
+    const input = JSON.stringify({
+      task: 'Choose exactly one safe high-level Minecraft outcome from the available skills.',
+      context
+    })
+    const tools = routedToolsForContext(context)
+    return Object.freeze({
+      input,
+      systemInstruction: ROUTED_SYSTEM_INSTRUCTION,
+      tools,
+      utf8Bytes: Buffer.byteLength(input, 'utf8')
+    })
   }
 
-  async execute(prepared: PreparedGeminiPayload, lease: AttemptLease, signal: AbortSignal): Promise<GeminiAttemptResult> {
+  async execute(
+    prepared: PreparedGeminiPayload,
+    lease: AttemptLease,
+    signal: AbortSignal
+  ): Promise<GeminiAttemptResult> {
     const client = this.clientFor(lease.credentialHandle)
     let response: GeminiInteractionResponse
     try {
       response = await client.create({
-        model: normalizeModel(lease.model), input: prepared.input, store: false, stream: false,
-        system_instruction: prepared.systemInstruction, tools: prepared.tools,
-        generation_config: { thinking_level: lease.thinking, thinking_summaries: 'none', tool_choice: 'any' }
-      }, { timeout: this.timeoutMs, retryAttempts: 1, signal })
+        model: normalizeModel(lease.model),
+        input: prepared.input,
+        store: false,
+        stream: false,
+        system_instruction: prepared.systemInstruction,
+        tools: prepared.tools,
+        generation_config: {
+          thinking_level: lease.thinking,
+          thinking_summaries: 'none',
+          tool_choice: 'any'
+        }
+      }, {
+        timeout: this.timeoutMs,
+        retryAttempts: 1,
+        signal
+      })
     } catch (error) {
       return normalizeTransportError(error, signal)
     }
-    const providerResult = extractDecisionFunctionCall(response)
+
+    const providerResult = extractRoutedDecisionFunctionCall(response, prepared.tools)
     const usage = normalizeUsage(response.usage)
     if (providerResult.kind !== 'structured') {
-      const code = providerResult.kind === 'invalid' ? providerResult.code : 'unexpected_provider_result'
-      return { kind: 'generation_error', code, ...(usage === undefined ? {} : { usage }) }
-    }
-    const projectedValue = projectDecisionOutcomeV2Compatibility(providerResult.value)
-    const strictOutcome = DecisionOutcomeV2Schema.safeParse(projectedValue)
-    if (!strictOutcome.success) {
+      const code = providerResult.kind === 'invalid'
+        ? providerResult.code
+        : 'unexpected_provider_result'
       return {
         kind: 'generation_error',
-        code: 'decision_schema_invalid',
+        code,
         ...(usage === undefined ? {} : { usage })
       }
     }
-    const projectedProviderResult: ProviderResult = {
-      ...providerResult,
-      value: strictOutcome.data
+    return {
+      kind: 'success',
+      providerResult,
+      ...(usage === undefined ? {} : { usage })
     }
-    return { kind: 'success', providerResult: projectedProviderResult, ...(usage === undefined ? {} : { usage }) }
   }
 
   private clientFor(credentialHandle: string): GeminiAttemptClient {
     const cached = this.clients.get(credentialHandle)
     if (cached) return cached
     const resolveCredential = this.options.resolveCredential
-    if (!resolveCredential) throw new Error('GeminiTransport credential resolver is not configured')
+    if (!resolveCredential) {
+      throw new Error('GeminiTransport credential resolver is not configured')
+    }
     const createClient = this.options.createClient ?? createGeminiAttemptClient
     const client = createClient(resolveCredential(credentialHandle))
     this.clients.set(credentialHandle, client)
