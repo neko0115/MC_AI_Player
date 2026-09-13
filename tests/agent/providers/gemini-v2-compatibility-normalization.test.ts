@@ -35,6 +35,30 @@ function context(): DecisionContext {
   }
 }
 
+function lease(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    attemptId: 'attempt-stay',
+    decisionId: 'decision-stay',
+    configGeneration: 1,
+    projectKey: 'pool-a',
+    projectLabel: 'primary',
+    credentialHandle: 'credential-a',
+    model: 'gemini-3.5-flash-lite',
+    thinking: 'low',
+    budgetClass: 'normal',
+    reservationId: 'attempt-stay',
+    ...overrides
+  } as any
+}
+
+const usage = {
+  total_input_tokens: 10,
+  total_output_tokens: 2,
+  total_thought_tokens: 0,
+  total_tool_use_tokens: 0,
+  total_tokens: 12
+}
+
 test('routed Gemini projects known compatibility-superset fields into a strict stay outcome', async () => {
   const transport = new GeminiTransport({
     resolveCredential: () => 'TEST_KEY',
@@ -67,31 +91,14 @@ test('routed Gemini projects known compatibility-superset fields into a strict s
               }
             }
           }],
-          usage: {
-            total_input_tokens: 10,
-            total_output_tokens: 2,
-            total_thought_tokens: 0,
-            total_tool_use_tokens: 0,
-            total_tokens: 12
-          }
+          usage
         }
       }
     })
   })
 
   const prepared = transport.prepare(context())
-  const result = await transport.execute(prepared, {
-    attemptId: 'attempt-stay',
-    decisionId: 'decision-stay',
-    configGeneration: 1,
-    projectKey: 'pool-a',
-    projectLabel: 'primary',
-    credentialHandle: 'credential-a',
-    model: 'gemini-3.5-flash-lite',
-    thinking: 'low',
-    budgetClass: 'normal',
-    reservationId: 'attempt-stay'
-  }, new AbortController().signal)
+  const result = await transport.execute(prepared, lease(), new AbortController().signal)
 
   assert.deepEqual(result, {
     kind: 'success',
@@ -105,6 +112,51 @@ test('routed Gemini projects known compatibility-superset fields into a strict s
         action: { intent: 'stay', args: {} }
       }
     },
+    usage: {
+      inputTokens: 10,
+      outputTokens: 2,
+      thoughtTokens: 0,
+      toolTokens: 0,
+      totalTokens: 12
+    }
+  })
+})
+
+test('routed Gemini treats projected output that still violates strict V2 as generation error', async () => {
+  const transport = new GeminiTransport({
+    resolveCredential: () => 'TEST_KEY',
+    createClient: () => ({
+      async create() {
+        return {
+          status: 'requires_action',
+          steps: [{
+            type: 'function_call',
+            name: 'submit_decision',
+            arguments: {
+              version: 2,
+              outcome: 'action',
+              action: {
+                intent: 'follow_player',
+                args: { range: 4 }
+              }
+            }
+          }],
+          usage
+        }
+      }
+    })
+  })
+
+  const prepared = transport.prepare(context())
+  const result = await transport.execute(
+    prepared,
+    lease({ attemptId: 'attempt-invalid', decisionId: 'decision-invalid', reservationId: 'attempt-invalid' }),
+    new AbortController().signal
+  )
+
+  assert.deepEqual(result, {
+    kind: 'generation_error',
+    code: 'decision_schema_invalid',
     usage: {
       inputTokens: 10,
       outputTokens: 2,
