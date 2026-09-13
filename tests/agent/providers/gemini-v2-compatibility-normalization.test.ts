@@ -30,7 +30,10 @@ function context(): DecisionContext {
     inventory: [],
     recentEvents: [],
     memories: [],
-    skills: [{ name: 'stay', description: 'Hold the current position safely.' }],
+    skills: [
+      { name: 'stay', description: 'Hold the current position safely.' },
+      { name: 'follow_player', description: 'Follow one named player.' }
+    ],
     safetyConstraints: ['PvP is disabled.']
   }
 }
@@ -66,8 +69,8 @@ const EXPECTED_USAGE = {
   totalTokens: 12
 }
 
-test('routed Gemini projects known compatibility-superset fields into a strict stay outcome', async () => {
-  const transport = new GeminiTransport({
+function transportWithCall(name: string, args: unknown) {
+  return new GeminiTransport({
     resolveCredential: () => 'TEST_KEY',
     createClient: () => ({
       async create() {
@@ -75,34 +78,18 @@ test('routed Gemini projects known compatibility-superset fields into a strict s
           status: 'requires_action',
           steps: [{
             type: 'function_call',
-            name: 'submit_decision',
-            arguments: {
-              version: 2,
-              outcome: 'action',
-              reason: 'missing_information',
-              action: {
-                intent: 'stay',
-                args: {
-                  player: 'Neko0115',
-                  range: 4,
-                  x: 1,
-                  y: 64,
-                  z: 1,
-                  radius: 2,
-                  item: 'bread',
-                  destination: 'hand',
-                  resource: 'oak_log',
-                  quantity: 1,
-                  storage: 'home'
-                }
-              }
-            }
+            name,
+            arguments: args
           }],
           usage: USAGE
         }
       }
     })
   })
+}
+
+test('routed Gemini maps exact action_stay tool into strict DecisionOutcomeV2', async () => {
+  const transport = transportWithCall('action_stay', {})
 
   const result = await transport.execute(
     transport.prepare(context()),
@@ -126,40 +113,108 @@ test('routed Gemini projects known compatibility-superset fields into a strict s
   })
 })
 
-test('routed Gemini treats projected output that still violates strict V2 as generation error', async () => {
-  const transport = new GeminiTransport({
-    resolveCredential: () => 'TEST_KEY',
-    createClient: () => ({
-      async create() {
-        return {
-          status: 'requires_action',
-          steps: [{
-            type: 'function_call',
-            name: 'submit_decision',
-            arguments: {
-              version: 2,
-              outcome: 'action',
-              action: {
-                intent: 'follow_player',
-                args: { range: 4 }
-              }
-            }
-          }],
-          usage: USAGE
-        }
-      }
-    })
+test('routed Gemini maps exact follow tool arguments into strict DecisionOutcomeV2', async () => {
+  const transport = transportWithCall('action_follow_player', {
+    player: 'Neko0115',
+    range: 4
   })
 
   const result = await transport.execute(
     transport.prepare(context()),
-    lease('invalid'),
+    lease('follow'),
+    new AbortController().signal
+  )
+
+  assert.deepEqual(result, {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured',
+      provider: 'gemini',
+      mode: 'function_call',
+      value: {
+        version: 2,
+        outcome: 'action',
+        action: {
+          intent: 'follow_player',
+          args: { player: 'Neko0115', range: 4 }
+        }
+      }
+    },
+    usage: EXPECTED_USAGE
+  })
+})
+
+test('routed Gemini fails closed when exact follow tool omits required player', async () => {
+  const transport = transportWithCall('action_follow_player', { range: 4 })
+
+  const result = await transport.execute(
+    transport.prepare(context()),
+    lease('invalid-follow'),
     new AbortController().signal
   )
 
   assert.deepEqual(result, {
     kind: 'generation_error',
     code: 'decision_schema_invalid',
+    usage: EXPECTED_USAGE
+  })
+})
+
+test('routed Gemini rejects unknown decision tool names', async () => {
+  const transport = transportWithCall('action_do_anything', {})
+
+  const result = await transport.execute(
+    transport.prepare(context()),
+    lease('unknown-tool'),
+    new AbortController().signal
+  )
+
+  assert.deepEqual(result, {
+    kind: 'generation_error',
+    code: 'unexpected_function_call',
+    usage: EXPECTED_USAGE
+  })
+})
+
+test('routed Gemini maps exact terminal tools into strict terminal outcomes', async () => {
+  const completeTransport = transportWithCall('decision_complete', {})
+  const blockedTransport = transportWithCall('decision_blocked', {
+    reason: 'missing_information'
+  })
+
+  const complete = await completeTransport.execute(
+    completeTransport.prepare(context()),
+    lease('complete'),
+    new AbortController().signal
+  )
+  const blocked = await blockedTransport.execute(
+    blockedTransport.prepare(context()),
+    lease('blocked'),
+    new AbortController().signal
+  )
+
+  assert.deepEqual(complete, {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured',
+      provider: 'gemini',
+      mode: 'function_call',
+      value: { version: 2, outcome: 'complete' }
+    },
+    usage: EXPECTED_USAGE
+  })
+  assert.deepEqual(blocked, {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured',
+      provider: 'gemini',
+      mode: 'function_call',
+      value: {
+        version: 2,
+        outcome: 'blocked',
+        reason: 'missing_information'
+      }
+    },
     usage: EXPECTED_USAGE
   })
 })
