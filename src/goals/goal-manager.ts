@@ -98,13 +98,21 @@ export class GoalManager {
         at: this.now(),
         goalId: record.goalId
       })
+    } else if (result.status === 'cancelled') {
+      this.transition(record, 'cancelled')
+      await this.events?.publish({
+        type: 'goal_cancelled',
+        at: this.now(),
+        goalId: record.goalId,
+        code: sanitizeCode(result.code, 'cancelled')
+      })
     } else {
-      this.transition(record, result.status === 'cancelled' ? 'cancelled' : 'failed')
+      this.transition(record, 'failed')
       await this.events?.publish({
         type: 'goal_failed',
         at: this.now(),
         goalId: record.goalId,
-        code: sanitizeCode(result.code, result.status)
+        code: sanitizeCode(result.code, 'failed')
       })
     }
 
@@ -126,7 +134,7 @@ export class GoalManager {
     if (active?.status === 'running') {
       this.transition(active, 'cancelled')
       await this.events?.publish({
-        type: 'goal_failed',
+        type: 'goal_cancelled',
         at: this.now(),
         goalId: active.goalId,
         code: safeReason
@@ -158,7 +166,7 @@ export class GoalManager {
     this.transition(active, 'cancelled')
     this.activeGoalId = null
     await this.events?.publish({
-      type: 'goal_failed',
+      type: 'goal_cancelled',
       at: this.now(),
       goalId: active.goalId,
       code: safeReason

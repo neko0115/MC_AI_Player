@@ -65,8 +65,8 @@ test('a second AI goal queues instead of racing the active AI goal', async () =>
   assert.deepEqual(controller.cancelReasons, [])
 })
 
-test('a direct player goal preempts an active AI goal and cancels its skill', async () => {
-  const { manager, controller } = createManager()
+test('a direct player goal preempts an active AI goal with cancellation, not failure', async () => {
+  const { manager, controller, seenEvents } = createManager()
 
   const aiGoal = await manager.submit(gatherGoal, 'ai')
   const playerGoal = await manager.submit(followGoal, 'player')
@@ -75,10 +75,11 @@ test('a direct player goal preempts an active AI goal and cancels its skill', as
   assert.equal(manager.activeGoal()?.goalId, playerGoal.goalId)
   assert.equal(manager.getGoal(playerGoal.goalId)?.status, 'running')
   assert.deepEqual(controller.cancelReasons, ['preempted_by_player'])
+  assert.deepEqual(seenEvents, ['goal_started', 'goal_cancelled', 'goal_started'])
 })
 
-test('emergency stop cancels the active goal and active skill', async () => {
-  const { manager, controller } = createManager()
+test('emergency stop cancels the active goal and active skill without reporting a failure', async () => {
+  const { manager, controller, seenEvents } = createManager()
 
   const active = await manager.submit(gatherGoal, 'ai')
   await manager.emergencyStop('operator_emergency_stop')
@@ -86,6 +87,7 @@ test('emergency stop cancels the active goal and active skill', async () => {
   assert.equal(manager.getGoal(active.goalId)?.status, 'cancelled')
   assert.equal(manager.activeGoal(), null)
   assert.deepEqual(controller.cancelReasons, ['operator_emergency_stop'])
+  assert.deepEqual(seenEvents, ['goal_started', 'emergency_stop', 'goal_cancelled'])
 })
 
 test('late success from a cancelled goal cannot resurrect it or replace the current goal', async () => {

@@ -3,6 +3,7 @@ import { isIP } from 'node:net'
 export type MinecraftAuth = 'offline' | 'microsoft'
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 export type AiProviderName = 'fake' | 'gemini'
+export type MinecraftServerIdentityMode = 'online' | 'offline'
 
 export interface MinecraftConfig {
   host: string
@@ -17,8 +18,7 @@ export type AiConfig =
   | { readonly provider: 'fake' }
   | {
       readonly provider: 'gemini'
-      readonly model: string
-      readonly apiKey: string
+      readonly routingConfigPath: string
     }
 
 export interface ControlApiConfig {
@@ -28,10 +28,23 @@ export interface ControlApiConfig {
   readonly maxBodyBytes: number
 }
 
+export type AdminApiConfig =
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true
+      readonly host: '127.0.0.1'
+      readonly port: number
+      readonly bearerToken: string
+    }
+
 const DEFAULT_CONTROL_HOST = '127.0.0.1'
 const DEFAULT_CONTROL_PORT = 8766
 const DEFAULT_CONTROL_MAX_BODY_BYTES = 16 * 1024
 const MAX_CONTROL_BODY_BYTES = 1024 * 1024
+const DEFAULT_AI_ROUTING_PATH = 'data/ai-routing.json'
+const MAX_AI_ROUTING_PATH_LENGTH = 4096
+const DEFAULT_ADMIN_PORT = 8767
+const MAX_TOKEN_LENGTH = 4096
 
 export function loadMinecraftConfig(env: NodeJS.ProcessEnv): MinecraftConfig {
   const host = required(env.MC_HOST, 'MC_HOST')
@@ -74,15 +87,48 @@ export function loadAiConfig(
     throw new Error('MC_AI_PROVIDER must be fake or gemini')
   }
 
-  const model = required(env.MC_AI_MODEL, 'MC_AI_MODEL')
-  if (model.length > 256) {
-    throw new Error('MC_AI_MODEL must be at most 256 characters')
+  const routingConfigPath = env.MC_AI_ROUTING_CONFIG?.trim() || DEFAULT_AI_ROUTING_PATH
+  if (routingConfigPath.length > MAX_AI_ROUTING_PATH_LENGTH) {
+    throw new Error(`MC_AI_ROUTING_CONFIG must be at most ${MAX_AI_ROUTING_PATH_LENGTH} characters`)
   }
-  const apiKey = required(env.MC_AI_API_KEY, 'MC_AI_API_KEY')
   return {
     provider: 'gemini',
-    model,
-    apiKey
+    routingConfigPath
+  }
+}
+
+export function loadMinecraftServerIdentityMode(
+  env: Readonly<Record<string, string | undefined>>
+): MinecraftServerIdentityMode {
+  return env.MC_SERVER_IDENTITY_MODE?.trim().toLowerCase() === 'online'
+    ? 'online'
+    : 'offline'
+}
+
+export function loadAdminApiConfig(
+  env: Readonly<Record<string, string | undefined>>
+): AdminApiConfig {
+  const bearerToken = env.MC_ADMIN_TOKEN?.trim()
+  if (!bearerToken) {
+    return { enabled: false }
+  }
+  if (bearerToken.length > MAX_TOKEN_LENGTH) {
+    throw new Error(`MC_ADMIN_TOKEN must be at most ${MAX_TOKEN_LENGTH} characters`)
+  }
+
+  const port = parseIntegerSetting(
+    env.MC_ADMIN_PORT,
+    DEFAULT_ADMIN_PORT,
+    'MC_ADMIN_PORT',
+    1,
+    65535
+  )
+
+  return {
+    enabled: true,
+    host: '127.0.0.1',
+    port,
+    bearerToken
   }
 }
 
@@ -109,8 +155,8 @@ export function loadControlApiConfig(
     MAX_CONTROL_BODY_BYTES
   )
   const bearerToken = env.MC_CONTROL_TOKEN?.trim()
-  if (bearerToken && bearerToken.length > 4096) {
-    throw new Error('MC_CONTROL_TOKEN must be at most 4096 characters')
+  if (bearerToken && bearerToken.length > MAX_TOKEN_LENGTH) {
+    throw new Error(`MC_CONTROL_TOKEN must be at most ${MAX_TOKEN_LENGTH} characters`)
   }
   if (!isLoopbackHost(host) && !bearerToken) {
     throw new Error('MC_CONTROL_TOKEN is required for non-loopback MC_CONTROL_HOST')

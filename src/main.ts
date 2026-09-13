@@ -1,31 +1,47 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AiConfig, MinecraftConfig } from './config.js'
 import {
+  loadAdminApiConfig,
   loadAiConfig,
   loadControlApiConfig,
-  loadMinecraftConfig
+  loadMinecraftConfig,
+  loadMinecraftServerIdentityMode
 } from './config.js'
 import type { RuntimeEvent } from './contracts/events.js'
+import { ContextBuilder, type DecisionContext } from './agent/context-builder.js'
+import { DecisionGate } from './agent/decision-gate.js'
+import { GeminiTransport } from './agent/providers/gemini.js'
+import { RoutingConfigManager } from './agent/routing/config-manager.js'
+import type { LogicalDecisionExecutor } from './agent/routing/contracts.js'
+import { ProjectPool } from './agent/routing/project-pool.js'
+import { SqliteQuotaLedger } from './agent/routing/quota-ledger.js'
+import { RoutedDecisionExecutor } from './agent/routing/routed-executor.js'
 import type { DecisionProvider } from './agent/provider.js'
-import {
-  assertGameplayProviderCapabilities
-} from './agent/provider.js'
+import { assertGameplayProviderCapabilities } from './agent/provider.js'
 import { FakeDecisionProvider } from './agent/fake-provider.js'
-import { createGeminiDecisionProvider } from './agent/providers/gemini.js'
+import {
+  AdminServer,
+  type AdminServerAddress,
+  type AdminServerOptions
+} from './api/admin-server.js'
 import {
   ControlServer,
+  type ControlAiStatusPort,
   type ControlServerAddress,
   type ControlServerOptions
 } from './api/control-server.js'
 import { GoalManager } from './goals/goal-manager.js'
 import type { MinecraftMemoryRepository } from './memory/repository.js'
 import { SqliteMemoryRepository } from './memory/sqlite-repository.js'
+import { MinecraftIdentityRegistry } from './minecraft/identity-registry.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
+import { DecisionCoordinator } from './runtime/decision-coordinator.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
 import { GatherResourceSkill, FindResourceSkill, RegionProtectionPolicy } from './skills/gathering.js'
@@ -38,9 +54,20 @@ import { RuntimeEventBus } from './telemetry/event-bus.js'
 import { JsonlEventRecorder } from './telemetry/recorder.js'
 
 const DEFAULT_MEMORY_PATH = 'data/mc_memory.sqlite3'
+const DEFAULT_QUOTA_PATH = 'data/ai-quota.sqlite3'
 const DEFAULT_EVENT_LOG_PATH = 'data/runtime-events.jsonl'
 const DEFAULT_EVENT_LOG_MAX_BYTES = 5 * 1024 * 1024
 const DEFAULT_RECENT_EVENT_LIMIT = 20
+const DENY_ALL_MANUAL_ACCESS = Object.freeze({
+  ownerUuid: '00000000000000000000000000000000',
+  operatorAllowlistUuids: Object.freeze([] as string[])
+})
+const DECISION_SAFETY_CONSTRAINTS = Object.freeze([
+  'PvP is disabled.',
+  'Generic navigation cannot dig or build.',
+  'Only registered high-level skills may reach deterministic gameplay execution.',
+  'SafetyPolicy remains authoritative after every model decision.'
+])
 
 const PREFERRED_FOOD = [
   'bread',
@@ -66,6 +93,88 @@ const EXCLUDED_FOOD = [
   'suspicious_stew'
 ] as const
 
+export interface FakeDecisionStackOptions {
+  readonly provider: DecisionProvider<DecisionContext>
+}
+
+export function createFakeDecisionStack(
+  options: FakeDecisionStackOptions
+): LogicalDecisionExecutor {
+  assertGameplayProviderCapabilities(options.provider)
+  return {
+    async execute(request, signal) {
+      if (signal.aborted) return { kind: 'cancelled' }
+      const providerResult = await options.provider.decide({ context: request.context })
+      if (signal.aborted) return { kind: 'cancelled' }
+      return { kind: 'success', providerResult }
+    }
+  }
+}
+
+export interface GeminiDecisionStackOptions {
+  readonly routingConfigPath: string
+  readonly env: Readonly<Record<string, string | undefined>>
+  readonly quotaFilename: string
+  readonly processInstanceId: string
+  readonly events: RuntimeEventBus
+  readonly now?: () => number
+}
+
+export interface GeminiDecisionStack {
+  readonly executor: LogicalDecisionExecutor
+  readonly configManager: RoutingConfigManager
+  readonly quotaLedger: SqliteQuotaLedger
+  close(): void
+}
+
+export function createGeminiDecisionStack(
+  options: GeminiDecisionStackOptions
+): GeminiDecisionStack {
+  ensureParentDirectory(options.quotaFilename)
+  const quotaLedger = new SqliteQuotaLedger(options.quotaFilename)
+  const now = options.now ?? Date.now
+
+  try {
+    const configManager = new RoutingConfigManager({
+      ledger: quotaLedger,
+      env: options.env,
+      routingConfigPath: options.routingConfigPath
+    })
+    configManager.activateInitial()
+    quotaLedger.recoverIncompleteAttempts(now())
+
+    const pool = new ProjectPool({
+      config: configManager,
+      ledger: quotaLedger,
+      processInstanceId: options.processInstanceId,
+      now
+    })
+    const transport = new GeminiTransport({
+      resolveCredential: handle => configManager.resolveCredential(handle)
+    })
+    const executor = new RoutedDecisionExecutor({
+      pool,
+      ledger: quotaLedger,
+      transport,
+      processInstanceId: options.processInstanceId,
+      events: options.events,
+      now
+    })
+
+    return {
+      executor,
+      configManager,
+      quotaLedger,
+      close() {
+        quotaLedger.close()
+      }
+    }
+  } catch (error) {
+    quotaLedger.close()
+    throw error
+  }
+}
+
 export interface ApplicationRecorderPort {
   record(event: RuntimeEvent): Promise<unknown>
 }
@@ -75,12 +184,31 @@ export interface ApplicationControlServerPort {
   close(): Promise<void>
 }
 
+export interface ApplicationAdminServerPort {
+  start(): Promise<AdminServerAddress>
+  close(): Promise<void>
+}
+
+export interface ApplicationGeminiDecisionStackPort {
+  readonly executor: LogicalDecisionExecutor
+  readonly configManager: Pick<RoutingConfigManager, 'snapshot' | 'reload'>
+  readonly quotaLedger: Pick<SqliteQuotaLedger, 'adminSnapshot'>
+  close(): void
+}
+
 export interface ApplicationDependencies {
   readonly createRuntime?: (config: MinecraftConfig) => MineflayerRuntimeBundle
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
-  readonly createDecisionProvider?: (config: AiConfig) => DecisionProvider
+  readonly createLogicalDecisionExecutor?: (
+    config: AiConfig,
+    events: RuntimeEventBus
+  ) => LogicalDecisionExecutor
+  readonly createGeminiDecisionStack?: (
+    options: GeminiDecisionStackOptions
+  ) => ApplicationGeminiDecisionStackPort
   readonly createControlServer?: (options: ControlServerOptions) => ApplicationControlServerPort
+  readonly createAdminServer?: (options: AdminServerOptions) => ApplicationAdminServerPort
 }
 
 export interface McAiPlayerApplication {
@@ -95,10 +223,8 @@ export function createApplication(
   const minecraftConfig = loadMinecraftConfig(env)
   const aiConfig = loadAiConfig(env)
   const controlConfig = loadControlApiConfig(env)
-
-  const createDecisionProvider = dependencies.createDecisionProvider ?? createDefaultDecisionProvider
-  const decisionProvider = createDecisionProvider(aiConfig)
-  assertGameplayProviderCapabilities(decisionProvider)
+  const adminConfig = loadAdminApiConfig(env)
+  const identityMode = loadMinecraftServerIdentityMode(env)
 
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: DEFAULT_RECENT_EVENT_LIMIT })
@@ -126,6 +252,65 @@ export function createApplication(
       })
   })
 
+  let geminiStack: ApplicationGeminiDecisionStackPort | null = null
+  let logicalExecutor: LogicalDecisionExecutor
+  if (dependencies.createLogicalDecisionExecutor) {
+    logicalExecutor = dependencies.createLogicalDecisionExecutor(aiConfig, events)
+  } else if (aiConfig.provider === 'fake') {
+    logicalExecutor = createFakeDecisionStack({
+      provider: new FakeDecisionProvider<DecisionContext>([])
+    })
+  } else {
+    const createStack = dependencies.createGeminiDecisionStack ?? createGeminiDecisionStack
+    geminiStack = createStack({
+      routingConfigPath: aiConfig.routingConfigPath,
+      env,
+      quotaFilename: DEFAULT_QUOTA_PATH,
+      processInstanceId: randomUUID(),
+      events
+    })
+    logicalExecutor = geminiStack.executor
+  }
+
+  const manualAccess = geminiStack?.configManager.snapshot().manualAccess
+    ?? DENY_ALL_MANUAL_ACCESS
+  const identity = new MinecraftIdentityRegistry()
+  const coordinator = new DecisionCoordinator({
+    events,
+    state,
+    goals,
+    memory,
+    registry,
+    identity,
+    identityMode,
+    manualAccess,
+    worldKey: `${minecraftConfig.host}:${minecraftConfig.port}`,
+    botUsername: minecraftConfig.username,
+    logicalExecutor,
+    decisionGate: new DecisionGate({ safety, events }),
+    contextBuilder: new ContextBuilder(),
+    safetyConstraints: DECISION_SAFETY_CONSTRAINTS,
+    nextTaskId: randomUUID,
+    nextDecisionId: randomUUID
+  })
+  coordinator.start()
+
+  let activeProject: string | null = null
+  const unsubscribeAiStatusEvents = geminiStack
+    ? events.subscribe(event => {
+        if (event.type === 'model_route') activeProject = event.project
+      })
+    : null
+  const aiStatus: ControlAiStatusPort | undefined = geminiStack
+    ? createControlAiStatus({
+        stack: geminiStack,
+        coordinator,
+        goals,
+        adminEnabled: adminConfig.enabled,
+        activeProject: () => activeProject
+      })
+    : undefined
+
   let adapterEventTail: Promise<void> = Promise.resolve()
   const unsubscribeAdapter = runtime.adapter.onEvent(event => {
     const next = structuredClone(event)
@@ -148,8 +333,20 @@ export function createApplication(
     goals,
     state,
     memory,
-    events
+    events,
+    ...(aiStatus ? { aiStatus } : {})
   })
+
+  const createAdminServer = dependencies.createAdminServer ?? (options => new AdminServer(options))
+  const adminServer = adminConfig.enabled && geminiStack
+    ? createAdminServer({
+        port: adminConfig.port,
+        bearerToken: adminConfig.bearerToken,
+        quota: geminiStack.quotaLedger,
+        routing: geminiStack.configManager,
+        coordinator
+      })
+    : null
 
   let started = false
   let closed = false
@@ -162,6 +359,12 @@ export function createApplication(
       await runtime.adapter.connect()
       try {
         const address = await controlServer.start()
+        try {
+          await adminServer?.start()
+        } catch (error) {
+          await contain(() => controlServer.close())
+          throw error
+        }
         started = true
         return address
       } catch (error) {
@@ -175,17 +378,80 @@ export function createApplication(
       if (closed) return
       closed = true
 
+      if (adminServer) await contain(() => adminServer.close())
       await contain(() => controlServer.close())
+      await contain(() => coordinator.clearAiWork('application_shutdown'))
+      coordinator.dispose()
+      unsubscribeAiStatusEvents?.()
       await contain(() => goals.emergencyStop('application_shutdown'))
       executionBinding.dispose()
       await contain(() => runtime.adapter.disconnect())
       await adapterEventTail
       unsubscribeAdapter()
       await recorderTail
+      geminiStack?.close()
       memory.close()
       started = false
     }
   }
+}
+
+function createControlAiStatus(options: {
+  readonly stack: ApplicationGeminiDecisionStackPort
+  readonly coordinator: DecisionCoordinator
+  readonly goals: GoalManager
+  readonly adminEnabled: boolean
+  readonly activeProject: () => string | null
+}): ControlAiStatusPort {
+  return {
+    snapshot() {
+      const routing = options.stack.configManager.snapshot()
+      const coordinator = options.coordinator.status()
+      const goal = coordinator.activeGoalId
+        ? options.goals.getGoal(coordinator.activeGoalId)
+        : undefined
+      return {
+        routineModel: routing.models.routine.name,
+        complexModel: routing.models.complex.name,
+        available: coordinator.aiAvailability === 'available',
+        activeProject: options.activeProject(),
+        flashAutoUsedPct: calculateFlashAutoUsedPct(
+          routing.models.complex.name,
+          routing.projects,
+          options.stack.quotaLedger.adminSnapshot(Date.now())
+        ),
+        manualDeepThinkAvailable:
+          options.adminEnabled ||
+          routing.manualAccess.ownerUuid.length > 0 ||
+          routing.manualAccess.operatorAllowlistUuids.length > 0,
+        coordinatorState: coordinator.coordinatorState,
+        activeTaskId: coordinator.activeTaskId,
+        activeGoalKind: goal?.request.kind ?? null,
+        pendingTaskCount: coordinator.pendingTaskCount,
+        decisionInFlight: coordinator.decisionInFlight
+      }
+    }
+  }
+}
+
+function calculateFlashAutoUsedPct(
+  complexModel: string,
+  projects: ReturnType<ApplicationGeminiDecisionStackPort['configManager']['snapshot']>['projects'],
+  quotaProjects: ReturnType<ApplicationGeminiDecisionStackPort['quotaLedger']['adminSnapshot']>
+): number {
+  let maximum = 0
+  for (const project of projects) {
+    const quota = quotaProjects.find(candidate => candidate.projectKey === project.projectKey)
+    const domain = quota?.domains.find(candidate => candidate.model === complexModel)
+    if (!domain) continue
+
+    const requestCeiling = Math.floor(project.flashBudget.requestLimit * 0.70)
+    const tokenCeiling = Math.floor(project.flashBudget.totalTokenLimit * 0.70)
+    const requestRatio = requestCeiling > 0 ? domain.normalRequests / requestCeiling : 1
+    const tokenRatio = tokenCeiling > 0 ? domain.normalTotalTokens / tokenCeiling : 1
+    maximum = Math.max(maximum, requestRatio, tokenRatio)
+  }
+  return Math.max(0, Math.min(100, Math.round(maximum * 100)))
 }
 
 function registerProductionSkills(
@@ -249,17 +515,6 @@ function createDefaultRecorder(filename: string): ApplicationRecorderPort {
 
 function ensureParentDirectory(filename: string): void {
   mkdirSync(dirname(resolve(filename)), { recursive: true })
-}
-
-function createDefaultDecisionProvider(config: AiConfig): DecisionProvider {
-  if (config.provider === 'fake') {
-    return new FakeDecisionProvider([])
-  }
-  return createGeminiDecisionProvider({
-    apiKey: config.apiKey,
-    model: config.model,
-    thinkingLevel: 'high'
-  })
 }
 
 async function safeDisconnect(runtime: MineflayerRuntimeBundle): Promise<void> {

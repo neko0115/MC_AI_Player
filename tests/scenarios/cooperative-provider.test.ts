@@ -41,9 +41,12 @@ class CooperativeGeminiInteractions implements GeminiInteractionClient {
           id: 'cooperative-gather',
           name: 'submit_decision',
           arguments: {
-            version: 1,
-            intent: 'gather_resource',
-            args: { resource: 'oak_log', quantity: 16 }
+            version: 2,
+            outcome: 'action',
+            action: {
+              intent: 'gather_resource',
+              args: { resource: 'oak_log', quantity: 16 }
+            }
           }
         }
       ]
@@ -51,7 +54,7 @@ class CooperativeGeminiInteractions implements GeminiInteractionClient {
   }
 }
 
-test('Gemini provider adapter maps the cooperative replay to the same allowlisted gather GoalRequest without exposing reasoning', async () => {
+test('Gemini provider adapter maps the cooperative replay to one registered V2 gather action without exposing reasoning', async () => {
   const replay = await ReplayReader.readAll('fixtures/replay/cooperative-session.jsonl')
   const state = new WorldStateCache({ maxRecentEvents: 64 })
   for (const event of replay) state.apply(event)
@@ -87,11 +90,12 @@ test('Gemini provider adapter maps the cooperative replay to the same allowliste
 
   const gated = await new DecisionGate({ safety: new SafetyPolicy() }).accept(
     result,
-    state.snapshot()
+    state.snapshot(),
+    name => name === 'gather_resource'
   )
 
   assert.deepEqual(gated, {
-    kind: 'accepted',
+    kind: 'action',
     provider: 'gemini',
     mode: 'function_call',
     intent: 'gather_resource',

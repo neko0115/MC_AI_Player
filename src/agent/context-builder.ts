@@ -14,6 +14,15 @@ export interface DecisionSkillDescription {
   readonly description: string
 }
 
+export interface DecisionTaskContext {
+  readonly taskId: string
+  readonly objective: string
+  readonly phase: 'active'
+  readonly consecutiveReplans: number
+  readonly previousAction: GoalRequest['kind'] | null
+  readonly ephemeralDirective?: string
+}
+
 export interface DecisionMemorySummary {
   readonly id: string
   readonly worldKey?: never
@@ -45,6 +54,7 @@ export interface DecisionSelfState {
 
 export interface DecisionContext {
   readonly worldKey: string
+  readonly task?: DecisionTaskContext
   readonly currentGoal: DecisionGoalSummary | null
   readonly self: DecisionSelfState
   readonly nearbyPlayers: readonly PlayerSnapshot[]
@@ -57,6 +67,7 @@ export interface DecisionContext {
 
 export interface ContextBuilderInput {
   readonly worldKey: string
+  readonly task?: DecisionTaskContext
   readonly state: WorldStateSnapshot
   readonly currentGoal: GoalRecord | null
   readonly memories: readonly MinecraftMemory[]
@@ -75,6 +86,8 @@ export interface ContextBuilderOptions {
   readonly maxSkillDescriptionChars?: number
   readonly maxSafetyConstraints?: number
   readonly maxSafetyConstraintChars?: number
+  readonly maxTaskObjectiveChars?: number
+  readonly maxTaskDirectiveChars?: number
 }
 
 interface NormalizedOptions {
@@ -88,6 +101,8 @@ interface NormalizedOptions {
   maxSkillDescriptionChars: number
   maxSafetyConstraints: number
   maxSafetyConstraintChars: number
+  maxTaskObjectiveChars: number
+  maxTaskDirectiveChars: number
 }
 
 const IMPORTANT_EVENT_TYPES = new Set<RuntimeEvent['type']>([
@@ -96,7 +111,9 @@ const IMPORTANT_EVENT_TYPES = new Set<RuntimeEvent['type']>([
   'player_chat',
   'health_changed',
   'goal_completed',
+  'goal_cancelled',
   'goal_failed',
+  'skill_cancelled',
   'skill_failed',
   'emergency_stop',
   'decision_accepted',
@@ -119,7 +136,9 @@ export class ContextBuilder {
       maxSkills: options.maxSkills ?? 32,
       maxSkillDescriptionChars: options.maxSkillDescriptionChars ?? 300,
       maxSafetyConstraints: options.maxSafetyConstraints ?? 16,
-      maxSafetyConstraintChars: options.maxSafetyConstraintChars ?? 300
+      maxSafetyConstraintChars: options.maxSafetyConstraintChars ?? 300,
+      maxTaskObjectiveChars: options.maxTaskObjectiveChars ?? 1000,
+      maxTaskDirectiveChars: options.maxTaskDirectiveChars ?? 1000
     }
     for (const [name, value] of Object.entries(this.options)) {
       validatePositiveInteger(value, name)
@@ -129,9 +148,11 @@ export class ContextBuilder {
   build(input: ContextBuilderInput): DecisionContext {
     const worldKey = normalizeWorldKey(input.worldKey)
     const selfPosition = clonePosition(input.state.position)
+    const task = input.task ? summarizeTask(input.task, this.options) : undefined
 
     return {
       worldKey,
+      ...(task ? { task } : {}),
       currentGoal: summarizeGoal(input.currentGoal),
       self: {
         connected: input.state.connected,
@@ -170,6 +191,24 @@ export class ContextBuilder {
         .slice(0, this.options.maxSafetyConstraints)
         .map(value => truncate(value, this.options.maxSafetyConstraintChars))
     }
+  }
+}
+
+function summarizeTask(
+  task: DecisionTaskContext,
+  options: NormalizedOptions
+): DecisionTaskContext {
+  const objective = truncate(task.objective.trim(), options.maxTaskObjectiveChars)
+  const directive = task.ephemeralDirective?.trim()
+  return {
+    taskId: task.taskId,
+    objective,
+    phase: 'active',
+    consecutiveReplans: task.consecutiveReplans,
+    previousAction: task.previousAction,
+    ...(directive
+      ? { ephemeralDirective: truncate(directive, options.maxTaskDirectiveChars) }
+      : {})
   }
 }
 

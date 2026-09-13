@@ -60,11 +60,23 @@ export class ObservationBridge {
     }
   }
 
-  chat(username: string, message: string): RuntimeEvent {
+  playerLeft(username: string, playerId?: string): RuntimeEvent {
+    const id = boundedPlayerId(playerId)
+    return {
+      type: 'player_left',
+      at: this.now(),
+      player: username.slice(0, 64),
+      ...(id ? { playerId: id } : {})
+    }
+  }
+
+  chat(username: string, message: string, playerId?: string): RuntimeEvent {
+    const id = boundedPlayerId(playerId)
     return {
       type: 'player_chat',
       at: this.now(),
       player: username.slice(0, 64),
+      ...(id ? { playerId: id } : {}),
       message: message.slice(0, 1000)
     }
   }
@@ -128,4 +140,9 @@ export class ObservationBridge {
 
 function position(value: VecLike): { x: number; y: number; z: number } {
   return { x: value.x, y: value.y, z: value.z }
+}
+
+function boundedPlayerId(value: string | undefined): string | null {
+  const normalized = value?.trim().slice(0, 128) ?? ''
+  return normalized || null
 }

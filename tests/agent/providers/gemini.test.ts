@@ -268,3 +268,254 @@ test('SDK TimeoutError maps only to ProviderResult timeout; other failures stay 
   })
   assert.equal(JSON.stringify(result).includes('SECRET_NETWORK_DETAIL'), false)
 })
+
+test('Gemini module exports the routed one-attempt transport', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  assert.equal(typeof (module as Record<string, unknown>).GeminiTransport, 'function')
+})
+
+test('Gemini transport prepares immutable exact V2 decision tools', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new () => {
+    prepare(context: DecisionContext): {
+      input: string
+      systemInstruction: string
+      tools: ReadonlyArray<{ name: string; parameters: Record<string, unknown> }>
+      utf8Bytes: number
+    }
+  }
+  const transport = new Transport()
+  const prepared = transport.prepare(context())
+
+  assert.equal(Object.isFrozen(prepared), true)
+  assert.deepEqual(
+    prepared.tools.map(tool => tool.name).sort(),
+    ['action_gather_resource', 'action_stay', 'decision_blocked', 'decision_complete']
+  )
+  assert.equal(prepared.utf8Bytes, Buffer.byteLength(prepared.input, 'utf8'))
+  assert.equal(prepared.input.includes('test-server:survival-v1'), true)
+
+  for (const tool of prepared.tools) {
+    assert.equal(tool.parameters.type, 'object', tool.name)
+    assert.equal(tool.parameters.additionalProperties, false, tool.name)
+    const schema = JSON.stringify(tool.parameters)
+    assert.equal(schema.includes('"oneOf"'), false, tool.name)
+    assert.equal(schema.includes('"reasoning"'), false, tool.name)
+    assert.equal(schema.includes('"analysis"'), false, tool.name)
+    assert.equal(schema.includes('"thought"'), false, tool.name)
+  }
+})
+
+test('Gemini transport executes one lease-selected attempt and normalizes usage without thought leakage', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const calls: Array<{ request: any; options: any }> = []
+  const resolvedHandles: string[] = []
+  const factoryKeys: string[] = []
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new (options: any) => {
+    prepare(context: DecisionContext): any
+    execute(prepared: any, lease: any, signal: AbortSignal): Promise<any>
+  }
+  const transport = new Transport({
+    timeoutMs: 1234,
+    resolveCredential(handle: string) {
+      resolvedHandles.push(handle)
+      return 'TEST_KEY_ONLY_INSIDE_TRANSPORT'
+    },
+    createClient(apiKey: string) {
+      factoryKeys.push(apiKey)
+      return {
+        async create(request: any, options: any) {
+          calls.push({ request: structuredClone(request), options })
+          return {
+            status: 'requires_action',
+            steps: [
+              { type: 'thought', summary: [{ type: 'text', text: 'PRIVATE_THOUGHT_SENTINEL' }] },
+              {
+                type: 'function_call',
+                id: 'fc-v2',
+                name: 'decision_complete',
+                arguments: {}
+              }
+            ],
+            usage: {
+              total_input_tokens: 10,
+              total_output_tokens: 2,
+              total_thought_tokens: 3,
+              total_tool_use_tokens: 1,
+              total_tokens: 16
+            }
+          }
+        }
+      }
+    }
+  })
+  const controller = new AbortController()
+  const prepared = transport.prepare(context())
+  const lease = {
+    attemptId: 'attempt-1',
+    decisionId: 'decision-1',
+    configGeneration: 7,
+    projectKey: 'pool-b',
+    projectLabel: 'backup-1',
+    credentialHandle: 'credential-7-b',
+    model: 'gemini-3.8-flash',
+    thinking: 'medium',
+    budgetClass: 'normal',
+    reservationId: 'attempt-1'
+  }
+
+  const result = await transport.execute(prepared, lease, controller.signal)
+
+  assert.deepEqual(resolvedHandles, ['credential-7-b'])
+  assert.deepEqual(factoryKeys, ['TEST_KEY_ONLY_INSIDE_TRANSPORT'])
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.request.model, 'gemini-3.8-flash')
+  assert.equal(calls[0]?.request.generation_config.thinking_level, 'medium')
+  assert.equal(calls[0]?.request.store, false)
+  assert.equal(calls[0]?.request.stream, false)
+  assert.equal(calls[0]?.options.timeout, 1234)
+  assert.equal(calls[0]?.options.retryAttempts, 1)
+  assert.equal(calls[0]?.options.signal, controller.signal)
+  assert.deepEqual(result, {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured',
+      provider: 'gemini',
+      mode: 'function_call',
+      value: { version: 2, outcome: 'complete' }
+    },
+    usage: {
+      inputTokens: 10,
+      outputTokens: 2,
+      thoughtTokens: 3,
+      toolTokens: 1,
+      totalTokens: 16
+    }
+  })
+  assert.equal(JSON.stringify(result).includes('PRIVATE_THOUGHT_SENTINEL'), false)
+  assert.equal(JSON.stringify(result).includes('TEST_KEY_ONLY_INSIDE_TRANSPORT'), false)
+})
+
+test('Gemini transport caches one client per opaque credential handle', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new (options: any) => {
+    prepare(context: DecisionContext): any
+    execute(prepared: any, lease: any, signal: AbortSignal): Promise<any>
+  }
+  const resolvedHandles: string[] = []
+  const createdKeys: string[] = []
+  const transport = new Transport({
+    resolveCredential(handle: string) {
+      resolvedHandles.push(handle)
+      return `KEY:${handle}`
+    },
+    createClient(apiKey: string) {
+      createdKeys.push(apiKey)
+      return {
+        async create() {
+          return {
+            status: 'requires_action',
+            steps: [{
+              type: 'function_call',
+              name: 'decision_complete',
+              arguments: {}
+            }]
+          }
+        }
+      }
+    }
+  })
+  const prepared = transport.prepare(context())
+  const baseLease = {
+    attemptId: 'attempt-cache-1', decisionId: 'decision-cache', configGeneration: 1,
+    projectKey: 'pool-a', projectLabel: 'primary', credentialHandle: 'credential-a',
+    model: 'gemini-3.5-flash-lite', thinking: 'low', budgetClass: 'normal', reservationId: 'attempt-cache-1'
+  }
+
+  await transport.execute(prepared, baseLease, new AbortController().signal)
+  await transport.execute(prepared, { ...baseLease, attemptId: 'attempt-cache-2', reservationId: 'attempt-cache-2' }, new AbortController().signal)
+  await transport.execute(prepared, {
+    ...baseLease,
+    attemptId: 'attempt-cache-3',
+    reservationId: 'attempt-cache-3',
+    credentialHandle: 'credential-b',
+    projectKey: 'pool-b',
+    projectLabel: 'backup-1'
+  }, new AbortController().signal)
+
+  assert.deepEqual(resolvedHandles, ['credential-a', 'credential-b'])
+  assert.deepEqual(createdKeys, ['KEY:credential-a', 'KEY:credential-b'])
+})
+
+test('Gemini SDK attempt adapter disables automatic retries and forwards AbortSignal', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const createAttemptClient = (module as Record<string, unknown>).createGeminiAttemptClient as
+    | undefined
+    | ((apiKey: string, factory: (apiKey: string) => any) => {
+        create(request: GeminiInteractionRequest, options: {
+          timeout: number
+          retryAttempts: 1
+          signal: AbortSignal
+        }): Promise<GeminiInteractionResponse>
+      })
+  assert.equal(typeof createAttemptClient, 'function')
+  if (!createAttemptClient) return
+
+  const sdkCalls: Array<{ request: any; options: any }> = []
+  const controller = new AbortController()
+  const client = createAttemptClient('SDK_TEST_KEY', apiKey => {
+    assert.equal(apiKey, 'SDK_TEST_KEY')
+    return {
+      interactions: {
+        async create(request: any, options: any) {
+          sdkCalls.push({ request, options })
+          return {
+            status: 'requires_action',
+            steps: [{
+              type: 'function_call',
+              name: 'submit_decision',
+              arguments: { version: 2, outcome: 'complete' }
+            }],
+            usage: {
+              total_input_tokens: 3,
+              total_output_tokens: 1,
+              total_thought_tokens: 0,
+              total_tool_use_tokens: 0,
+              total_tokens: 4
+            }
+          }
+        }
+      }
+    }
+  })
+
+  const response = await client.create({
+    model: 'gemini-3.5-flash-lite',
+    input: '{}',
+    store: false,
+    stream: false,
+    system_instruction: 'test',
+    tools: [],
+    generation_config: {
+      thinking_level: 'low',
+      thinking_summaries: 'none',
+      tool_choice: 'any'
+    }
+  }, {
+    timeout: 321,
+    retryAttempts: 1,
+    signal: controller.signal
+  })
+
+  assert.equal(sdkCalls.length, 1)
+  assert.equal(sdkCalls[0]?.options.timeout, 321)
+  assert.equal(sdkCalls[0]?.options.maxRetries, 0)
+  assert.equal(sdkCalls[0]?.options.signal, controller.signal)
+  assert.deepEqual(response.usage, {
+    total_input_tokens: 3,
+    total_output_tokens: 1,
+    total_thought_tokens: 0,
+    total_tool_use_tokens: 0,
+    total_tokens: 4
+  })
+})
