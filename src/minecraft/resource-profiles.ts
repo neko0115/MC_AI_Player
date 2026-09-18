@@ -13,7 +13,7 @@ export interface ResourceProfile {
   readonly collectedItemNames: readonly string[]
   readonly capabilityId: string | null
   readonly minimumOnePerBlock: boolean
-  readonly toolKind: 'pickaxe' | null
+  readonly toolKind: 'axe' | 'pickaxe' | null
   readonly forbiddenToolEnchantments: readonly string[]
   readonly acceleratorForbiddenToolEnchantments: readonly string[]
   readonly relatedLeafNames: readonly string[]
