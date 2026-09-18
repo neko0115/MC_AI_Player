@@ -448,7 +448,7 @@ test('gather_resource recovers every chained drop when the first pickup is delay
   }])
 })
 
-test('vein_mining uses the resource profile to count raw iron and exclude Silk Touch/Fortune', async () => {
+test('vein_mining counts raw iron while allowing Fortune under minimum fulfillment', async () => {
   const world = new FakeGatheringWorld([
     { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
     { blockName: 'iron_ore', position: { x: 5, y: 64, z: 0 } }
@@ -480,7 +480,7 @@ test('vein_mining uses the resource profile to count raw iron and exclude Silk T
   assert.equal(world.inventoryCount('iron_ore'), 0)
   assert.equal(world.inventoryCount('raw_iron'), 2)
   assert.deepEqual(world.toolPreparationKinds, ['pickaxe'])
-  assert.deepEqual(world.toolPreparationForbidden, [['silk_touch', 'fortune']])
+  assert.deepEqual(world.toolPreparationForbidden, [['silk_touch']])
   assert.deepEqual(world.harvestOptions, [{
     expectedItemNames: ['raw_iron'],
     sneak: true
@@ -521,7 +521,7 @@ test('exact block scope prevents iron-ore acceleration from being applied to dee
   }])
 })
 
-test('unsafe vein capability falls back to one-block raw-iron gathering with a deterministic pickaxe', async () => {
+test('unsafe vein capability falls back to one-block raw-iron gathering with a non-Silk pickaxe', async () => {
   const world = new FakeGatheringWorld([
     { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
     { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
@@ -558,8 +558,8 @@ test('unsafe vein capability falls back to one-block raw-iron gathering with a d
   assert.equal(world.inventoryCount('raw_iron'), 2)
   assert.deepEqual(world.toolPreparationKinds, ['pickaxe', 'pickaxe'])
   assert.deepEqual(world.toolPreparationForbidden, [
-    ['silk_touch', 'fortune'],
-    ['silk_touch', 'fortune']
+    ['silk_touch'],
+    ['silk_touch']
   ])
   assert.deepEqual(world.harvestOptions, [
     { expectedItemNames: ['raw_iron'] },
@@ -659,10 +659,15 @@ test('gather_resource refuses chain acceleration when the bridge cannot guarante
   assert.deepEqual(world.harvestOptions, [undefined, undefined])
 })
 
-test('gather_resource does not activate an accelerator whose advertised chain can exceed the request', async () => {
+test('gather_resource may over-collect a bounded natural chain and cleans up every produced drop', async () => {
   const world = new FakeGatheringWorld([
-    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } }
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 5, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 6, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 7, y: 64, z: 0 } }
   ])
+  world.chainBreakCount = 4
+
   const skill = new GatherResourceSkill({
     resources: world,
     navigation: world,
@@ -673,7 +678,7 @@ test('gather_resource does not activate an accelerator whose advertised chain ca
       ...treeFellingCapability,
       constraints: {
         ...treeFellingCapability.constraints,
-        max_chain: 100
+        max_chain: 4
       }
     }),
     options: {
@@ -691,8 +696,11 @@ test('gather_resource does not activate an accelerator whose advertised chain ca
   })
 
   assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
-  assert.deepEqual(world.toolPreparationAttempts, [])
-  assert.deepEqual(world.harvestOptions, [undefined])
+  assert.equal(world.harvestAttempts.length, 1)
+  assert.equal(world.inventoryCount('oak_log'), 4)
+  assert.equal(world.dropped.length, 0)
+  assert.deepEqual(world.toolPreparationKinds, ['axe'])
+  assert.deepEqual(world.harvestOptions, [{ sneak: true }])
 })
 
 test('search expansion is bounded and reports resource_not_found instead of scanning forever', async () => {
