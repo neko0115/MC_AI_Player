@@ -4,8 +4,13 @@ import type { SkillDefinition, SkillResult } from '../contracts/skills.js'
 import type {
   ResourceCandidate,
   ResourceGatheringAdapter,
+  ResourceHarvestOptions,
   ResourceNavigationAdapter
 } from '../minecraft/gathering.js'
+import type {
+  ServerCapability,
+  ServerCapabilitySource
+} from '../minecraft/moxuebridge-capabilities.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
@@ -138,6 +143,7 @@ interface GatherResourceDependencies {
   readonly safety: SafetyPolicy
   readonly state: () => WorldStateSnapshot
   readonly protection: ResourceProtectionPolicy
+  readonly capabilities?: ServerCapabilitySource
   readonly options?: GatheringOptions
   readonly onCooperativePickup?: (notice: CooperativePickupNotice) => void
 }
@@ -256,10 +262,29 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
 
       const collectionCursor = this.dependencies.resources.resourceCollectionCursor?.() ?? null
       const beforeHarvest = this.dependencies.resources.inventoryCount(resource)
+      const remainingBeforeHarvest = targetCount - beforeHarvest
+      const capabilityStrategy = selectHarvestCapability(
+        this.dependencies.capabilities,
+        resource,
+        remainingBeforeHarvest
+      )
+      let harvestOptions: ResourceHarvestOptions | undefined
+      if (capabilityStrategy) {
+        const prepared = await prepareCapabilityHarvest(
+          this.dependencies.resources,
+          candidate,
+          capabilityStrategy,
+          signal
+        )
+        if (prepared.kind === 'cancelled') return prepared.result
+        if (prepared.kind === 'ready') harvestOptions = capabilityStrategy.options
+      }
+
       const harvested = await this.dependencies.resources.harvestResourceBlock(
         candidate,
         permitDecision.permit,
-        signal
+        signal,
+        harvestOptions
       )
       if (harvested.status === 'cancelled') return harvested
 
@@ -433,6 +458,100 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       count: collection.count
     }
   }
+}
+
+
+interface CapabilityHarvestStrategy {
+  readonly capability: ServerCapability
+  readonly options: ResourceHarvestOptions
+  readonly correctToolRequired: boolean
+}
+
+type CapabilityPreparation =
+  | { readonly kind: 'ready' }
+  | { readonly kind: 'fallback' }
+  | { readonly kind: 'cancelled'; readonly result: SkillResult }
+
+async function prepareCapabilityHarvest(
+  resources: ResourceGatheringAdapter,
+  candidate: ResourceCandidate,
+  strategy: CapabilityHarvestStrategy,
+  signal: AbortSignal
+): Promise<CapabilityPreparation> {
+  if (!strategy.correctToolRequired) return { kind: 'ready' }
+  if (!resources.prepareResourceTool) return { kind: 'fallback' }
+
+  const prepared = await resources.prepareResourceTool(candidate, signal)
+  if (prepared.status === 'cancelled') {
+    return { kind: 'cancelled', result: prepared }
+  }
+  return prepared.status === 'succeeded'
+    ? { kind: 'ready' }
+    : { kind: 'fallback' }
+}
+
+function selectHarvestCapability(
+  source: ServerCapabilitySource | undefined,
+  resource: string,
+  remaining: number
+): CapabilityHarvestStrategy | null {
+  if (!source || remaining < 1) return null
+
+  const capabilityId = resourceCapabilityId(resource)
+  if (!capabilityId) return null
+  const capability = source.get(capabilityId)
+  if (!capability?.available) return null
+
+  const maxChain = positiveIntegerConstraint(capability, 'max_chain')
+  // A chain accelerator can mutate several blocks from one vanilla break.
+  // Only activate it when its advertised hard maximum fits inside the
+  // remaining bounded gather request. Unknown/unbounded chains fail closed.
+  if (maxChain === null || maxChain > remaining) return null
+
+  const trigger = capability.usage.trigger
+  if (trigger !== 'break' && trigger !== 'sneak_and_break') return null
+
+  const mustSneak =
+    trigger === 'sneak_and_break' ||
+    booleanConstraint(capability, 'must_sneak') === true
+
+  return {
+    capability,
+    options: mustSneak ? { sneak: true } : {},
+    correctToolRequired:
+      booleanConstraint(capability, 'correct_tool_required') === true
+  }
+}
+
+function resourceCapabilityId(resource: string): 'vein_mining' | 'tree_felling' | null {
+  const path = resource.includes(':') ? resource.slice(resource.indexOf(':') + 1) : resource
+  if (path.endsWith('_ore') || path === 'ancient_debris') return 'vein_mining'
+  if (
+    path.endsWith('_log') ||
+    path.endsWith('_stem') ||
+    path.endsWith('_hyphae')
+  ) {
+    return 'tree_felling'
+  }
+  return null
+}
+
+function positiveIntegerConstraint(
+  capability: ServerCapability,
+  key: string
+): number | null {
+  const value = capability.constraints[key]
+  return Number.isInteger(value) && typeof value === 'number' && value > 0
+    ? value
+    : null
+}
+
+function booleanConstraint(
+  capability: ServerCapability,
+  key: string
+): boolean | null {
+  const value = capability.constraints[key]
+  return typeof value === 'boolean' ? value : null
 }
 
 function selectCandidate(
