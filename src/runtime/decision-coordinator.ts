@@ -439,8 +439,9 @@ export class DecisionCoordinator {
         this.options.serverCapabilities?.status().state === 'current'
           ? this.options.serverCapabilities.snapshot()
           : [],
-      serverResources:
-        this.options.serverResources?.snapshot() ?? [],
+      ...(this.options.serverResources
+        ? { serverResources: this.options.serverResources.snapshot() }
+        : {}),
       safetyConstraints: this.options.safetyConstraints
     })
 
