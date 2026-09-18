@@ -27,7 +27,11 @@ export class SkillExecutor {
     this.now = dependencies.now ?? Date.now
   }
 
-  execute(name: SkillName, args: unknown): Promise<SkillResult> {
+  execute(
+    name: SkillName,
+    args: unknown,
+    executionId?: string
+  ): Promise<SkillResult> {
     if (this.active !== null) {
       return Promise.resolve({ status: 'failed', code: 'executor_busy' })
     }
@@ -44,7 +48,12 @@ export class SkillExecutor {
       completion: Promise.resolve({ status: 'failed', code: 'not_started' })
     }
     this.active = active
-    active.completion = this.run(active, definition.execute.bind(definition), args)
+    active.completion = this.run(
+      active,
+      definition.execute.bind(definition),
+      args,
+      executionId
+    )
     return active.completion
   }
 
@@ -66,7 +75,8 @@ export class SkillExecutor {
       context: { signal: AbortSignal },
       args: unknown
     ) => Promise<SkillResult>,
-    args: unknown
+    args: unknown,
+    executionId?: string
   ): Promise<SkillResult> {
     const startedEvent = this.events?.publish({
       type: 'skill_started',
@@ -76,7 +86,13 @@ export class SkillExecutor {
 
     let execution: Promise<SkillResult>
     try {
-      execution = execute({ signal: active.controller.signal }, args)
+      execution = execute(
+        {
+          signal: active.controller.signal,
+          ...(executionId ? { executionId } : {})
+        },
+        args
+      )
     } catch (error) {
       execution = Promise.reject(error)
     }
