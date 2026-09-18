@@ -93,6 +93,7 @@ const CAPABILITY_CONSTRAINT_ALLOWLIST = new Set([
   'correct_tool_required',
   'must_sneak',
   'same_block_only',
+  'exact_block',
   'tool_kind',
   'merge_item_drops'
 ])
