@@ -541,7 +541,7 @@ function positiveIntegerConstraint(
   key: string
 ): number | null {
   const value = capability.constraints[key]
-  return Number.isInteger(value) && typeof value === 'number' && value > 0
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
     ? value
     : null
 }
