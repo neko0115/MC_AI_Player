@@ -23,7 +23,7 @@ interface StaticProfileDefinition {
 }
 
 const ORE_DROP_FORBIDDEN = Object.freeze(['silk_touch'] as const)
-const EXACT_ORE_ACCELERATOR_FORBIDDEN = Object.freeze(['silk_touch', 'fortune'] as const)
+const EXACT_ORE_DROP_FORBIDDEN = Object.freeze(['silk_touch', 'fortune'] as const)
 
 const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
   {
@@ -33,8 +33,8 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
     toolKind: 'pickaxe',
-    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
-    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+    forbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['gold_ore', 'deepslate_gold_ore', 'raw_gold'],
@@ -43,8 +43,8 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
     toolKind: 'pickaxe',
-    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
-    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+    forbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['coal_ore', 'deepslate_coal_ore', 'coal'],
@@ -53,8 +53,8 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
     toolKind: 'pickaxe',
-    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
-    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+    forbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['diamond_ore', 'deepslate_diamond_ore', 'diamond'],
@@ -63,8 +63,8 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
     toolKind: 'pickaxe',
-    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
-    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+    forbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['emerald_ore', 'deepslate_emerald_ore', 'emerald'],
@@ -73,8 +73,8 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
     toolKind: 'pickaxe',
-    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
-    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+    forbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['nether_quartz_ore', 'quartz'],
@@ -83,8 +83,8 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
     toolKind: 'pickaxe',
-    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
-    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+    forbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['copper_ore', 'deepslate_copper_ore', 'raw_copper'],
