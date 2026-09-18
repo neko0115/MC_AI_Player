@@ -15,7 +15,8 @@ import type {
 import type { ControlServerOptions, ControlServerAddress } from '../src/api/control-server.js'
 import {
   createApplication,
-  createFakeDecisionStack
+  createFakeDecisionStack,
+  type ApplicationServerCapabilitiesPort
 } from '../src/main.js'
 
 class FakeAdapter implements MinecraftAdapter {
@@ -126,6 +127,50 @@ class FakeControlServer {
 
   async close(): Promise<void> {
     this.calls.push('control.close')
+  }
+}
+
+
+class FakeServerCapabilities implements ApplicationServerCapabilitiesPort {
+  constructor(private readonly calls: string[]) {}
+
+  async start(): Promise<void> {
+    this.calls.push('capabilities.start')
+  }
+
+  stop(): void {
+    this.calls.push('capabilities.stop')
+  }
+
+  snapshot() {
+    return [{
+      id: 'vein_mining',
+      name: '連鎖挖礦',
+      description: '一次挖掘相連的礦物方塊',
+      available: true,
+      source: {
+        plugin: 'VeinMiner',
+        version: '2.11.2',
+        provenance: 'integration'
+      },
+      usage: {
+        trigger: 'sneak_and_break',
+        human: '蹲下並使用正確的十字鎬挖掘相連礦物'
+      },
+      constraints: {
+        max_chain: 100,
+        correct_tool_required: true,
+        must_sneak: true
+      }
+    }] as const
+  }
+
+  has(id: string): boolean {
+    return id === 'vein_mining'
+  }
+
+  get(id: string) {
+    return id === 'vein_mining' ? this.snapshot()[0] : undefined
   }
 }
 
@@ -247,7 +292,10 @@ function environment(): NodeJS.ProcessEnv {
   }
 }
 
-function harness() {
+function harness(options: {
+  readonly env?: NodeJS.ProcessEnv
+  readonly serverCapabilities?: ApplicationServerCapabilitiesPort
+} = {}) {
   const calls: string[] = []
   const adapter = new FakeAdapter(calls)
   const runtime: MineflayerRuntimeBundle = {
@@ -269,11 +317,14 @@ function harness() {
   const recorder = new FakeRecorder()
   const logicalExecutor = new RecordingLogicalExecutor()
   let control: FakeControlServer | null = null
-  const application = createApplication(environment(), {
+  const application = createApplication(options.env ?? environment(), {
     createRuntime: (_config: MinecraftConfig) => runtime,
     createMemory: () => memory,
     createRecorder: () => recorder,
     createLogicalDecisionExecutor: () => logicalExecutor,
+    ...(options.serverCapabilities
+      ? { createServerCapabilities: () => options.serverCapabilities as ApplicationServerCapabilitiesPort }
+      : {}),
     createControlServer: options => {
       control = new FakeControlServer(calls, options)
       return control
@@ -325,6 +376,58 @@ test('fake application ignores routing infrastructure and addressed chat reaches
     current.recorder.releaseFirst()
     await current.application.close()
   }
+})
+
+
+test('enabled MoxueBridge capability source participates in lifecycle and AI context', async () => {
+  const calls: string[] = []
+  const capabilities = new FakeServerCapabilities(calls)
+  const current = harness({
+    env: {
+      ...environment(),
+      MC_MOXUEBRIDGE_BASE_URL: 'http://127.0.0.1:8766',
+      MC_MOXUEBRIDGE_TOKEN: 'test-token'
+    },
+    serverCapabilities: capabilities
+  })
+
+  // Use the harness-owned call log for application lifecycle order.
+  // The capability fake has its own log so its lifecycle can be asserted directly.
+  await current.application.start()
+  try {
+    assert.deepEqual(calls, ['capabilities.start'])
+
+    current.adapter.emit({ type: 'connected', at: 1 })
+    current.adapter.emit({
+      type: 'spawned',
+      at: 2,
+      dimension: 'overworld',
+      position: { x: 0, y: 64, z: 0 },
+      health: 20,
+      food: 20
+    })
+    current.adapter.emit({
+      type: 'player_chat',
+      at: 3,
+      player: 'Boss',
+      message: '墨雪 幫我找鐵礦'
+    })
+
+    await waitFor(() => current.logicalExecutor.requests.length === 1)
+    assert.deepEqual(
+      current.logicalExecutor.requests[0]?.context.serverCapabilities?.map(item => item.id),
+      ['vein_mining']
+    )
+    assert.equal(
+      JSON.stringify(current.logicalExecutor.requests[0]?.context).includes('VeinMiner'),
+      false
+    )
+  } finally {
+    current.recorder.releaseFirst()
+    await current.application.close()
+  }
+
+  assert.deepEqual(calls, ['capabilities.start', 'capabilities.stop'])
 })
 
 test('application start connects Minecraft before opening the Control API and close reverses external exposure', async () => {
