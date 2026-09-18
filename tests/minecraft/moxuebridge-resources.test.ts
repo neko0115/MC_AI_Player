@@ -156,6 +156,49 @@ test('inferred resource semantics never become mutation-authoritative profiles',
   assert.equal(catalog.resolve('examplemod:mystery_ore'), undefined)
 })
 
+test('refresh failure revokes previously authoritative resource profiles', async t => {
+  let healthy = true
+  const fixture = await createTestServer((_request, response) => {
+    if (!healthy) {
+      response.statusCode = 503
+      response.end('unavailable')
+      return
+    }
+    response.end(JSON.stringify([
+      {
+        id: 'examplemod:tin_ore',
+        kind: 'ore',
+        aliases: [],
+        block_ids: ['examplemod:tin_ore'],
+        collected_item_ids: ['examplemod:raw_tin'],
+        minimum_drop_count: 1,
+        tool_kind: 'pickaxe',
+        forbidden_enchantments: [],
+        capability_id: 'vein_mining',
+        related_blocks: {},
+        cleanup_policy: null,
+        confidence: 'authoritative'
+      }
+    ]))
+  })
+  t.after(() => fixture.close())
+
+  const catalog = new MoxueBridgeResourceCatalog({
+    baseUrl: fixture.baseUrl,
+    bearerToken: 'secret',
+    timeoutMs: 1000
+  })
+
+  assert.equal(await catalog.refresh(), true)
+  assert.ok(catalog.resolve('examplemod:tin_ore'))
+  assert.equal(catalog.snapshot().length, 1)
+
+  healthy = false
+  assert.equal(await catalog.refresh(), false)
+  assert.equal(catalog.resolve('examplemod:tin_ore'), undefined)
+  assert.deepEqual(catalog.snapshot(), [])
+})
+
 test('older Bridge without resource endpoint falls back safely to static profiles', async t => {
   const fixture = await createTestServer((_request, response) => {
     response.statusCode = 404
