@@ -206,6 +206,81 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     return candidates
   }
 
+  async findDecayingLeafBlocks(
+    leafNames: readonly string[],
+    origin: Position,
+    radius: number,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<readonly ResourceCandidate[]> {
+    if (signal.aborted) return []
+    const bot = this.readyBot()
+    if (!bot) return []
+
+    const names = normalizeBlockNames(leafNames)
+    if (
+      names === null ||
+      !isFinitePosition(origin) ||
+      !Number.isFinite(radius) ||
+      radius < 1 ||
+      radius > MAX_DROP_SEARCH_RADIUS ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > this.options.maxCandidatesPerSearch
+    ) {
+      return []
+    }
+
+    const point = bot.entity.position.clone()
+    point.set(origin.x, origin.y, origin.z)
+
+    let positions: ReturnType<Bot['findBlocks']>
+    try {
+      positions = bot.findBlocks({
+        point,
+        matching: block => names.includes(block.name),
+        maxDistance: radius,
+        count: this.options.maxCandidatesPerSearch
+      })
+    } catch {
+      return []
+    }
+
+    const candidates: ResourceCandidate[] = []
+    for (const position of positions) {
+      if (signal.aborted || candidates.length >= limit) return candidates
+      const block = bot.blockAt(position)
+      if (!block || !names.includes(block.name)) continue
+
+      const properties = blockProperties(block)
+      const persistent = properties.persistent
+      const distance = Number(properties.distance)
+      const isPersistent =
+        persistent === true || String(persistent).toLowerCase() === 'true'
+
+      if (isPersistent || !Number.isFinite(distance) || distance < 7) continue
+
+      const targetPosition = {
+        x: block.position.x,
+        y: block.position.y,
+        z: block.position.z
+      }
+      const approachPosition = hasGeometry(block)
+        ? findSafeHarvestApproach(bot, targetPosition)
+        : targetPosition
+
+      if (!approachPosition) continue
+
+      candidates.push({
+        blockName: block.name,
+        position: targetPosition,
+        approachPosition
+      })
+    }
+
+    return candidates
+  }
+
   async findDroppedResource(
     itemName: string,
     origin: Position,
@@ -378,6 +453,9 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       await bot.dig(block)
       if (signal.aborted) return cancelled(signal)
       if (disconnected) return { status: 'failed', code: 'disconnected' }
+      if (options.requireCollection === false) {
+        return { status: 'succeeded', code: 'removed' }
+      }
 
       const collected = await this.waitForInventoryIncrease(
         expectedItemNames,
@@ -525,6 +603,19 @@ function hasForbiddenEnchantment(
     const name = raw.includes(':') ? raw.slice(raw.indexOf(':') + 1) : raw
     return forbidden.has(name)
   })
+}
+
+function blockProperties(block: unknown): Record<string, unknown> {
+  const candidate = block as { getProperties?: () => unknown }
+  if (typeof candidate.getProperties !== 'function') return {}
+  try {
+    const properties = candidate.getProperties()
+    return properties && typeof properties === 'object'
+      ? properties as Record<string, unknown>
+      : {}
+  } catch {
+    return {}
+  }
 }
 
 function selectSemanticTool<T extends { readonly name: string }>(
