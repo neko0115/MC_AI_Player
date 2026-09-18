@@ -220,7 +220,7 @@ GET  /v1/events          SSE
 
 `POST /v1/goals` is deterministic direct control and does not invoke Gemini. Long-running goals return an accepted `goal_id`; HTTP requests do not remain open for gameplay completion. SSE carries validated `RuntimeEvent` objects only.
 
-When MoxueBridge discovery is enabled, `/v1/status` also adds `server_capabilities` with only a sanitized `sync_state` (`current`, `stale`, or `unavailable`) and bounded semantic capability IDs. It does not expose Bridge credentials, plugin identity/version, or raw integration errors.
+When MoxueBridge discovery is enabled, `/v1/status` also adds `server_capabilities` with a sanitized `sync_state` (`current`, `stale`, or `unavailable`), bounded semantic capability IDs, and an allowlisted semantic detail view for integration diagnostics (for example `max_chain`, `must_sneak`, `same_block_only`, `tool_kind`, and `merge_item_drops`). It does not expose Bridge credentials, plugin identity/version, filesystem paths, arbitrary nested integration data, or raw integration errors.
 
 When Gemini mode is active, `/v1/status` adds only coarse AI state: routine/complex model names, availability, anonymous active Project label, automatic Flash usage percentage, manual-deep availability, active task/goal kind, pending task count, and in-flight state. It does not expose prompts, UUID allowlists, raw errors, API keys, or internal Project identities.
 
