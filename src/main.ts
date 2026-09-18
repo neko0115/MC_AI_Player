@@ -441,9 +441,15 @@ function createControlCapabilityStatus(
 ): ControlCapabilityStatusPort {
   return {
     snapshot() {
+      const capabilities = source.snapshot()
       return {
         state: source.status().state,
-        ids: source.snapshot().map(capability => capability.id)
+        ids: capabilities.map(capability => capability.id),
+        details: capabilities.map(capability => ({
+          id: capability.id,
+          trigger: capability.usage.trigger,
+          constraints: capability.constraints
+        }))
       }
     }
   }
