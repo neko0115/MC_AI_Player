@@ -146,6 +146,22 @@ class FakeResourceProfiles implements ApplicationResourceProfilesPort {
   resolve() {
     return undefined
   }
+
+  snapshot() {
+    return [{
+      id: 'examplemod:titanium_ore',
+      kind: 'ore',
+      aliases: ['examplemod:titanium'],
+      blockIds: ['examplemod:titanium_ore'],
+      collectedItemIds: ['examplemod:raw_titanium'],
+      minimumDropCount: 1,
+      toolKind: 'pickaxe',
+      capabilityId: 'vein_mining',
+      relatedLeaves: [],
+      cleanupPolicy: null,
+      confidence: 'authoritative' as const
+    }]
+  }
 }
 
 class FakeServerCapabilities implements ApplicationServerCapabilitiesPort {
@@ -451,6 +467,10 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
     assert.deepEqual(
       current.logicalExecutor.requests[0]?.context.serverCapabilities?.map(item => item.id),
       ['vein_mining']
+    )
+    assert.deepEqual(
+      current.logicalExecutor.requests[0]?.context.serverResources?.map(item => item.id),
+      ['examplemod:titanium_ore']
     )
     assert.equal(
       JSON.stringify(current.logicalExecutor.requests[0]?.context).includes('VeinMiner'),
