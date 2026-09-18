@@ -154,3 +154,53 @@ test('context builder does not mutate source snapshots or leak foreign-world mem
   assert.deepEqual(context.memories, [])
   assert.equal(context.task, undefined)
 })
+
+
+test('context builder exposes stable server capability semantics without leaking plugin identity', () => {
+  const builder = new ContextBuilder()
+  const context = builder.build({
+    worldKey: WORLD_KEY,
+    state: state([]),
+    currentGoal: null,
+    memories: [],
+    skills: [{ name: 'gather_resource', description: 'Gather a bounded resource quantity.' }],
+    serverCapabilities: [{
+      id: 'vein_mining',
+      name: '連鎖挖礦',
+      description: '一次挖掘相連的礦物方塊',
+      available: true,
+      source: {
+        plugin: 'VeinMiner',
+        version: '2.11.2',
+        provenance: 'integration'
+      },
+      usage: {
+        trigger: 'sneak_and_break',
+        human: '蹲下並使用正確的十字鎬挖掘相連礦物'
+      },
+      constraints: {
+        max_chain: 100,
+        correct_tool_required: true,
+        must_sneak: true,
+        nested_internal_detail: { should_not_leak: true }
+      }
+    }],
+    safetyConstraints: []
+  })
+
+  assert.deepEqual(context.serverCapabilities, [{
+    id: 'vein_mining',
+    name: '連鎖挖礦',
+    description: '一次挖掘相連的礦物方塊',
+    trigger: 'sneak_and_break',
+    usage: '蹲下並使用正確的十字鎬挖掘相連礦物',
+    constraints: {
+      max_chain: 100,
+      correct_tool_required: true,
+      must_sneak: true
+    }
+  }])
+  assert.equal(JSON.stringify(context).includes('VeinMiner'), false)
+  assert.equal(JSON.stringify(context).includes('2.11.2'), false)
+})
+
