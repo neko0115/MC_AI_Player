@@ -21,7 +21,7 @@ import type {
   MinecraftManualAccessPolicy,
   MinecraftPrincipal
 } from '../minecraft/identity-registry.js'
-import type { ServerCapabilitySource } from '../minecraft/moxuebridge-capabilities.js'
+import type { ServerCapabilityStatusSource } from '../minecraft/moxuebridge-capabilities.js'
 import { parseManualAiCommand } from '../minecraft/manual-ai-command.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import type { WorldStateCache } from '../state/world-state-cache.js'
@@ -62,7 +62,7 @@ export interface DecisionCoordinatorOptions {
   readonly goals: GoalManager
   readonly memory: MinecraftMemoryRepository
   readonly registry: SkillRegistry
-  readonly serverCapabilities?: ServerCapabilitySource
+  readonly serverCapabilities?: ServerCapabilityStatusSource
   readonly identity: MinecraftIdentityRegistry
   readonly identityMode: MinecraftServerIdentityMode
   readonly manualAccess: MinecraftManualAccessPolicy
@@ -433,7 +433,10 @@ export class DecisionCoordinator {
         limit: 8
       }),
       skills: registeredDecisionSkills(this.options.registry),
-      serverCapabilities: this.options.serverCapabilities?.snapshot() ?? [],
+      serverCapabilities:
+        this.options.serverCapabilities?.status().state === 'current'
+          ? this.options.serverCapabilities.snapshot()
+          : [],
       safetyConstraints: this.options.safetyConstraints
     })
 
