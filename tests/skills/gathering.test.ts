@@ -338,6 +338,7 @@ test('gather_resource activates bounded tree-felling hints with semantic axe pre
     { blockName: 'oak_log', position: { x: 6, y: 64, z: 0 } }
   ]
   const world = new FakeGatheringWorld(logBlocks)
+  world.chainBreakCount = 2
   const skill = new GatherResourceSkill({
     resources: world,
     navigation: world,
@@ -362,7 +363,7 @@ test('gather_resource activates bounded tree-felling hints with semantic axe pre
   assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
   assert.equal(world.toolPreparationAttempts.length, 1)
   assert.deepEqual(world.toolPreparationKinds, ['axe'])
-  assert.deepEqual(world.harvestOptions, [{ sneak: true }, undefined])
+  assert.deepEqual(world.harvestOptions, [{ sneak: true }])
 })
 
 
