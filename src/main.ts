@@ -542,6 +542,17 @@ function registerProductionSkills(
     state: () => state.snapshot(),
     protection,
     ...(serverCapabilities ? { capabilities: serverCapabilities } : {}),
+    onCapabilityUsed: notice => {
+      void events.publish({
+        type: 'server_capability_used',
+        at: Date.now(),
+        capability: notice.capability,
+        resource: notice.resource,
+        maxChain: notice.maxChain
+      }).catch(() => {
+        // Capability telemetry is advisory and must never stop gameplay.
+      })
+    },
     onCooperativePickup: notice => {
       void events.publish({
         type: 'cooperative_pickup',
