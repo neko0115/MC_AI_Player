@@ -14,7 +14,8 @@ import type {
 } from '../minecraft/moxuebridge-capabilities.js'
 import {
   resolveResourceProfile,
-  type ResourceProfile
+  type ResourceProfile,
+  type ResourceProfileSource
 } from '../minecraft/resource-profiles.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
@@ -70,6 +71,7 @@ export class RegionProtectionPolicy implements ResourceProtectionPolicy {
 interface FindResourceOptions {
   readonly maxSearchRadius?: number
   readonly maxCandidatesPerSearch?: number
+  readonly resourceProfiles?: ResourceProfileSource
 }
 
 export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
@@ -95,7 +97,10 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
     if (signal.aborted) return cancelled(signal)
     const resource = normalizeResourceName(args.resource)
     if (!resource) return { status: 'failed', code: 'invalid_resource' }
-    const profile = resolveResourceProfile(resource)
+    const profile = resolveResourceProfile(
+      resource,
+      this.options.resourceProfiles
+    )
 
     const radius = args.radius ?? this.maxSearchRadius
     if (!Number.isFinite(radius) || radius < 1 || radius > this.maxSearchRadius) {
@@ -162,6 +167,7 @@ interface GatherResourceDependencies {
   readonly state: () => WorldStateSnapshot
   readonly protection: ResourceProtectionPolicy
   readonly capabilities?: ServerCapabilityStatusSource
+  readonly resourceProfiles?: ResourceProfileSource
   readonly options?: GatheringOptions
   readonly onCapabilityUsed?: (notice: ServerCapabilityUsageNotice) => void
   readonly onCooperativePickup?: (notice: CooperativePickupNotice) => void
@@ -207,7 +213,10 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     if (signal.aborted) return cancelled(signal)
     const resource = normalizeResourceName(args.resource)
     if (!resource) return { status: 'failed', code: 'invalid_resource' }
-    const profile = resolveResourceProfile(resource)
+    const profile = resolveResourceProfile(
+      resource,
+      this.dependencies.resourceProfiles
+    )
     if (!Number.isInteger(args.quantity) || args.quantity < 1 || args.quantity > 2304) {
       return { status: 'failed', code: 'invalid_quantity' }
     }
