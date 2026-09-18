@@ -48,6 +48,15 @@ export interface ControlAiStatusPort {
   snapshot(): ControlAiStatusSnapshot
 }
 
+export interface ControlCapabilityStatusSnapshot {
+  readonly state: 'current' | 'stale' | 'unavailable'
+  readonly ids: readonly string[]
+}
+
+export interface ControlCapabilityStatusPort {
+  snapshot(): ControlCapabilityStatusSnapshot
+}
+
 export interface ControlServerOptions {
   readonly host: string
   readonly port: number
@@ -58,6 +67,7 @@ export interface ControlServerOptions {
   readonly memory: ControlMemoryPort
   readonly events: RuntimeEventSource
   readonly aiStatus?: ControlAiStatusPort
+  readonly capabilityStatus?: ControlCapabilityStatusPort
 }
 
 export interface ControlServerAddress {
@@ -279,6 +289,9 @@ export class ControlServer {
       queued_goals: queued.map(cloneGoal),
       ...(this.options.aiStatus
         ? { ai: publicAiStatus(this.options.aiStatus.snapshot()) }
+        : {}),
+      ...(this.options.capabilityStatus
+        ? { server_capabilities: publicCapabilityStatus(this.options.capabilityStatus.snapshot()) }
         : {})
     }
   }
@@ -309,6 +322,26 @@ export class ControlServer {
     }
     request.once('close', cleanup)
     response.once('close', cleanup)
+  }
+}
+
+
+function publicCapabilityStatus(snapshot: ControlCapabilityStatusSnapshot): unknown {
+  const state =
+    snapshot.state === 'current' || snapshot.state === 'stale'
+      ? snapshot.state
+      : 'unavailable'
+  const ids = [...new Set(
+    snapshot.ids
+      .map(id => boundedText(id, 128))
+      .filter(Boolean)
+  )]
+    .sort()
+    .slice(0, 64)
+
+  return {
+    sync_state: state,
+    ids
   }
 }
 
