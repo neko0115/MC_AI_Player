@@ -10,6 +10,7 @@ Headless Minecraft Java cooperative-agent runtime for the Moxue project.
 - executes allowlisted navigation, follow, survival, inventory, and scoped gather skills;
 - stores world-scoped SQLite memory and emits validated runtime telemetry;
 - exposes a Control API and SSE stream for deterministic external orchestration;
+- optionally consumes authenticated read-only server capabilities from MoxueBridge;
 - runs a production mailbox-style AI Decision Coordinator for addressed Minecraft instructions;
 - routes routine work to Gemini Flash-Lite and complex work to Gemini Flash through a quota-aware Project pool;
 - persists Gemini quota/accounting state separately from Minecraft memory;
@@ -38,6 +39,7 @@ The design and implementation-plan documents are architecture/execution records.
 ## Architecture / project boundary
 
 - `MC_AI_Player` owns Minecraft connectivity, deterministic gameplay, safety, Minecraft-specific memory, Gemini routing/quota accounting, telemetry, Control/Admin APIs, and replay fixtures.
+- MoxueBridge is an optional read-only capability-discovery boundary; it describes server/plugin semantics but does not become a gameplay actuator.
 - The Discord-side Moxue runtime is outside this repository; DC_BOT integration remains a separate trust-boundary project.
 - Normal gameplay is headless: no Minecraft Launcher, rendered Java client, OCR, screenshot loop, or GUI is required on the runtime host.
 - AI task state and manual grants are intentionally volatile; quota/accounting state is durable.
@@ -90,6 +92,32 @@ MC_AI_PROVIDER=fake
 ```
 
 Fake mode requires no Gemini routing file, Google credential, Admin token, or production quota DB.
+
+
+### MoxueBridge capability discovery
+
+MoxueBridge integration is optional and disabled when `MC_MOXUEBRIDGE_BASE_URL` is empty:
+
+```text
+MC_MOXUEBRIDGE_BASE_URL=http://127.0.0.1:8766
+MC_MOXUEBRIDGE_TOKEN=<secret>
+MC_MOXUEBRIDGE_TIMEOUT_MS=800
+MC_MOXUEBRIDGE_REFRESH_INTERVAL_MS=30000
+```
+
+MC_AI_Player reads only `GET /api/v1/capabilities` with bearer authentication. Valid available capabilities are cached with bounded schema/response-size checks. A later network failure retains the last-known-good snapshot and marks it `stale`; startup without any successful snapshot reports `unavailable`.
+
+Only stable capability semantics are included in AI decision context. Plugin name/version/provenance are intentionally omitted from the model-facing context.
+
+Deterministic gathering may use capability hints such as correct-tool preparation and sneak-while-breaking, but `SafetyPolicy` and scoped `ResourceMutationPermit` remain authoritative. Multi-block acceleration fails closed unless the capability advertises both a finite `max_chain` that fits inside the remaining gather quantity and `same_block_only=true`. This prevents a mixed VeinMiner group from turning a single-resource goal into collateral block destruction.
+
+For the current same-host integration layout, avoid the historical port collision by using:
+
+```text
+MoxueBridge HTTP       8766
+MC_AI_Player Admin     8767
+MC_AI_Player Control   8768   (set MC_CONTROL_PORT=8768)
+```
 
 ### Gemini multi-model mode
 
@@ -191,6 +219,8 @@ GET  /v1/events          SSE
 ```
 
 `POST /v1/goals` is deterministic direct control and does not invoke Gemini. Long-running goals return an accepted `goal_id`; HTTP requests do not remain open for gameplay completion. SSE carries validated `RuntimeEvent` objects only.
+
+When MoxueBridge discovery is enabled, `/v1/status` also adds `server_capabilities` with only a sanitized `sync_state` (`current`, `stale`, or `unavailable`) and bounded semantic capability IDs. It does not expose Bridge credentials, plugin identity/version, or raw integration errors.
 
 When Gemini mode is active, `/v1/status` adds only coarse AI state: routine/complex model names, availability, anonymous active Project label, automatic Flash usage percentage, manual-deep availability, active task/goal kind, pending task count, and in-flight state. It does not expose prompts, UUID allowlists, raw errors, API keys, or internal Project identities.
 
