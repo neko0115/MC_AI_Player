@@ -48,7 +48,8 @@ export interface ResourceGatheringAdapter {
   ): Promise<readonly ResourceCandidate[]>
   prepareResourceTool?(
     target: ResourceCandidate,
-    signal: AbortSignal
+    signal: AbortSignal,
+    toolKind?: 'axe' | 'pickaxe'
   ): Promise<SkillResult>
   harvestResourceBlock(
     target: ResourceCandidate,
