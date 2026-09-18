@@ -117,7 +117,8 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
         blockNames: profile.blockNames,
         origin,
         radius,
-        limit: this.maxCandidatesPerSearch
+        limit: this.maxCandidatesPerSearch,
+        visibility: 'visible'
       },
       signal
     )
@@ -130,7 +131,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
       this.protection,
       new Set()
     )
-    if (!candidate) return { status: 'failed', code: 'resource_not_found' }
+    if (!candidate) return { status: 'failed', code: 'resource_not_visible' }
 
     return {
       status: 'succeeded',
@@ -251,7 +252,8 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           blockNames: profile.blockNames,
           origin,
           radius,
-          limit: this.options.maxCandidatesPerSearch
+          limit: this.options.maxCandidatesPerSearch,
+          visibility: 'visible'
         },
         signal
       )
@@ -271,7 +273,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         }
         return lastFailureCode
           ? { status: 'failed', code: lastFailureCode }
-          : { status: 'failed', code: 'resource_not_found' }
+          : { status: 'failed', code: 'resource_not_visible' }
       }
       attempted.add(candidateKey(candidate))
 
