@@ -14,6 +14,7 @@ import type {
 } from '../minecraft/moxuebridge-capabilities.js'
 import {
   resolveResourceProfile,
+  type LeafCleanupPolicy,
   type ResourceProfile,
   type ResourceProfileSource
 } from '../minecraft/resource-profiles.js'
@@ -145,6 +146,7 @@ export interface GatheringOptions {
   readonly maxCandidatesPerSearch?: number
   readonly maxUncollectedHarvests?: number
   readonly cooperativePickupNoticeThreshold?: number
+  readonly leafCleanupPolicyOverride?: LeafCleanupPolicy
 }
 
 export interface ServerCapabilityUsageNotice {
@@ -181,6 +183,7 @@ interface NormalizedGatheringOptions {
   maxCandidatesPerSearch: number
   maxUncollectedHarvests: number
   cooperativePickupNoticeThreshold: number
+  leafCleanupPolicyOverride: LeafCleanupPolicy | null
 }
 
 type DropRecoveryOutcome =
@@ -464,7 +467,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     signal: AbortSignal
   ): Promise<SkillResult | null> {
     if (
-      profile.leafCleanupPolicy !== 'remove_after_felling' ||
+      (this.options.leafCleanupPolicyOverride ?? profile.leafCleanupPolicy) !== 'remove_after_felling' ||
       profile.relatedLeafNames.length === 0 ||
       !this.dependencies.resources.findDecayingLeafBlocks
     ) {
@@ -922,7 +925,8 @@ function normalizeOptions(options: GatheringOptions = {}): NormalizedGatheringOp
     maxRetries: options.maxRetries ?? 3,
     maxCandidatesPerSearch: options.maxCandidatesPerSearch ?? 32,
     maxUncollectedHarvests: options.maxUncollectedHarvests ?? 12,
-    cooperativePickupNoticeThreshold: options.cooperativePickupNoticeThreshold ?? 3
+    cooperativePickupNoticeThreshold: options.cooperativePickupNoticeThreshold ?? 3,
+    leafCleanupPolicyOverride: options.leafCleanupPolicyOverride ?? null
   }
   validatePositiveInteger(normalized.initialSearchRadius, 'initialSearchRadius')
   validatePositiveInteger(normalized.maxSearchRadius, 'maxSearchRadius')
