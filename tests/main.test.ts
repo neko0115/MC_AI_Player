@@ -16,6 +16,7 @@ import type { ControlServerOptions, ControlServerAddress } from '../src/api/cont
 import {
   createApplication,
   createFakeDecisionStack,
+  type ApplicationResourceProfilesPort,
   type ApplicationServerCapabilitiesPort
 } from '../src/main.js'
 
@@ -130,6 +131,22 @@ class FakeControlServer {
   }
 }
 
+
+class FakeResourceProfiles implements ApplicationResourceProfilesPort {
+  constructor(private readonly calls: string[]) {}
+
+  async start(): Promise<void> {
+    this.calls.push('resources.start')
+  }
+
+  stop(): void {
+    this.calls.push('resources.stop')
+  }
+
+  resolve() {
+    return undefined
+  }
+}
 
 class FakeServerCapabilities implements ApplicationServerCapabilitiesPort {
   constructor(private readonly calls: string[]) {}
@@ -303,6 +320,7 @@ function environment(): NodeJS.ProcessEnv {
 function harness(options: {
   readonly env?: NodeJS.ProcessEnv
   readonly serverCapabilities?: ApplicationServerCapabilitiesPort
+  readonly resourceProfiles?: ApplicationResourceProfilesPort
 } = {}) {
   const calls: string[] = []
   const adapter = new FakeAdapter(calls)
@@ -332,6 +350,9 @@ function harness(options: {
     createLogicalDecisionExecutor: () => logicalExecutor,
     ...(options.serverCapabilities
       ? { createServerCapabilities: () => options.serverCapabilities as ApplicationServerCapabilitiesPort }
+      : {}),
+    ...(options.resourceProfiles
+      ? { createResourceProfiles: () => options.resourceProfiles as ApplicationResourceProfilesPort }
       : {}),
     createControlServer: options => {
       control = new FakeControlServer(calls, options)
@@ -390,20 +411,25 @@ test('fake application ignores routing infrastructure and addressed chat reaches
 test('enabled MoxueBridge capability source participates in lifecycle and AI context', async () => {
   const calls: string[] = []
   const capabilities = new FakeServerCapabilities(calls)
+  const resources = new FakeResourceProfiles(calls)
   const current = harness({
     env: {
       ...environment(),
       MC_MOXUEBRIDGE_BASE_URL: 'http://127.0.0.1:8766',
       MC_MOXUEBRIDGE_TOKEN: 'test-token'
     },
-    serverCapabilities: capabilities
+    serverCapabilities: capabilities,
+    resourceProfiles: resources
   })
 
   // Use the harness-owned call log for application lifecycle order.
   // The capability fake has its own log so its lifecycle can be asserted directly.
   await current.application.start()
   try {
-    assert.deepEqual(calls, ['capabilities.start'])
+    assert.deepEqual(calls, [
+      'capabilities.start',
+      'resources.start'
+    ])
 
     current.adapter.emit({ type: 'connected', at: 1 })
     current.adapter.emit({
@@ -451,7 +477,12 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
     await current.application.close()
   }
 
-  assert.deepEqual(calls, ['capabilities.start', 'capabilities.stop'])
+  assert.deepEqual(calls, [
+    'capabilities.start',
+    'resources.start',
+    'resources.stop',
+    'capabilities.stop'
+  ])
 })
 
 test('application start connects Minecraft before opening the Control API and close reverses external exposure', async () => {
