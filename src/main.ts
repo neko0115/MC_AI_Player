@@ -61,7 +61,12 @@ import { DecisionCoordinator } from './runtime/decision-coordinator.js'
 import { ThreatSupervisor } from './runtime/threat-supervisor.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
-import { GatherResourceSkill, FindResourceSkill, RegionProtectionPolicy } from './skills/gathering.js'
+import {
+  ExploreResourceSkill,
+  GatherResourceSkill,
+  FindResourceSkill,
+  RegionProtectionPolicy
+} from './skills/gathering.js'
 import { createNavigationSkills } from './skills/navigation.js'
 import { EatSkill, EquipSkill } from './skills/survival.js'
 import { SkillExecutor } from './skills/executor.js'
@@ -574,6 +579,12 @@ function registerProductionSkills(
   const protection = new RegionProtectionPolicy([])
   registry.register(new FindResourceSkill(
     runtime.gathering,
+    protection,
+    resourceProfiles ? { resourceProfiles } : {}
+  ))
+  registry.register(new ExploreResourceSkill(
+    runtime.gathering,
+    runtime.navigation,
     protection,
     resourceProfiles ? { resourceProfiles } : {}
   ))
