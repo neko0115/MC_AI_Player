@@ -74,7 +74,7 @@ export interface DecisionContext {
   readonly recentEvents: readonly RuntimeEvent[]
   readonly memories: readonly DecisionMemorySummary[]
   readonly skills: readonly DecisionSkillDescription[]
-  readonly serverCapabilities: readonly DecisionServerCapability[]
+  readonly serverCapabilities?: readonly DecisionServerCapability[]
   readonly safetyConstraints: readonly string[]
 }
 
