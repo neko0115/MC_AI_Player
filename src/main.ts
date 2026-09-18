@@ -45,7 +45,6 @@ import { SqliteMemoryRepository } from './memory/sqlite-repository.js'
 import { MinecraftIdentityRegistry } from './minecraft/identity-registry.js'
 import {
   MoxueBridgeCapabilities,
-  type ServerCapabilitySource,
   type ServerCapabilityStatusSource
 } from './minecraft/moxuebridge-capabilities.js'
 import {
@@ -514,7 +513,7 @@ function registerProductionSkills(
   safety: SafetyPolicy,
   state: WorldStateCache,
   events: RuntimeEventBus,
-  serverCapabilities?: ServerCapabilitySource
+  serverCapabilities?: ServerCapabilityStatusSource
 ): void {
   const navigation = createNavigationSkills(runtime.adapter)
   registry.register(navigation.goTo)
