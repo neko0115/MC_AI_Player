@@ -335,6 +335,7 @@ test('gather_resource activates bounded tree-felling hints with semantic axe pre
 
 
 test('gather_resource collects bounded extra drops after one chained tree harvest', async () => {
+  const capabilityNotices: Array<{ capability: string; resource: string; maxChain: number }> = []
   const world = new FakeGatheringWorld([
     { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } },
     { blockName: 'oak_log', position: { x: 5, y: 64, z: 0 } },
@@ -356,6 +357,7 @@ test('gather_resource collects bounded extra drops after one chained tree harves
         max_chain: 4
       }
     }),
+    onCapabilityUsed: notice => capabilityNotices.push({ ...notice }),
     options: {
       initialSearchRadius: 16,
       maxSearchRadius: 16,
@@ -376,6 +378,11 @@ test('gather_resource collects bounded extra drops after one chained tree harves
   assert.equal(world.dropped.length, 0)
   assert.deepEqual(world.toolPreparationKinds, ['axe'])
   assert.deepEqual(world.harvestOptions, [{ sneak: true }])
+  assert.deepEqual(capabilityNotices, [{
+    capability: 'tree_felling',
+    resource: 'oak_log',
+    maxChain: 4
+  }])
 })
 
 test('vein_mining remains discoverable but does not actuate before resource-profile accounting exists', async () => {
