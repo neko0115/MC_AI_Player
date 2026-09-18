@@ -46,6 +46,10 @@ class ApproachBot extends EventEmitter {
       .slice(0, options.count ?? this.searchPositions.length)
   }
 
+  canSeeBlock(): boolean {
+    return true
+  }
+
   blockAt(position: Vec3): FakeBlock {
     return this.blocks.get(key(position.x, position.y, position.z)) ?? {
       name: 'air',
