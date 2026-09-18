@@ -79,6 +79,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
   readonly name = 'find_resource' as const
   private readonly maxSearchRadius: number
   private readonly maxCandidatesPerSearch: number
+  private readonly resourceProfiles?: ResourceProfileSource
 
   constructor(
     private readonly resources: ResourceGatheringAdapter,
@@ -87,6 +88,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
   ) {
     this.maxSearchRadius = options.maxSearchRadius ?? 48
     this.maxCandidatesPerSearch = options.maxCandidatesPerSearch ?? 32
+    this.resourceProfiles = options.resourceProfiles
     validatePositiveInteger(this.maxSearchRadius, 'maxSearchRadius')
     validatePositiveInteger(this.maxCandidatesPerSearch, 'maxCandidatesPerSearch')
   }
@@ -100,7 +102,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
     if (!resource) return { status: 'failed', code: 'invalid_resource' }
     const profile = resolveResourceProfile(
       resource,
-      this.options.resourceProfiles
+      this.resourceProfiles
     )
 
     const radius = args.radius ?? this.maxSearchRadius
