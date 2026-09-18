@@ -8,6 +8,7 @@ import {
 import type {
   DroppedResource,
   DroppedResourceStatus,
+  ExplorationSearchRequest,
   PlayerResourceCollection,
   ResourceCandidate,
   ResourceGatheringAdapter,
@@ -207,6 +208,96 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       })
     }
     return candidates
+  }
+
+  async findExplorationWaypoints(
+    request: ExplorationSearchRequest,
+    signal: AbortSignal
+  ): Promise<readonly Position[]> {
+    if (signal.aborted) return []
+    const bot = this.readyBot()
+    if (!bot) return []
+
+    if (
+      !isFinitePosition(request.origin) ||
+      !Number.isFinite(request.radius) ||
+      request.radius < 4 ||
+      request.radius > this.options.maxSearchRadius ||
+      !Number.isInteger(request.limit) ||
+      request.limit < 1 ||
+      request.limit > this.options.maxCandidatesPerSearch
+    ) {
+      return []
+    }
+
+    const point = bot.entity.position.clone()
+    point.set(
+      request.origin.x,
+      request.origin.y,
+      request.origin.z
+    )
+
+    let positions: ReturnType<Bot['findBlocks']>
+    try {
+      positions = bot.findBlocks({
+        point,
+        matching: block => isPassableSpace(block),
+        maxDistance: request.radius,
+        count: Math.min(
+          this.options.maxCandidatesPerSearch,
+          request.limit * 8
+        )
+      })
+    } catch {
+      return []
+    }
+
+    const unique = new Map<string, Position>()
+    for (const position of positions) {
+      if (signal.aborted) return []
+      const target = {
+        x: position.x,
+        y: position.y,
+        z: position.z
+      }
+      if (
+        Math.sqrt(squaredDistance(target, request.origin)) < 3
+      ) {
+        continue
+      }
+
+      const feet = blockAtPosition(bot, target)
+      const head = blockAtPosition(bot, {
+        x: target.x,
+        y: target.y + 1,
+        z: target.z
+      })
+      const support = blockAtPosition(bot, {
+        x: target.x,
+        y: target.y - 1,
+        z: target.z
+      })
+
+      if (!feet || !head || !support) continue
+      if (!isPassableSpace(feet) || !isPassableSpace(head)) continue
+      if (!isSafeSupport(support)) continue
+      if (!bot.canSeeBlock(support)) continue
+
+      unique.set(
+        `${target.x},${target.y},${target.z}`,
+        target
+      )
+    }
+
+    return [...unique.values()]
+      .sort((left, right) => {
+        const distanceDelta =
+          squaredDistance(right, request.origin) -
+          squaredDistance(left, request.origin)
+        if (distanceDelta !== 0) return distanceDelta
+        return positionKey(left).localeCompare(positionKey(right))
+      })
+      .slice(0, request.limit)
   }
 
   async findDecayingLeafBlocks(
@@ -742,6 +833,10 @@ function withinHarvestReach(stance: Position, target: Position): boolean {
     center.y - eye.y,
     center.z - eye.z
   ) <= MAX_HARVEST_REACH
+}
+
+function positionKey(position: Position): string {
+  return `${position.x},${position.y},${position.z}`
 }
 
 function squaredDistance(a: Position, b: Position): number {
