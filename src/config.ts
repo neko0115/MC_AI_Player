@@ -4,6 +4,11 @@ export type MinecraftAuth = 'offline' | 'microsoft'
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 export type AiProviderName = 'fake' | 'gemini'
 export type MinecraftServerIdentityMode = 'online' | 'offline'
+export type TreeLeafCleanupSetting =
+  | 'catalog'
+  | 'natural_decay'
+  | 'remove_after_felling'
+  | 'preserve'
 
 export interface MinecraftConfig {
   host: string
@@ -116,6 +121,23 @@ export function loadMinecraftServerIdentityMode(
   return env.MC_SERVER_IDENTITY_MODE?.trim().toLowerCase() === 'online'
     ? 'online'
     : 'offline'
+}
+
+export function loadTreeLeafCleanupSetting(
+  env: Readonly<Record<string, string | undefined>>
+): TreeLeafCleanupSetting {
+  const value = env.MC_TREE_LEAF_CLEANUP_POLICY?.trim().toLowerCase() || 'catalog'
+  if (
+    value !== 'catalog' &&
+    value !== 'natural_decay' &&
+    value !== 'remove_after_felling' &&
+    value !== 'preserve'
+  ) {
+    throw new Error(
+      'MC_TREE_LEAF_CLEANUP_POLICY must be catalog, natural_decay, remove_after_felling, or preserve'
+    )
+  }
+  return value
 }
 
 export function loadMoxueBridgeConfig(
