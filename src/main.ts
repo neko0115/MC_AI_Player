@@ -584,7 +584,7 @@ function registerProductionSkills(
   ))
   registry.register(new ExploreResourceSkill(
     runtime.gathering,
-    runtime.navigation,
+    runtime.adapter,
     protection,
     resourceProfiles ? { resourceProfiles } : {}
   ))
