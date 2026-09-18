@@ -137,9 +137,10 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
 export function resolveResourceProfile(resource: string): ResourceProfile {
   const normalized = normalizeResource(resource)
   const path = resourcePath(normalized)
-  const staticProfile = STATIC_PROFILES.find(profile =>
-    profile.aliases.includes(path)
-  )
+  const vanilla = isVanillaResource(normalized)
+  const staticProfile = vanilla
+    ? STATIC_PROFILES.find(profile => profile.aliases.includes(path))
+    : undefined
 
   if (staticProfile) {
     return {
@@ -158,7 +159,7 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
     }
   }
 
-  const capabilityId = fallbackCapabilityId(path)
+  const capabilityId = vanilla ? fallbackCapabilityId(path) : null
   const runtimeName = runtimeResourceName(normalized)
   return {
     requestedResource: normalized,
@@ -181,6 +182,11 @@ function fallbackCapabilityId(path: string): ResourceCapabilityId | null {
     return 'tree_felling'
   }
   return null
+}
+
+function isVanillaResource(resource: string): boolean {
+  const separator = resource.indexOf(':')
+  return separator < 0 || resource.slice(0, separator) === 'minecraft'
 }
 
 function runtimeResourceName(resource: string): string {
