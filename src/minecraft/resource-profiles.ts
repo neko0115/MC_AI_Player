@@ -1,21 +1,30 @@
-export type ResourceCapabilityId = 'vein_mining' | 'tree_felling'
+export type LeafCleanupPolicy =
+  | 'natural_decay'
+  | 'remove_after_felling'
+  | 'preserve'
+
+export interface ResourceProfileSource {
+  resolve(resource: string): ResourceProfile | undefined
+}
 
 export interface ResourceProfile {
   readonly requestedResource: string
   readonly blockNames: readonly string[]
   readonly collectedItemNames: readonly string[]
-  readonly capabilityId: ResourceCapabilityId | null
+  readonly capabilityId: string | null
   readonly minimumOnePerBlock: boolean
   readonly toolKind: 'pickaxe' | null
   readonly forbiddenToolEnchantments: readonly string[]
   readonly acceleratorForbiddenToolEnchantments: readonly string[]
+  readonly relatedLeafNames: readonly string[]
+  readonly leafCleanupPolicy: LeafCleanupPolicy | null
 }
 
 interface StaticProfileDefinition {
   readonly aliases: readonly string[]
   readonly blockNames: readonly string[]
   readonly collectedItemNames: readonly string[]
-  readonly capabilityId: ResourceCapabilityId
+  readonly capabilityId: string
   readonly minimumOnePerBlock: boolean
   readonly toolKind: 'pickaxe'
   readonly forbiddenToolEnchantments?: readonly string[]
@@ -133,8 +142,13 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
   }
 ])
 
-export function resolveResourceProfile(resource: string): ResourceProfile {
+export function resolveResourceProfile(
+  resource: string,
+  source?: ResourceProfileSource
+): ResourceProfile {
   const normalized = normalizeResource(resource)
+  const supplied = source?.resolve(normalized)
+  if (supplied) return cloneProfile(supplied, normalized)
   const path = resourcePath(normalized)
   const vanilla = isVanillaResource(normalized)
   const staticProfile = vanilla
@@ -154,12 +168,15 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
         ...(staticProfile.acceleratorForbiddenToolEnchantments
           ?? staticProfile.forbiddenToolEnchantments
           ?? [])
-      ]
+      ],
+      relatedLeafNames: [],
+      leafCleanupPolicy: null
     }
   }
 
   const capabilityId = vanilla ? fallbackCapabilityId(path) : null
   const runtimeName = runtimeResourceName(normalized)
+  const relatedLeafNames = vanillaLeafNames(path)
   return {
     requestedResource: normalized,
     blockNames: [runtimeName],
@@ -168,11 +185,37 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
     minimumOnePerBlock: capabilityId === 'tree_felling',
     toolKind: null,
     forbiddenToolEnchantments: [],
-    acceleratorForbiddenToolEnchantments: []
+    acceleratorForbiddenToolEnchantments: [],
+    relatedLeafNames,
+    leafCleanupPolicy: relatedLeafNames.length > 0
+      ? 'natural_decay'
+      : null
   }
 }
 
-function fallbackCapabilityId(path: string): ResourceCapabilityId | null {
+function vanillaLeafNames(path: string): string[] {
+  if (path.startsWith('stripped_') || !path.endsWith('_log')) return []
+  return [`${path.slice(0, -4)}_leaves`]
+}
+
+function cloneProfile(
+  profile: ResourceProfile,
+  requestedResource: string
+): ResourceProfile {
+  return {
+    ...profile,
+    requestedResource,
+    blockNames: [...profile.blockNames],
+    collectedItemNames: [...profile.collectedItemNames],
+    forbiddenToolEnchantments: [...profile.forbiddenToolEnchantments],
+    acceleratorForbiddenToolEnchantments: [
+      ...profile.acceleratorForbiddenToolEnchantments
+    ],
+    relatedLeafNames: [...profile.relatedLeafNames]
+  }
+}
+
+function fallbackCapabilityId(path: string): string | null {
   if (
     path.endsWith('_log') ||
     path.endsWith('_stem') ||
