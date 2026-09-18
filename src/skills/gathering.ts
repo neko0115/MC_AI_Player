@@ -445,7 +445,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   ): Promise<SkillResult | null> {
     if (!this.dependencies.resources.findDroppedResource) return null
 
-    const attempts = Math.min(Math.max(1, maxChain), 64)
+    const attempts = Math.min(Math.max(1, maxChain), MAX_ACCELERATOR_CHAIN)
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (signal.aborted) return cancelled(signal)
       const before = inventoryCountForProfile(this.dependencies.resources, profile)
