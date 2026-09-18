@@ -130,6 +130,12 @@ export interface GatheringOptions {
   readonly cooperativePickupNoticeThreshold?: number
 }
 
+export interface ServerCapabilityUsageNotice {
+  readonly capability: string
+  readonly resource: string
+  readonly maxChain: number
+}
+
 export interface CooperativePickupNotice {
   readonly resource: string
   readonly player: string
@@ -145,6 +151,7 @@ interface GatherResourceDependencies {
   readonly protection: ResourceProtectionPolicy
   readonly capabilities?: ServerCapabilityStatusSource
   readonly options?: GatheringOptions
+  readonly onCapabilityUsed?: (notice: ServerCapabilityUsageNotice) => void
   readonly onCooperativePickup?: (notice: CooperativePickupNotice) => void
 }
 
@@ -291,6 +298,14 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         harvestOptions
       )
       if (harvested.status === 'cancelled') return harvested
+
+      if (harvested.status === 'succeeded' && activeCapabilityStrategy) {
+        safelyNotifyCapability(this.dependencies.onCapabilityUsed, {
+          capability: activeCapabilityStrategy.capability.id,
+          resource,
+          maxChain: activeCapabilityStrategy.maxChain
+        })
+      }
 
       if (
         harvested.status === 'succeeded' &&
@@ -712,6 +727,19 @@ function normalizeOptions(options: GatheringOptions = {}): NormalizedGatheringOp
     throw new RangeError('initialSearchRadius must be <= maxSearchRadius')
   }
   return normalized
+}
+
+
+function safelyNotifyCapability(
+  notify: ((notice: ServerCapabilityUsageNotice) => void) | undefined,
+  notice: ServerCapabilityUsageNotice
+): void {
+  if (!notify) return
+  try {
+    notify(notice)
+  } catch {
+    // Capability telemetry is advisory only and must never stop gameplay.
+  }
 }
 
 function safelyNotify(
