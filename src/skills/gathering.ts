@@ -79,7 +79,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
   readonly name = 'find_resource' as const
   private readonly maxSearchRadius: number
   private readonly maxCandidatesPerSearch: number
-  private readonly resourceProfiles?: ResourceProfileSource
+  private readonly resourceProfiles: ResourceProfileSource | undefined
 
   constructor(
     private readonly resources: ResourceGatheringAdapter,
