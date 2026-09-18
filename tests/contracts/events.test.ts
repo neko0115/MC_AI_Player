@@ -56,6 +56,23 @@ test('runtime event contract distinguishes cancellation from failure', () => {
   })
 })
 
+
+test('server capability telemetry exposes semantic usage without plugin identity', () => {
+  const event = {
+    type: 'server_capability_used',
+    at: 5,
+    capability: 'tree_felling',
+    resource: 'oak_log',
+    maxChain: 4
+  } as const
+
+  assert.deepEqual(RuntimeEventSchema.parse(event), event)
+  assert.equal(RuntimeEventSchema.safeParse({
+    ...event,
+    plugin: 'VeinMiner'
+  }).success, false)
+})
+
 test('safe AI telemetry schemas accept only bounded routing metadata', () => {
   const events = [
     {
