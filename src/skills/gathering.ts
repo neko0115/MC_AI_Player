@@ -190,6 +190,7 @@ const SKIPPABLE_CANDIDATE_NAVIGATION_FAILURES = new Set([
 ])
 const DROP_SEARCH_RADIUS = 4
 const DROP_PICKUP_ATTEMPTS = 3
+const MAX_ACCELERATOR_CHAIN = 256
 
 export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   readonly name = 'gather_resource' as const
@@ -288,13 +289,10 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         this.dependencies.resources,
         profile
       )
-      const remainingBeforeHarvest = targetCount - beforeHarvest
-
       const capabilityStrategy = selectHarvestCapability(
         this.dependencies.capabilities,
         profile,
-        candidate.blockName,
-        remainingBeforeHarvest
+        candidate.blockName
       )
       let harvestOptions = expectedDropOptions(profile, candidate)
       let activeCapabilityStrategy: CapabilityHarvestStrategy | null = null
@@ -351,20 +349,17 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           maxChain: activeCapabilityStrategy.maxChain
         })
 
-        if (inventoryCountForProfile(this.dependencies.resources, profile) < targetCount) {
-          const sweep = await this.collectAcceleratedDrops(
-            candidate,
-            profile,
-            targetCount,
-            activeCapabilityStrategy.maxChain,
-            signal
-          )
-          if (sweep) return sweep
-          if (inventoryCountForProfile(this.dependencies.resources, profile) >= targetCount) {
-            failures = 0
-            lastFailureCode = null
-            continue
-          }
+        const sweep = await this.collectAcceleratedDrops(
+          candidate,
+          profile,
+          activeCapabilityStrategy.maxChain,
+          signal
+        )
+        if (sweep) return sweep
+        if (inventoryCountForProfile(this.dependencies.resources, profile) >= targetCount) {
+          failures = 0
+          lastFailureCode = null
+          continue
         }
       }
 
@@ -445,7 +440,6 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   private async collectAcceleratedDrops(
     candidate: ResourceCandidate,
     profile: ResourceProfile,
-    targetCount: number,
     maxChain: number,
     signal: AbortSignal
   ): Promise<SkillResult | null> {
@@ -454,10 +448,6 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     const attempts = Math.min(Math.max(1, maxChain), 64)
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (signal.aborted) return cancelled(signal)
-      if (inventoryCountForProfile(this.dependencies.resources, profile) >= targetCount) {
-        return null
-      }
-
       const before = inventoryCountForProfile(this.dependencies.resources, profile)
       const cursor = this.dependencies.resources.resourceCollectionCursor?.() ?? null
       const recovery = await this.recoverDroppedResource(
@@ -631,26 +621,23 @@ async function prepareCapabilityHarvest(
 function selectHarvestCapability(
   source: ServerCapabilityStatusSource | undefined,
   profile: ResourceProfile,
-  candidateBlockName: string,
-  remaining: number
+  candidateBlockName: string
 ): CapabilityHarvestStrategy | null {
-  if (!source || remaining < 1) return null
+  if (!source) return null
   if (source.status().state !== 'current') return null
-  if (!profile.capabilityId || !profile.exactOnePerBlock) return null
+  if (!profile.capabilityId || !profile.minimumOnePerBlock) return null
 
   const capability = source.get(profile.capabilityId)
   if (!capability?.available) return null
 
   const maxChain = positiveIntegerConstraint(capability, 'max_chain')
-  // A chain accelerator can mutate several blocks from one vanilla break.
-  // Only activate it when the bridge explicitly guarantees that the chain
-  // cannot cross into a different block type and its advertised hard maximum
-  // fits inside the remaining bounded gather request. Unknown scope or bounds
-  // fail closed to ordinary one-block harvesting.
+  // A chain accelerator may intentionally over-collect because gather quantity
+  // is a minimum fulfillment target. Scope must still be exact and the chain
+  // itself must stay inside a separate hard safety bound.
   if (booleanConstraint(capability, 'same_block_only') !== true) return null
   const exactBlock = exactBlockConstraint(capability)
   if (exactBlock === null || exactBlock !== candidateBlockName) return null
-  if (maxChain === null || maxChain > remaining) return null
+  if (maxChain === null || maxChain > MAX_ACCELERATOR_CHAIN) return null
 
   const trigger = capability.usage.trigger
   if (trigger !== 'break' && trigger !== 'sneak_and_break') return null
