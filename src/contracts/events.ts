@@ -48,6 +48,15 @@ export const PlayerSnapshotSchema = z
   })
   .strict()
 
+export const HostileSnapshotSchema = z
+  .object({
+    entityId: z.number().int().nonnegative(),
+    kind: z.string().trim().min(1).max(128),
+    position: PositionSchema
+  })
+  .strict()
+
+
 export const ItemStackSnapshotSchema = z
   .object({
     name: z.string().trim().min(1).max(128),
@@ -79,6 +88,14 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('position_changed'), at: AtSchema, position: PositionSchema }).strict(),
   z.object({ type: z.literal('player_seen'), at: AtSchema, player: PlayerSnapshotSchema }).strict(),
+  z.object({ type: z.literal('hostile_seen'), at: AtSchema, hostile: HostileSnapshotSchema }).strict(),
+  z
+    .object({
+      type: z.literal('hostile_left'),
+      at: AtSchema,
+      entityId: z.number().int().nonnegative()
+    })
+    .strict(),
   z
     .object({
       type: z.literal('player_left'),
@@ -249,4 +266,5 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
 export type RuntimeEvent = z.infer<typeof RuntimeEventSchema>
 export type Position = z.infer<typeof PositionSchema>
 export type PlayerSnapshot = z.infer<typeof PlayerSnapshotSchema>
+export type HostileSnapshot = z.infer<typeof HostileSnapshotSchema>
 export type ItemStackSnapshot = z.infer<typeof ItemStackSnapshotSchema>
