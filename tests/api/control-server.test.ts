@@ -145,6 +145,34 @@ test('loopback starts without a token and exposes bounded health/status', async 
   }
 })
 
+
+test('status exposes only sanitized capability sync state and semantic ids', async () => {
+  const current = await started({
+    capabilityStatus: {
+      snapshot: () => ({
+        state: 'current',
+        ids: ['vein_mining', 'tree_felling', 'vein_mining']
+      })
+    }
+  })
+  try {
+    const response = await fetch(`${current.address.baseUrl}/v1/status`)
+    assert.equal(response.status, 200)
+    const body = await json(response) as {
+      server_capabilities?: {
+        sync_state?: string
+        ids?: string[]
+      }
+    }
+    assert.deepEqual(body.server_capabilities, {
+      sync_state: 'current',
+      ids: ['tree_felling', 'vein_mining']
+    })
+  } finally {
+    await current.server.close()
+  }
+})
+
 test('non-loopback bind requires a bearer token and rejects invalid authorization', async () => {
   const missing = dependencies({ host: '0.0.0.0' })
   await assert.rejects(() => missing.server.start(), /bearer token/i)
