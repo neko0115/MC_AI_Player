@@ -242,12 +242,16 @@ export class ContextBuilder {
         .filter(capability => capability.available)
         .slice(0, this.options.maxServerCapabilities)
         .map(capability => summarizeServerCapability(capability, this.options)),
-      serverResources: summarizeServerResources(
-        input.serverResources ?? [],
-        input.task?.objective ?? '',
-        input.state.inventory,
-        this.options
-      ),
+      ...(input.serverResources
+        ? {
+            serverResources: summarizeServerResources(
+              input.serverResources,
+              input.task?.objective ?? '',
+              input.state.inventory,
+              this.options
+            )
+          }
+        : {}),
       safetyConstraints: input.safetyConstraints
         .map(value => value.trim())
         .filter(Boolean)
