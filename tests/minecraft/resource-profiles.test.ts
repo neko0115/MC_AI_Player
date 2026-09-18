@@ -51,3 +51,12 @@ test('unknown resources remain exact passthrough profiles without invented capab
   assert.equal(profile.capabilityId, null)
   assert.equal(profile.toolKind, null)
 })
+
+
+test('modded namespaces never inherit vanilla ore capability semantics by suffix', () => {
+  const profile = resolveResourceProfile('examplemod:iron_ore')
+  assert.deepEqual(profile.blockNames, ['examplemod:iron_ore'])
+  assert.deepEqual(profile.collectedItemNames, ['examplemod:iron_ore'])
+  assert.equal(profile.capabilityId, null)
+  assert.equal(profile.toolKind, null)
+})
