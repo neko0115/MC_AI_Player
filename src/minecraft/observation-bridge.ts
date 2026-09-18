@@ -26,6 +26,12 @@ export interface ObservationPlayerView {
   entity?: { position: VecLike } | null | undefined
 }
 
+export interface ObservationHostileView {
+  id: number
+  name: string
+  position: VecLike
+}
+
 export class ObservationBridge {
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -57,6 +63,26 @@ export class ObservationBridge {
         ...(id ? { id } : {}),
         position: position(player.entity.position)
       }
+    }
+  }
+
+  hostileSeen(hostile: ObservationHostileView): RuntimeEvent {
+    return {
+      type: 'hostile_seen',
+      at: this.now(),
+      hostile: {
+        entityId: hostile.id,
+        kind: hostile.name.slice(0, 128),
+        position: position(hostile.position)
+      }
+    }
+  }
+
+  hostileLeft(entityId: number): RuntimeEvent {
+    return {
+      type: 'hostile_left',
+      at: this.now(),
+      entityId
     }
   }
 
