@@ -37,6 +37,12 @@ export interface ResourceSearchRequest {
 
 export interface ResourceHarvestOptions {
   readonly sneak?: boolean
+  readonly expectedItemNames?: readonly string[]
+}
+
+export interface ResourceToolPreparationOptions {
+  readonly toolKind?: 'axe' | 'pickaxe'
+  readonly forbiddenEnchantments?: readonly string[]
 }
 
 export interface ResourceGatheringAdapter {
@@ -49,7 +55,7 @@ export interface ResourceGatheringAdapter {
   prepareResourceTool?(
     target: ResourceCandidate,
     signal: AbortSignal,
-    toolKind?: 'axe' | 'pickaxe'
+    options?: ResourceToolPreparationOptions
   ): Promise<SkillResult>
   harvestResourceBlock(
     target: ResourceCandidate,
