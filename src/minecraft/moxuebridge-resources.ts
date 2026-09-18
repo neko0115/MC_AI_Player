@@ -175,6 +175,8 @@ implements ServerResourceCatalogSource {
       this.descriptors = descriptors.map(cloneDescriptor)
       return true
     } catch {
+      this.profiles = new Map()
+      this.descriptors = []
       return false
     } finally {
       clearTimeout(timer)
