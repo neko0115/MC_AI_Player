@@ -41,6 +41,10 @@ export interface CapabilitySyncStatus {
   readonly lastErrorCode: string | null
 }
 
+export interface ServerCapabilityStatusSource extends ServerCapabilitySource {
+  status(): CapabilitySyncStatus
+}
+
 type FetchLike = (
   input: string | URL,
   init?: RequestInit
@@ -61,7 +65,7 @@ const DEFAULT_REFRESH_INTERVAL_MS = 30_000
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024
 const MAX_TOKEN_LENGTH = 4096
 
-export class MoxueBridgeCapabilities implements ServerCapabilitySource {
+export class MoxueBridgeCapabilities implements ServerCapabilityStatusSource {
   private readonly baseUrl: string
   private readonly bearerToken: string
   private readonly timeoutMs: number
