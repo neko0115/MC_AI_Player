@@ -435,7 +435,16 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
     assert.ok(control)
     assert.deepEqual(control.options.capabilityStatus?.snapshot(), {
       state: 'current',
-      ids: ['vein_mining']
+      ids: ['vein_mining'],
+      details: [{
+        id: 'vein_mining',
+        trigger: 'sneak_and_break',
+        constraints: {
+          max_chain: 100,
+          correct_tool_required: true,
+          must_sneak: true
+        }
+      }]
     })
   } finally {
     current.recorder.releaseFirst()
