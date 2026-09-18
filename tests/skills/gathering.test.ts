@@ -4,7 +4,7 @@ import type { Position } from '../../src/contracts/events.js'
 import type { SkillResult } from '../../src/contracts/skills.js'
 import type {
   ServerCapability,
-  ServerCapabilitySource
+  ServerCapabilityStatusSource
 } from '../../src/minecraft/moxuebridge-capabilities.js'
 import type { WorldStateSnapshot } from '../../src/state/world-state.js'
 import type {
@@ -126,11 +126,19 @@ function worldState(world: FakeGatheringWorld): WorldStateSnapshot {
 }
 
 
-function capabilitySource(capability: ServerCapability): ServerCapabilitySource {
+function capabilitySource(
+  capability: ServerCapability,
+  state: 'current' | 'stale' | 'unavailable' = 'current'
+): ServerCapabilityStatusSource {
   return {
     snapshot: () => [structuredClone(capability)],
     has: id => id === capability.id,
-    get: id => id === capability.id ? structuredClone(capability) : undefined
+    get: id => id === capability.id ? structuredClone(capability) : undefined,
+    status: () => ({
+      state,
+      lastSuccessAt: state === 'unavailable' ? null : 1234,
+      lastErrorCode: state === 'current' ? null : 'request_failed'
+    })
   }
 }
 
@@ -251,6 +259,38 @@ test('gather_resource activates bounded vein mining hints only while max_chain f
   assert.deepEqual(world.harvestOptions, [{ sneak: true }, undefined])
 })
 
+
+
+test('gather_resource never uses stale capability data for multi-block mutation', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+  ])
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource(veinMiningCapability, 'stale'),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'iron_ore',
+    quantity: 2
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.deepEqual(world.toolPreparationAttempts, [])
+  assert.deepEqual(world.harvestOptions, [undefined, undefined])
+})
 
 test('gather_resource refuses chain acceleration when the bridge cannot guarantee same-block scope', async () => {
   const world = new FakeGatheringWorld([
