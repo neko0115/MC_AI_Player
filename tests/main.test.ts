@@ -172,6 +172,14 @@ class FakeServerCapabilities implements ApplicationServerCapabilitiesPort {
   get(id: string) {
     return id === 'vein_mining' ? this.snapshot()[0] : undefined
   }
+
+  status() {
+    return {
+      state: 'current' as const,
+      lastSuccessAt: 1234,
+      lastErrorCode: null
+    }
+  }
 }
 
 class RecordingLogicalExecutor implements LogicalDecisionExecutor {
@@ -422,6 +430,13 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
       JSON.stringify(current.logicalExecutor.requests[0]?.context).includes('VeinMiner'),
       false
     )
+
+    const control = current.control()
+    assert.ok(control)
+    assert.deepEqual(control.options.capabilityStatus?.snapshot(), {
+      state: 'current',
+      ids: ['vein_mining']
+    })
   } finally {
     current.recorder.releaseFirst()
     await current.application.close()
