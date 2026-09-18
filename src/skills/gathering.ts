@@ -560,12 +560,12 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     profile: ResourceProfile,
     origin: Position
   ): Extract<DropRecoveryOutcome, { kind: 'collected_by_player' }> | null {
-    const finder = this.dependencies.resources.findPlayerResourceCollectionAfter
-    if (cursor === null || !finder) return null
+    const resources = this.dependencies.resources
+    if (cursor === null || !resources.findPlayerResourceCollectionAfter) return null
 
     let collection: PlayerResourceCollection | null = null
     for (const itemName of profile.collectedItemNames) {
-      const candidate = finder(
+      const candidate = resources.findPlayerResourceCollectionAfter(
         cursor,
         itemName,
         origin,
