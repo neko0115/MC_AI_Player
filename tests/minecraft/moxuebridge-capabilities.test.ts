@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createServer, type Server } from 'node:http'
+import { createServer, type RequestListener, type Server } from 'node:http'
 import test from 'node:test'
 import { MoxueBridgeCapabilities } from '../../src/minecraft/moxuebridge-capabilities.js'
 
@@ -10,7 +10,7 @@ interface TestServer {
 }
 
 async function createTestServer(
-  handler: Parameters<typeof createServer>[0]
+  handler: RequestListener
 ): Promise<TestServer> {
   const server = createServer(handler)
   await new Promise<void>((resolve, reject) => {
