@@ -418,8 +418,8 @@ test('vein_mining remains discoverable but does not actuate before resource-prof
 
 test('gather_resource never uses stale capability data for multi-block mutation', async () => {
   const world = new FakeGatheringWorld([
-    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
-    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 6, y: 64, z: 0 } }
   ])
   const skill = new GatherResourceSkill({
     resources: world,
@@ -449,15 +449,16 @@ test('gather_resource never uses stale capability data for multi-block mutation'
 
 test('gather_resource refuses chain acceleration when the bridge cannot guarantee same-block scope', async () => {
   const world = new FakeGatheringWorld([
-    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
-    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 6, y: 64, z: 0 } }
   ])
   const unsafeScope = {
-    ...veinMiningCapability,
+    ...treeFellingCapability,
     constraints: {
       max_chain: 2,
       correct_tool_required: true,
-      must_sneak: true
+      must_sneak: true,
+      tool_kind: 'axe'
     }
   }
   const skill = new GatherResourceSkill({
@@ -488,7 +489,7 @@ test('gather_resource refuses chain acceleration when the bridge cannot guarante
 
 test('gather_resource does not activate an accelerator whose advertised chain can exceed the request', async () => {
   const world = new FakeGatheringWorld([
-    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } }
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } }
   ])
   const skill = new GatherResourceSkill({
     resources: world,
@@ -497,9 +498,9 @@ test('gather_resource does not activate an accelerator whose advertised chain ca
     state: () => worldState(world),
     protection: new RegionProtectionPolicy([]),
     capabilities: capabilitySource({
-      ...veinMiningCapability,
+      ...treeFellingCapability,
       constraints: {
-        ...veinMiningCapability.constraints,
+        ...treeFellingCapability.constraints,
         max_chain: 100
       }
     }),
