@@ -9,8 +9,10 @@ import {
 } from '../../src/minecraft/mineflayer-adapter.js'
 
 class FakeInventory extends EventEmitter {
+  itemsList = [{ name: 'oak_log', count: 3, slot: 36 }]
+
   items() {
-    return []
+    return this.itemsList
   }
 }
 
@@ -140,6 +142,43 @@ test('authenticated profile self is excluded from playerJoined and playerUpdated
         id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         position: { x: 2, y: 64, z: 0 }
       }
+    }]
+  )
+})
+
+
+test('spawn publishes the current inventory snapshot before any slot update occurs', async () => {
+  const bot = new IdentityBot()
+  const factory: MineflayerBotFactory = () => bot as unknown as Bot
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'microsoft',
+      logLevel: 'info'
+    },
+    {
+      createBot: factory,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 30
+    }
+  )
+  const seen: RuntimeEvent[] = []
+  adapter.onEvent(event => {
+    seen.push(structuredClone(event))
+  })
+
+  await adapter.connect()
+  bot.emit('login')
+  bot.emit('spawn')
+
+  assert.deepEqual(
+    seen.filter(event => event.type === 'inventory_changed'),
+    [{
+      type: 'inventory_changed',
+      at: 30,
+      items: [{ name: 'oak_log', count: 3, slot: 36 }]
     }]
   )
 })
