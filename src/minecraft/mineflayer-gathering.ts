@@ -12,7 +12,8 @@ import type {
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceHarvestOptions,
-  ResourceSearchRequest
+  ResourceSearchRequest,
+  ResourceToolPreparationOptions
 } from './gathering.js'
 
 export type GatheringBotProvider = () => Bot | null
@@ -255,7 +256,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
   async prepareResourceTool(
     target: ResourceCandidate,
     signal: AbortSignal,
-    toolKind?: 'axe' | 'pickaxe'
+    options: ResourceToolPreparationOptions = {}
   ): Promise<SkillResult> {
     if (signal.aborted) return cancelled(signal)
     if (!isResourceName(target.blockName) || !isFinitePosition(target.position)) {
@@ -282,13 +283,21 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
         .filter(value => Number.isInteger(value) && value >= 0)
     )
 
+    const forbiddenEnchantments = normalizeEnchantments(
+      options.forbiddenEnchantments ?? []
+    )
     const inventory = bot.inventory.items()
-    const tool = acceptedTypes.size > 0
-      ? inventory.find(item => acceptedTypes.has(item.type))
-      : selectSemanticTool(inventory, toolKind)
+      .filter(item => !hasForbiddenEnchantment(item, forbiddenEnchantments))
+
+    const accepted = acceptedTypes.size > 0
+      ? inventory.filter(item => acceptedTypes.has(item.type))
+      : inventory
+
+    const tool = selectSemanticTool(accepted, options.toolKind)
+      ?? (acceptedTypes.size > 0 ? accepted[0] : undefined)
 
     if (!tool) {
-      return toolKind || acceptedTypes.size > 0
+      return options.toolKind || acceptedTypes.size > 0
         ? { status: 'failed', code: 'correct_tool_unavailable' }
         : { status: 'succeeded', code: 'tool_not_required' }
     }
@@ -337,7 +346,13 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       return { status: 'failed', code: 'resource_not_diggable' }
     }
 
-    const before = this.inventoryCount(target.blockName)
+    const expectedItemNames = normalizeExpectedItemNames(
+      options.expectedItemNames ?? [target.blockName]
+    )
+    if (expectedItemNames === null) {
+      return { status: 'failed', code: 'invalid_harvest_options' }
+    }
+    const before = this.inventoryCountMany(expectedItemNames)
     let disconnected = false
     let sneaking = false
     const onAbort = () => {
@@ -365,7 +380,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (disconnected) return { status: 'failed', code: 'disconnected' }
 
       const collected = await this.waitForInventoryIncrease(
-        target.blockName,
+        expectedItemNames,
         before,
         signal,
         () => disconnected
@@ -457,23 +472,60 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     }
   }
 
+  private inventoryCountMany(itemNames: readonly string[]): number {
+    return itemNames.reduce(
+      (sum, itemName) => sum + this.inventoryCount(itemName),
+      0
+    )
+  }
+
   private async waitForInventoryIncrease(
-    itemName: string,
+    itemNames: readonly string[],
     before: number,
     signal: AbortSignal,
     disconnected: () => boolean
   ): Promise<boolean> {
-    if (this.inventoryCount(itemName) > before) return true
+    if (this.inventoryCountMany(itemNames) > before) return true
     const deadline = Date.now() + this.options.collectionTimeoutMs
     while (Date.now() < deadline) {
       if (signal.aborted || disconnected()) return false
       await this.options.sleep(this.options.collectionPollMs)
-      if (this.inventoryCount(itemName) > before) return true
+      if (this.inventoryCountMany(itemNames) > before) return true
     }
-    return this.inventoryCount(itemName) > before
+    return this.inventoryCountMany(itemNames) > before
   }
 }
 
+
+
+function normalizeExpectedItemNames(
+  values: readonly string[]
+): string[] | null {
+  if (values.length < 1 || values.length > 32) return null
+  const normalized = [...new Set(values.map(value => value.trim()))]
+  return normalized.every(isResourceName) ? normalized : null
+}
+
+function normalizeEnchantments(values: readonly string[]): Set<string> {
+  return new Set(
+    values
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean)
+      .map(value => value.includes(':') ? value.slice(value.indexOf(':') + 1) : value)
+  )
+}
+
+function hasForbiddenEnchantment(
+  item: { readonly enchants?: readonly { readonly name?: string }[] },
+  forbidden: ReadonlySet<string>
+): boolean {
+  if (forbidden.size === 0) return false
+  return (item.enchants ?? []).some(enchantment => {
+    const raw = enchantment.name?.trim().toLowerCase() ?? ''
+    const name = raw.includes(':') ? raw.slice(raw.indexOf(':') + 1) : raw
+    return forbidden.has(name)
+  })
+}
 
 function selectSemanticTool<T extends { readonly name: string }>(
   items: readonly T[],
