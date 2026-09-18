@@ -12,6 +12,7 @@ import type { WorldStateSnapshot } from '../../src/state/world-state.js'
 interface FakeItem {
   name: string
   count: number
+  type: number
 }
 
 class FakeBot extends EventEmitter {
@@ -22,6 +23,9 @@ class FakeBot extends EventEmitter {
   blockName = 'oak_log'
   searchPositions = [new Vec3(4, 64, 0)]
   canDig = true
+  harvestTools: Readonly<Record<string, boolean>> | undefined
+  equippedItem: FakeItem | null = null
+  readonly controlStates: Array<{ state: string; enabled: boolean }> = []
 
   inventory = {
     items: () => this.inventoryItems
@@ -42,7 +46,8 @@ class FakeBot extends EventEmitter {
   blockAt(position: Vec3) {
     return {
       name: this.blockName,
-      position: position.clone()
+      position: position.clone(),
+      ...(this.harvestTools ? { harvestTools: this.harvestTools } : {})
     }
   }
 
@@ -54,7 +59,15 @@ class FakeBot extends EventEmitter {
     this.digCount += 1
     const existing = this.inventoryItems.find(item => item.name === this.blockName)
     if (existing) existing.count += 1
-    else this.inventoryItems.push({ name: this.blockName, count: 1 })
+    else this.inventoryItems.push({ name: this.blockName, count: 1, type: 999 })
+  }
+
+  async equip(item: FakeItem) {
+    this.equippedItem = item
+  }
+
+  setControlState(state: string, enabled: boolean) {
+    this.controlStates.push({ state, enabled })
   }
 
   stopDigging() {
@@ -171,6 +184,43 @@ test('issued scoped permit allows one matching resource harvest and confirms col
   assert.deepEqual(result, { status: 'succeeded', code: 'collected' })
   assert.equal(bot.digCount, 1)
   assert.equal(runtime.inventoryCount('oak_log'), 1)
+})
+
+
+test('capability tool preparation equips one tool accepted by the target block', async () => {
+  const bot = new FakeBot()
+  bot.harvestTools = { '257': true }
+  bot.inventoryItems.push(
+    { name: 'stick', count: 2, type: 280 },
+    { name: 'iron_pickaxe', count: 1, type: 257 }
+  )
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const result = await runtime.prepareResourceTool(
+    oak,
+    new AbortController().signal
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'correct_tool_equipped' })
+  assert.equal(bot.equippedItem?.name, 'iron_pickaxe')
+})
+
+test('sneak harvest always releases the sneak control state after digging', async () => {
+  const bot = new FakeBot()
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const result = await runtime.harvestResourceBlock(
+    oak,
+    issuedPermit(),
+    new AbortController().signal,
+    { sneak: true }
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'collected' })
+  assert.deepEqual(bot.controlStates, [
+    { state: 'sneak', enabled: true },
+    { state: 'sneak', enabled: false }
+  ])
 })
 
 test('aborted harvest never digs and an abort during dig invokes stopDigging', async () => {
