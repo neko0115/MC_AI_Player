@@ -146,6 +146,7 @@ test('observation-only adapter emits normalized events and never initiates movem
   assert.deepEqual(seen, [
     'connected',
     'spawned',
+    'inventory_changed',
     'health_changed',
     'inventory_changed',
     'player_chat'
@@ -230,7 +231,12 @@ test('inventory listener waits until spawn when Mineflayer injects inventory lat
   bot.emit('spawn')
   bot.inventory.emit('updateSlot', 9, null, { name: 'oak_log', count: 3, slot: 9 })
 
-  assert.deepEqual(seen, ['connected', 'spawned', 'inventory_changed'])
+  assert.deepEqual(seen, [
+    'connected',
+    'spawned',
+    'inventory_changed',
+    'inventory_changed'
+  ])
 })
 
 test('player info without entity waits for player entitySpawn before emitting player_seen', async () => {
