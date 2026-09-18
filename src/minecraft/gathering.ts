@@ -36,6 +36,12 @@ export interface ResourceSearchRequest {
   readonly visibility?: 'visible' | 'loaded'
 }
 
+export interface ExplorationSearchRequest {
+  readonly origin: Position
+  readonly radius: number
+  readonly limit: number
+}
+
 export interface ResourceHarvestOptions {
   readonly sneak?: boolean
   readonly expectedItemNames?: readonly string[]
@@ -54,6 +60,10 @@ export interface ResourceGatheringAdapter {
     request: ResourceSearchRequest,
     signal: AbortSignal
   ): Promise<readonly ResourceCandidate[]>
+  findExplorationWaypoints?(
+    request: ExplorationSearchRequest,
+    signal: AbortSignal
+  ): Promise<readonly Position[]>
   prepareResourceTool?(
     target: ResourceCandidate,
     signal: AbortSignal,
