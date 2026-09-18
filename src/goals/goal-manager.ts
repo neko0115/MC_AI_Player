@@ -96,9 +96,11 @@ export class GoalManager {
 
     await this.dependencies.skillController.cancelActive(safeReason)
 
+    const suspended = this.activeRecord()
     if (
       this.activeGoalId !== active.goalId ||
-      active.status !== 'suspended'
+      suspended?.goalId !== active.goalId ||
+      suspended.status !== 'suspended'
     ) {
       return false
     }
