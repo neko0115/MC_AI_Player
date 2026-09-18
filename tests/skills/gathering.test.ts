@@ -41,6 +41,7 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
   readonly dropped: DroppedResource[] = []
   chainBreakCount = 1
   collectFirstImmediately = true
+  onHarvest: (() => void) | null = null
   readonly navigationCanDig: boolean[] = []
   readonly inventory = new Map<string, number>()
   readonly blocks = new Map<string, FakeBlock>()
@@ -128,6 +129,7 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
         })
       }
     }
+    this.onHarvest?.()
     return this.collectFirstImmediately
       ? { status: 'succeeded', code: 'collected' }
       : { status: 'failed', code: 'item_not_collected' }
@@ -293,6 +295,72 @@ test('find_resource performs one bounded search and does not mutate blocks', asy
   assert.equal(world.searchRequests[0]?.radius, 12)
   assert.equal(world.searchRequests[0]?.limit, 8)
   assert.deepEqual(world.harvestAttempts, [])
+})
+
+test('gather_resource resumes the original minimum target after threat suspension', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } }
+  ])
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const firstController = new AbortController()
+  world.onHarvest = () => {
+    firstController.abort('threat_suspended')
+  }
+
+  const first = await skill.execute(
+    {
+      signal: firstController.signal,
+      executionId: 'goal-resume-1'
+    },
+    {
+      resource: 'oak_log',
+      quantity: 2
+    }
+  )
+
+  assert.deepEqual(first, {
+    status: 'cancelled',
+    code: 'threat_suspended'
+  })
+  assert.equal(world.inventoryCount('oak_log'), 1)
+
+  world.onHarvest = null
+  world.blocks.set(
+    key({ x: 6, y: 64, z: 0 }),
+    { blockName: 'oak_log', position: { x: 6, y: 64, z: 0 } }
+  )
+
+  const resumed = await skill.execute(
+    {
+      signal: new AbortController().signal,
+      executionId: 'goal-resume-1'
+    },
+    {
+      resource: 'oak_log',
+      quantity: 2
+    }
+  )
+
+  assert.deepEqual(resumed, {
+    status: 'succeeded',
+    code: 'gathered'
+  })
+  assert.equal(world.inventoryCount('oak_log'), 2)
+  assert.equal(world.harvestAttempts.length, 2)
 })
 
 test('gather_resource skips protected candidates and only navigates with canDig=false', async () => {
