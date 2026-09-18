@@ -11,6 +11,7 @@ import type {
   PlayerResourceCollection,
   ResourceCandidate,
   ResourceGatheringAdapter,
+  ResourceHarvestOptions,
   ResourceSearchRequest
 } from './gathering.js'
 
@@ -243,10 +244,60 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     return drop ? { kind: 'present', drop } : { kind: 'gone' }
   }
 
+  async prepareResourceTool(
+    target: ResourceCandidate,
+    signal: AbortSignal
+  ): Promise<SkillResult> {
+    if (signal.aborted) return cancelled(signal)
+    if (!isResourceName(target.blockName) || !isFinitePosition(target.position)) {
+      return { status: 'failed', code: 'invalid_resource_target' }
+    }
+
+    const bot = this.readyBot()
+    if (!bot) return { status: 'failed', code: 'minecraft_not_ready' }
+
+    const point = bot.entity.position.clone()
+    point.set(target.position.x, target.position.y, target.position.z)
+    const block = bot.blockAt(point)
+    if (!block) return { status: 'failed', code: 'resource_missing' }
+    if (block.name !== target.blockName) {
+      return { status: 'failed', code: 'resource_changed' }
+    }
+
+    const harvestTools = (
+      block as unknown as { harvestTools?: Readonly<Record<string, boolean>> }
+    ).harvestTools
+    if (!harvestTools) {
+      return { status: 'succeeded', code: 'tool_not_required' }
+    }
+
+    const acceptedTypes = new Set(
+      Object.keys(harvestTools)
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value >= 0)
+    )
+    if (acceptedTypes.size === 0) {
+      return { status: 'succeeded', code: 'tool_not_required' }
+    }
+
+    const tool = bot.inventory.items().find(item => acceptedTypes.has(item.type))
+    if (!tool) return { status: 'failed', code: 'correct_tool_unavailable' }
+
+    try {
+      await bot.equip(tool, 'hand')
+      if (signal.aborted) return cancelled(signal)
+      return { status: 'succeeded', code: 'correct_tool_equipped' }
+    } catch {
+      if (signal.aborted) return cancelled(signal)
+      return { status: 'failed', code: 'tool_equip_failed' }
+    }
+  }
+
   async harvestResourceBlock(
     target: ResourceCandidate,
     permit: ResourceMutationPermit,
-    signal: AbortSignal
+    signal: AbortSignal,
+    options: ResourceHarvestOptions = {}
   ): Promise<SkillResult> {
     if (signal.aborted) return cancelled(signal)
     if (
@@ -278,6 +329,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
 
     const before = this.inventoryCount(target.blockName)
     let disconnected = false
+    let sneaking = false
     const onAbort = () => {
       try {
         bot.stopDigging()
@@ -294,6 +346,10 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     bot.once('end', onEnd)
 
     try {
+      if (options.sneak === true) {
+        bot.setControlState('sneak', true)
+        sneaking = true
+      }
       await bot.dig(block)
       if (signal.aborted) return cancelled(signal)
       if (disconnected) return { status: 'failed', code: 'disconnected' }
@@ -313,6 +369,11 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (disconnected) return { status: 'failed', code: 'disconnected' }
       return { status: 'failed', code: digFailureCode(error) }
     } finally {
+      if (sneaking) {
+        try {
+          bot.setControlState('sneak', false)
+        } catch {}
+      }
       signal.removeEventListener('abort', onAbort)
       bot.off('end', onEnd)
     }
