@@ -69,8 +69,10 @@ export function createMineflayerRuntimeBundle(
     inventoryCount: item => gatheringRuntime.inventoryCount(item),
     findResourceBlocks: (request, signal) =>
       gatheringRuntime.findResourceBlocks(request, signal),
-    harvestResourceBlock: (target, permit, signal) =>
-      gatheringRuntime.harvestResourceBlock(target, permit, signal),
+    prepareResourceTool: (target, signal) =>
+      gatheringRuntime.prepareResourceTool(target, signal),
+    harvestResourceBlock: (target, permit, signal, options) =>
+      gatheringRuntime.harvestResourceBlock(target, permit, signal, options),
     findDroppedResource: (itemName, origin, radius, signal) =>
       gatheringRuntime.findDroppedResource(itemName, origin, radius, signal),
     droppedResourceStatus: entityId =>
