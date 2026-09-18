@@ -785,7 +785,7 @@ test('gather_resource may over-collect a bounded natural chain and cleans up eve
   assert.deepEqual(world.harvestOptions, [{ sneak: true }])
 })
 
-test('search expansion is bounded and reports resource_not_found instead of scanning forever', async () => {
+test('search expansion is bounded and reports resource_not_visible instead of scanning forever', async () => {
   const world = new FakeGatheringWorld([])
   const skill = new GatherResourceSkill({
     resources: world,
@@ -807,7 +807,7 @@ test('search expansion is bounded and reports resource_not_found instead of scan
     quantity: 1
   })
 
-  assert.deepEqual(result, { status: 'failed', code: 'resource_not_found' })
+  assert.deepEqual(result, { status: 'failed', code: 'resource_not_visible' })
   assert.deepEqual(world.searchRequests.map(request => request.radius), [8, 16, 24])
 })
 
