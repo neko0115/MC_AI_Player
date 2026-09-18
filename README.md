@@ -105,9 +105,9 @@ MC_MOXUEBRIDGE_TIMEOUT_MS=800
 MC_MOXUEBRIDGE_REFRESH_INTERVAL_MS=30000
 ```
 
-MC_AI_Player reads only `GET /api/v1/capabilities` with bearer authentication. Valid available capabilities are cached with bounded schema/response-size checks. A later network failure retains the last-known-good snapshot and marks it `stale`; startup without any successful snapshot reports `unavailable`.
+MC_AI_Player reads only `GET /api/v1/capabilities` with bearer authentication. Valid available capabilities are cached with bounded schema/response-size checks. A later network failure retains the last-known-good snapshot for diagnostics and marks it `stale`; startup without any successful snapshot reports `unavailable`.
 
-Only stable capability semantics are included in AI decision context. Plugin name/version/provenance are intentionally omitted from the model-facing context.
+Only `current` capability snapshots may enter AI decision context or influence deterministic multi-block execution. Stale snapshots remain visible only through sanitized status diagnostics until a fresh Bridge response succeeds again. Only stable capability semantics are included in AI decision context; plugin name/version/provenance are intentionally omitted.
 
 Deterministic gathering may use capability hints such as correct-tool preparation and sneak-while-breaking, but `SafetyPolicy` and scoped `ResourceMutationPermit` remain authoritative. Multi-block acceleration fails closed unless the capability advertises both a finite `max_chain` that fits inside the remaining gather quantity and `same_block_only=true`. This prevents a mixed VeinMiner group from turning a single-resource goal into collateral block destruction.
 
