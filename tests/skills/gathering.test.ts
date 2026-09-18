@@ -2,10 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Position } from '../../src/contracts/events.js'
 import type { SkillResult } from '../../src/contracts/skills.js'
+import type {
+  ServerCapability,
+  ServerCapabilitySource
+} from '../../src/minecraft/moxuebridge-capabilities.js'
 import type { WorldStateSnapshot } from '../../src/state/world-state.js'
 import type {
   ResourceCandidate,
   ResourceGatheringAdapter,
+  ResourceHarvestOptions,
   ResourceNavigationAdapter,
   ResourceSearchRequest
 } from '../../src/minecraft/gathering.js'
@@ -25,6 +30,8 @@ interface FakeBlock extends ResourceCandidate {}
 class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigationAdapter {
   readonly searchRequests: ResourceSearchRequest[] = []
   readonly harvestAttempts: ResourceCandidate[] = []
+  readonly harvestOptions: Array<ResourceHarvestOptions | undefined> = []
+  readonly toolPreparationAttempts: ResourceCandidate[] = []
   readonly navigationAttempts: Position[] = []
   readonly navigationCanDig: boolean[] = []
   readonly inventory = new Map<string, number>()
@@ -57,13 +64,27 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
       .map(block => ({ blockName: block.blockName, position: { ...block.position } }))
   }
 
-  async harvestResourceBlock(
+  async prepareResourceTool(
     target: ResourceCandidate,
-    permit: ResourceMutationPermit,
     signal: AbortSignal
   ): Promise<SkillResult> {
     if (signal.aborted) return { status: 'cancelled', code: 'cancelled' }
+    this.toolPreparationAttempts.push({
+      blockName: target.blockName,
+      position: { ...target.position }
+    })
+    return { status: 'succeeded', code: 'correct_tool_equipped' }
+  }
+
+  async harvestResourceBlock(
+    target: ResourceCandidate,
+    permit: ResourceMutationPermit,
+    signal: AbortSignal,
+    options?: ResourceHarvestOptions
+  ): Promise<SkillResult> {
+    if (signal.aborted) return { status: 'cancelled', code: 'cancelled' }
     this.harvestAttempts.push({ blockName: target.blockName, position: { ...target.position } })
+    this.harvestOptions.push(options ? { ...options } : undefined)
     if (!isResourceMutationPermit(permit) || !permit.allowedBlockNames.includes(target.blockName)) {
       return { status: 'failed', code: 'mutation_not_permitted' }
     }
@@ -101,6 +122,36 @@ function worldState(world: FakeGatheringWorld): WorldStateSnapshot {
     nearbyPlayers: [],
     inventory: [],
     recentEvents: []
+  }
+}
+
+
+function capabilitySource(capability: ServerCapability): ServerCapabilitySource {
+  return {
+    snapshot: () => [structuredClone(capability)],
+    has: id => id === capability.id,
+    get: id => id === capability.id ? structuredClone(capability) : undefined
+  }
+}
+
+const veinMiningCapability: ServerCapability = {
+  id: 'vein_mining',
+  name: '連鎖挖礦',
+  description: '一次挖掘相連的礦物方塊',
+  available: true,
+  source: {
+    plugin: 'VeinMiner',
+    version: '2.11.2',
+    provenance: 'integration'
+  },
+  usage: {
+    trigger: 'sneak_and_break',
+    human: '蹲下並使用正確的十字鎬挖掘相連礦物'
+  },
+  constraints: {
+    max_chain: 2,
+    correct_tool_required: true,
+    must_sneak: true
   }
 }
 
@@ -164,6 +215,75 @@ test('gather_resource skips protected candidates and only navigates with canDig=
   assert.equal(world.harvestAttempts.some(candidate => candidate.position.x === 6), false)
   assert.equal(world.navigationCanDig.every(value => value === false), true)
   assert.equal(world.searchRequests.every(request => request.radius <= 24), true)
+})
+
+
+test('gather_resource activates bounded vein mining hints only while max_chain fits remaining quantity', async () => {
+  const oreBlocks: FakeBlock[] = [
+    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+  ]
+  const world = new FakeGatheringWorld(oreBlocks)
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource(veinMiningCapability),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'iron_ore',
+    quantity: 2
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.equal(world.toolPreparationAttempts.length, 1)
+  assert.deepEqual(world.harvestOptions, [{ sneak: true }, undefined])
+})
+
+test('gather_resource does not activate an accelerator whose advertised chain can exceed the request', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } }
+  ])
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource({
+      ...veinMiningCapability,
+      constraints: {
+        ...veinMiningCapability.constraints,
+        max_chain: 100
+      }
+    }),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'iron_ore',
+    quantity: 1
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.deepEqual(world.toolPreparationAttempts, [])
+  assert.deepEqual(world.harvestOptions, [undefined])
 })
 
 test('search expansion is bounded and reports resource_not_found instead of scanning forever', async () => {
