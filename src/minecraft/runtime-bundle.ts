@@ -69,6 +69,8 @@ export function createMineflayerRuntimeBundle(
     inventoryCount: item => gatheringRuntime.inventoryCount(item),
     findResourceBlocks: (request, signal) =>
       gatheringRuntime.findResourceBlocks(request, signal),
+    findExplorationWaypoints: (request, signal) =>
+      gatheringRuntime.findExplorationWaypoints(request, signal),
     prepareResourceTool: (target, signal, options) =>
       gatheringRuntime.prepareResourceTool(target, signal, options),
     harvestResourceBlock: (target, permit, signal, options) =>
