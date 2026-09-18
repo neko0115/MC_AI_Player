@@ -8,7 +8,11 @@ export interface GoalExecutionManagerPort {
 }
 
 export interface GoalExecutionExecutorPort {
-  execute(name: SkillName, args: unknown): Promise<SkillResult>
+  execute(
+    name: SkillName,
+    args: unknown,
+    executionId?: string
+  ): Promise<SkillResult>
 }
 
 export interface GoalExecutionEventSource {
@@ -32,7 +36,10 @@ export function wireGoalExecution(
   let disposed = false
 
   const unsubscribe = dependencies.events.subscribe(event => {
-    if (disposed || event.type !== 'goal_started') return
+    if (
+      disposed ||
+      (event.type !== 'goal_started' && event.type !== 'goal_resumed')
+    ) return
     if (inFlight.has(event.goalId)) return
 
     inFlight.add(event.goalId)
@@ -53,7 +60,8 @@ export function wireGoalExecution(
       try {
         result = await dependencies.executor.execute(
           record.request.kind,
-          structuredClone(record.request.args)
+          structuredClone(record.request.args),
+          goalId
         )
       } catch {
         result = {
