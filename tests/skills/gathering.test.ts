@@ -150,6 +150,7 @@ const veinMiningCapability: ServerCapability = {
   },
   constraints: {
     max_chain: 2,
+    same_block_only: true,
     correct_tool_required: true,
     must_sneak: true
   }
@@ -248,6 +249,46 @@ test('gather_resource activates bounded vein mining hints only while max_chain f
   assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
   assert.equal(world.toolPreparationAttempts.length, 1)
   assert.deepEqual(world.harvestOptions, [{ sneak: true }, undefined])
+})
+
+
+test('gather_resource refuses chain acceleration when the bridge cannot guarantee same-block scope', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+  ])
+  const unsafeScope = {
+    ...veinMiningCapability,
+    constraints: {
+      max_chain: 2,
+      correct_tool_required: true,
+      must_sneak: true
+    }
+  }
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource(unsafeScope),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'iron_ore',
+    quantity: 2
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.deepEqual(world.toolPreparationAttempts, [])
+  assert.deepEqual(world.harvestOptions, [undefined, undefined])
 })
 
 test('gather_resource does not activate an accelerator whose advertised chain can exceed the request', async () => {
