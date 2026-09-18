@@ -13,7 +13,8 @@ import {
   loadControlApiConfig,
   loadMinecraftConfig,
   loadMinecraftServerIdentityMode,
-  loadMoxueBridgeConfig
+  loadMoxueBridgeConfig,
+  loadTreeLeafCleanupSetting
 } from './config.js'
 import type { RuntimeEvent } from './contracts/events.js'
 import { ContextBuilder, type DecisionContext } from './agent/context-builder.js'
@@ -254,6 +255,7 @@ export function createApplication(
   const adminConfig = loadAdminApiConfig(env)
   const identityMode = loadMinecraftServerIdentityMode(env)
   const moxueBridgeConfig = loadMoxueBridgeConfig(env)
+  const treeLeafCleanupSetting = loadTreeLeafCleanupSetting(env)
 
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: DEFAULT_RECENT_EVENT_LIMIT })
@@ -280,7 +282,8 @@ export function createApplication(
     state,
     events,
     serverCapabilities ?? undefined,
-    resourceProfiles ?? undefined
+    resourceProfiles ?? undefined,
+    treeLeafCleanupSetting
   )
   const executor = new SkillExecutor(registry, { events })
   const goals = new GoalManager({ skillController: executor, events })
@@ -539,7 +542,8 @@ function registerProductionSkills(
   state: WorldStateCache,
   events: RuntimeEventBus,
   serverCapabilities?: ServerCapabilityStatusSource,
-  resourceProfiles?: ResourceProfileSource
+  resourceProfiles?: ResourceProfileSource,
+  treeLeafCleanupSetting: ReturnType<typeof loadTreeLeafCleanupSetting> = 'catalog'
 ): void {
   const navigation = createNavigationSkills(runtime.adapter)
   registry.register(navigation.goTo)
@@ -567,6 +571,13 @@ function registerProductionSkills(
     protection,
     ...(serverCapabilities ? { capabilities: serverCapabilities } : {}),
     ...(resourceProfiles ? { resourceProfiles } : {}),
+    ...(treeLeafCleanupSetting === 'catalog'
+      ? {}
+      : {
+          options: {
+            leafCleanupPolicyOverride: treeLeafCleanupSetting
+          }
+        }),
     onCapabilityUsed: notice => {
       void events.publish({
         type: 'server_capability_used',
