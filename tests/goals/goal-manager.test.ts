@@ -78,6 +78,38 @@ test('a direct player goal preempts an active AI goal with cancellation, not fai
   assert.deepEqual(seenEvents, ['goal_started', 'goal_cancelled', 'goal_started'])
 })
 
+test('threat suspension keeps the same goal active and resumes it without terminal cancellation', async () => {
+  const { manager, controller, seenEvents } = createManager()
+
+  const goal = await manager.submit(gatherGoal, 'ai')
+
+  assert.equal(await manager.suspendActive('threat_suspended'), true)
+  assert.equal(manager.activeGoal()?.goalId, goal.goalId)
+  assert.equal(manager.getGoal(goal.goalId)?.status, 'suspended')
+  assert.deepEqual(controller.cancelReasons, ['threat_suspended'])
+
+  assert.equal(await manager.resumeSuspended(), true)
+  assert.equal(manager.activeGoal()?.goalId, goal.goalId)
+  assert.equal(manager.getGoal(goal.goalId)?.status, 'running')
+  assert.deepEqual(seenEvents, [
+    'goal_started',
+    'goal_suspended',
+    'goal_resumed'
+  ])
+})
+
+test('a suspended AI goal can still be preempted by a direct player goal', async () => {
+  const { manager } = createManager()
+
+  const aiGoal = await manager.submit(gatherGoal, 'ai')
+  await manager.suspendActive('threat_suspended')
+  const playerGoal = await manager.submit(followGoal, 'player')
+
+  assert.equal(manager.getGoal(aiGoal.goalId)?.status, 'cancelled')
+  assert.equal(manager.activeGoal()?.goalId, playerGoal.goalId)
+  assert.equal(manager.getGoal(playerGoal.goalId)?.status, 'running')
+})
+
 test('emergency stop cancels the active goal and active skill without reporting a failure', async () => {
   const { manager, controller, seenEvents } = createManager()
 
