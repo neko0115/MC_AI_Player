@@ -9,7 +9,7 @@ import type {
 } from '../minecraft/gathering.js'
 import type {
   ServerCapability,
-  ServerCapabilitySource
+  ServerCapabilityStatusSource
 } from '../minecraft/moxuebridge-capabilities.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
@@ -143,7 +143,7 @@ interface GatherResourceDependencies {
   readonly safety: SafetyPolicy
   readonly state: () => WorldStateSnapshot
   readonly protection: ResourceProtectionPolicy
-  readonly capabilities?: ServerCapabilitySource
+  readonly capabilities?: ServerCapabilityStatusSource
   readonly options?: GatheringOptions
   readonly onCooperativePickup?: (notice: CooperativePickupNotice) => void
 }
@@ -491,11 +491,12 @@ async function prepareCapabilityHarvest(
 }
 
 function selectHarvestCapability(
-  source: ServerCapabilitySource | undefined,
+  source: ServerCapabilityStatusSource | undefined,
   resource: string,
   remaining: number
 ): CapabilityHarvestStrategy | null {
   if (!source || remaining < 1) return null
+  if (source.status().state !== 'current') return null
 
   const capabilityId = resourceCapabilityId(resource)
   if (!capabilityId) return null
