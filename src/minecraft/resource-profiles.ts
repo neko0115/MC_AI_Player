@@ -89,8 +89,8 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
   if (staticProfile) {
     return {
       requestedResource: normalized,
-      blockNames: namespaceLikeInput(staticProfile.blockNames, normalized),
-      collectedItemNames: namespaceLikeInput(staticProfile.collectedItemNames, normalized),
+      blockNames: [...staticProfile.blockNames],
+      collectedItemNames: [...staticProfile.collectedItemNames],
       capabilityId: staticProfile.capabilityId,
       exactOnePerBlock: staticProfile.exactOnePerBlock,
       forbiddenToolEnchantments: [...(staticProfile.forbiddenToolEnchantments ?? [])]
@@ -98,10 +98,11 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
   }
 
   const capabilityId = fallbackCapabilityId(path)
+  const runtimeName = runtimeResourceName(normalized)
   return {
     requestedResource: normalized,
-    blockNames: [normalized],
-    collectedItemNames: [normalized],
+    blockNames: [runtimeName],
+    collectedItemNames: [runtimeName],
     capabilityId,
     exactOnePerBlock: capabilityId === 'tree_felling',
     forbiddenToolEnchantments: []
@@ -119,12 +120,12 @@ function fallbackCapabilityId(path: string): ResourceCapabilityId | null {
   return null
 }
 
-function namespaceLikeInput(values: readonly string[], input: string): string[] {
-  const separator = input.indexOf(':')
-  if (separator < 0) return [...values]
-  const namespace = input.slice(0, separator)
-  if (namespace !== 'minecraft') return [...values]
-  return values.map(value => `minecraft:${value}`)
+function runtimeResourceName(resource: string): string {
+  const separator = resource.indexOf(':')
+  if (separator < 0) return resource
+  return resource.slice(0, separator) === 'minecraft'
+    ? resource.slice(separator + 1)
+    : resource
 }
 
 function resourcePath(resource: string): string {
