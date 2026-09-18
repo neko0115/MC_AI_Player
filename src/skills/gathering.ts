@@ -2,6 +2,7 @@ import type { GoalRequest } from '../contracts/goals.js'
 import type { Position } from '../contracts/events.js'
 import type { SkillDefinition, SkillResult } from '../contracts/skills.js'
 import type {
+  PlayerResourceCollection,
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceHarvestOptions,
@@ -562,19 +563,21 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     const finder = this.dependencies.resources.findPlayerResourceCollectionAfter
     if (cursor === null || !finder) return null
 
-    const matches = profile.collectedItemNames
-      .map(itemName => finder(
+    let collection: PlayerResourceCollection | null = null
+    for (const itemName of profile.collectedItemNames) {
+      const candidate = finder(
         cursor,
         itemName,
         origin,
         DROP_SEARCH_RADIUS
-      ))
-      .filter((collection): collection is NonNullable<typeof collection> =>
-        collection !== null
       )
-      .sort((left, right) => left.sequence - right.sequence)
-
-    const collection = matches[0]
+      if (
+        candidate &&
+        (collection === null || candidate.sequence < collection.sequence)
+      ) {
+        collection = candidate
+      }
+    }
     if (!collection) return null
     return {
       kind: 'collected_by_player',
