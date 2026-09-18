@@ -289,15 +289,6 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       )
       const remainingBeforeHarvest = targetCount - beforeHarvest
 
-      const profileTool = await prepareResourceProfileTool(
-        this.dependencies.resources,
-        candidate,
-        profile,
-        signal
-      )
-      if (profileTool?.status === 'cancelled') return profileTool
-      if (profileTool && profileTool.status !== 'succeeded') return profileTool
-
       const capabilityStrategy = selectHarvestCapability(
         this.dependencies.capabilities,
         profile,
@@ -305,6 +296,8 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       )
       let harvestOptions = expectedDropOptions(profile, candidate)
       let activeCapabilityStrategy: CapabilityHarvestStrategy | null = null
+      let capabilityPrepared = false
+
       if (capabilityStrategy) {
         const prepared = await prepareCapabilityHarvest(
           this.dependencies.resources,
@@ -314,12 +307,24 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         )
         if (prepared.kind === 'cancelled') return prepared.result
         if (prepared.kind === 'ready') {
+          capabilityPrepared = true
           harvestOptions = mergeHarvestOptions(
             harvestOptions,
             capabilityStrategy.options
           )
           activeCapabilityStrategy = capabilityStrategy
         }
+      }
+
+      if (!capabilityPrepared) {
+        const profileTool = await prepareResourceProfileTool(
+          this.dependencies.resources,
+          candidate,
+          profile,
+          signal
+        )
+        if (profileTool?.status === 'cancelled') return profileTool
+        if (profileTool && profileTool.status !== 'succeeded') return profileTool
       }
 
       const harvested = await this.dependencies.resources.harvestResourceBlock(
