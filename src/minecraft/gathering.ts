@@ -33,6 +33,7 @@ export interface ResourceSearchRequest {
   readonly origin: Position
   readonly radius: number
   readonly limit: number
+  readonly visibility?: 'visible' | 'loaded'
 }
 
 export interface ResourceHarvestOptions {
