@@ -504,8 +504,11 @@ function selectHarvestCapability(
 
   const maxChain = positiveIntegerConstraint(capability, 'max_chain')
   // A chain accelerator can mutate several blocks from one vanilla break.
-  // Only activate it when its advertised hard maximum fits inside the
-  // remaining bounded gather request. Unknown/unbounded chains fail closed.
+  // Only activate it when the bridge explicitly guarantees that the chain
+  // cannot cross into a different block type and its advertised hard maximum
+  // fits inside the remaining bounded gather request. Unknown scope or bounds
+  // fail closed to ordinary one-block harvesting.
+  if (booleanConstraint(capability, 'same_block_only') !== true) return null
   if (maxChain === null || maxChain > remaining) return null
 
   const trigger = capability.usage.trigger
