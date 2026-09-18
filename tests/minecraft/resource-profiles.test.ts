@@ -33,15 +33,15 @@ test('variable-drop ores remain chain-safe under minimum fulfillment semantics',
   const copper = resolveResourceProfile('copper_ore')
   assert.deepEqual(copper.collectedItemNames, ['raw_copper'])
   assert.equal(copper.capabilityId, 'vein_mining')
-  assert.equal(copper.exactOnePerBlock, false)
+  assert.equal(copper.minimumOnePerBlock, true)
 
   const redstone = resolveResourceProfile('redstone_ore')
   assert.deepEqual(redstone.collectedItemNames, ['redstone'])
-  assert.equal(redstone.exactOnePerBlock, false)
+  assert.equal(redstone.minimumOnePerBlock, true)
 
   const lapis = resolveResourceProfile('lapis_ore')
   assert.deepEqual(lapis.collectedItemNames, ['lapis_lazuli'])
-  assert.equal(lapis.exactOnePerBlock, false)
+  assert.equal(lapis.minimumOnePerBlock, true)
 })
 
 test('unknown resources remain exact passthrough profiles without invented capabilities', () => {
