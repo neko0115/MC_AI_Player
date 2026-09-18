@@ -161,6 +161,7 @@ test('status exposes only sanitized capability sync state and semantic details',
               correct_tool_required: true,
               must_sneak: true,
               same_block_only: false,
+              exact_block: 'minecraft:iron_ore',
               internal_plugin_path: '/secret/path',
               nested: { should_not_leak: true }
             }
@@ -206,7 +207,8 @@ test('status exposes only sanitized capability sync state and semantic details',
             correct_tool_required: true,
             max_chain: 100,
             must_sneak: true,
-            same_block_only: false
+            same_block_only: false,
+            exact_block: 'minecraft:iron_ore'
           }
         }
       ]
