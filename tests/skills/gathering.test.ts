@@ -103,10 +103,14 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
     if (!stored || stored.blockName !== target.blockName) {
       return { status: 'failed', code: 'resource_changed' }
     }
+    if (options?.requireCollection === false) {
+      this.blocks.delete(key(target.position))
+      return { status: 'succeeded', code: 'removed' }
+    }
     const matching = [...this.blocks.values()]
       .filter(block => block.blockName === target.blockName)
       .sort((a, b) => distance(a.position, target.position) - distance(b.position, target.position))
-      .slice(0, options ? this.chainBreakCount : 1)
+      .slice(0, options?.sneak ? this.chainBreakCount : 1)
 
     const collectedItem =
       options?.expectedItemNames?.[0] ?? target.blockName
@@ -129,6 +133,24 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
       : { status: 'failed', code: 'item_not_collected' }
   }
 
+
+  async findDecayingLeafBlocks(
+    leafNames: readonly string[],
+    origin: Position,
+    radius: number,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<readonly ResourceCandidate[]> {
+    if (signal.aborted) return []
+    return [...this.blocks.values()]
+      .filter(block => leafNames.includes(block.blockName))
+      .filter(block => distance(block.position, origin) <= radius)
+      .slice(0, limit)
+      .map(block => ({
+        blockName: block.blockName,
+        position: { ...block.position }
+      }))
+  }
 
   async findDroppedResource(
     itemName: string,
@@ -446,6 +468,65 @@ test('gather_resource recovers every chained drop when the first pickup is delay
     resource: 'oak_log',
     maxChain: 4
   }])
+})
+
+test('remove_after_felling cleans bounded decaying leaves without requiring leaf drops', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 4, y: 65, z: 0 } },
+    { blockName: 'oak_log', position: { x: 4, y: 66, z: 0 } },
+    { blockName: 'oak_log', position: { x: 4, y: 67, z: 0 } },
+    { blockName: 'oak_leaves', position: { x: 3, y: 67, z: 0 } },
+    { blockName: 'oak_leaves', position: { x: 5, y: 67, z: 0 } }
+  ])
+  world.chainBreakCount = 4
+
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource({
+      ...treeFellingCapability,
+      constraints: {
+        ...treeFellingCapability.constraints,
+        max_chain: 4
+      }
+    }),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8,
+      leafCleanupPolicyOverride: 'remove_after_felling'
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'oak_log',
+    quantity: 1
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.equal(world.inventoryCount('oak_log'), 4)
+  assert.equal(world.inventoryCount('oak_leaves'), 0)
+  assert.equal(
+    [...world.blocks.values()].some(block => block.blockName === 'oak_leaves'),
+    false
+  )
+  assert.deepEqual(
+    world.harvestAttempts.map(attempt => attempt.blockName),
+    ['oak_log', 'oak_leaves', 'oak_leaves']
+  )
+  assert.deepEqual(
+    world.harvestOptions.slice(-2),
+    [
+      { requireCollection: false },
+      { requireCollection: false }
+    ]
+  )
 })
 
 test('vein_mining counts raw iron while allowing Fortune under minimum fulfillment', async () => {
