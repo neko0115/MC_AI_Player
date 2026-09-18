@@ -53,6 +53,14 @@ const HARVEST_HORIZONTAL_OFFSETS = [
   [1, 1]
 ] as const
 const UNSAFE_PASSABLE_BLOCKS = new Set(['water', 'lava', 'powder_snow'])
+const TOOL_MATERIAL_PREFERENCE = [
+  'netherite',
+  'diamond',
+  'iron',
+  'stone',
+  'golden',
+  'wooden'
+] as const
 
 export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
   private readonly options: NormalizedOptions
@@ -246,7 +254,8 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
 
   async prepareResourceTool(
     target: ResourceCandidate,
-    signal: AbortSignal
+    signal: AbortSignal,
+    toolKind?: 'axe' | 'pickaxe'
   ): Promise<SkillResult> {
     if (signal.aborted) return cancelled(signal)
     if (!isResourceName(target.blockName) || !isFinitePosition(target.position)) {
@@ -267,21 +276,22 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     const harvestTools = (
       block as unknown as { harvestTools?: Readonly<Record<string, boolean>> }
     ).harvestTools
-    if (!harvestTools) {
-      return { status: 'succeeded', code: 'tool_not_required' }
-    }
-
     const acceptedTypes = new Set(
-      Object.keys(harvestTools)
+      Object.keys(harvestTools ?? {})
         .map(value => Number(value))
         .filter(value => Number.isInteger(value) && value >= 0)
     )
-    if (acceptedTypes.size === 0) {
-      return { status: 'succeeded', code: 'tool_not_required' }
-    }
 
-    const tool = bot.inventory.items().find(item => acceptedTypes.has(item.type))
-    if (!tool) return { status: 'failed', code: 'correct_tool_unavailable' }
+    const inventory = bot.inventory.items()
+    const tool = acceptedTypes.size > 0
+      ? inventory.find(item => acceptedTypes.has(item.type))
+      : selectSemanticTool(inventory, toolKind)
+
+    if (!tool) {
+      return toolKind || acceptedTypes.size > 0
+        ? { status: 'failed', code: 'correct_tool_unavailable' }
+        : { status: 'succeeded', code: 'tool_not_required' }
+    }
 
     try {
       await bot.equip(tool, 'hand')
@@ -462,6 +472,20 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     }
     return this.inventoryCount(itemName) > before
   }
+}
+
+
+function selectSemanticTool(
+  items: ReadonlyArray<{ readonly name: string }>,
+  toolKind: 'axe' | 'pickaxe' | undefined
+): { readonly name: string } | undefined {
+  if (!toolKind) return undefined
+  for (const material of TOOL_MATERIAL_PREFERENCE) {
+    const exactName = `${material}_${toolKind}`
+    const match = items.find(item => item.name === exactName)
+    if (match) return match
+  }
+  return items.find(item => item.name.endsWith(`_${toolKind}`))
 }
 
 function droppedResourceFromEntity(entity: any): DroppedResource | null {
