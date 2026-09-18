@@ -526,6 +526,10 @@ export class MineflayerAdapter implements MinecraftAdapter {
   }
 
   private emitPlayerIfPositioned(player: Parameters<ObservationBridge['playerSeen']>[0]): void {
+    const bot = this.bot
+    if (bot && player.username === bot.username) {
+      return
+    }
     const event = this.bridge.playerSeen(player)
     if (event !== null) {
       this.emit(event)
