@@ -1,6 +1,10 @@
 import type { GoalRequest } from '../contracts/goals.js'
 import type { Position } from '../contracts/events.js'
-import type { SkillDefinition, SkillResult } from '../contracts/skills.js'
+import type {
+  SkillContext,
+  SkillDefinition,
+  SkillResult
+} from '../contracts/skills.js'
 import type {
   PlayerResourceCollection,
   ResourceCandidate,
@@ -209,13 +213,17 @@ const MAX_LEAF_CLEANUP_BLOCKS = 128
 export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   readonly name = 'gather_resource' as const
   private readonly options: NormalizedGatheringOptions
+  private readonly suspendedTargets = new Map<
+    string,
+    { resource: string; targetCount: number }
+  >()
 
   constructor(private readonly dependencies: GatherResourceDependencies) {
     this.options = normalizeOptions(dependencies.options)
   }
 
   async execute(
-    { signal }: { signal: AbortSignal },
+    { signal, executionId }: SkillContext,
     args: GatherArgs
   ): Promise<SkillResult> {
     if (signal.aborted) return cancelled(signal)
@@ -233,7 +241,24 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       this.dependencies.resources,
       profile
     )
-    const targetCount = startingCount + args.quantity
+    const executionKey = executionId?.trim() || null
+    const suspendedTarget = executionKey
+      ? this.suspendedTargets.get(executionKey)
+      : undefined
+    const targetCount =
+      suspendedTarget?.resource === resource
+        ? suspendedTarget.targetCount
+        : startingCount + args.quantity
+
+    if (executionKey && suspendedTarget?.resource !== resource) {
+      this.rememberSuspendedTarget(
+        executionKey,
+        resource,
+        targetCount
+      )
+    }
+
+    try {
     const attempted = new Set<string>()
     let radius = this.options.initialSearchRadius
     let failures = 0
@@ -463,6 +488,27 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     }
 
     return { status: 'succeeded', code: 'gathered' }
+    } finally {
+      if (executionKey && !preserveTargetAfterCancellation(signal)) {
+        this.suspendedTargets.delete(executionKey)
+      }
+    }
+  }
+
+  private rememberSuspendedTarget(
+    executionId: string,
+    resource: string,
+    targetCount: number
+  ): void {
+    while (this.suspendedTargets.size >= 128) {
+      const oldest = this.suspendedTargets.keys().next().value
+      if (oldest === undefined) break
+      this.suspendedTargets.delete(oldest)
+    }
+    this.suspendedTargets.set(executionId, {
+      resource,
+      targetCount
+    })
   }
 
 
@@ -981,6 +1027,14 @@ function validatePositiveInteger(value: number, name: string): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(`${name} must be a positive integer`)
   }
+}
+
+function preserveTargetAfterCancellation(
+  signal: AbortSignal
+): boolean {
+  return signal.aborted &&
+    typeof signal.reason === 'string' &&
+    signal.reason.trim() === 'threat_suspended'
 }
 
 function cancelled(signal: AbortSignal): SkillResult {
