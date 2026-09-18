@@ -197,6 +197,8 @@ const SKIPPABLE_CANDIDATE_NAVIGATION_FAILURES = new Set([
 const DROP_SEARCH_RADIUS = 4
 const DROP_PICKUP_ATTEMPTS = 3
 const MAX_ACCELERATOR_CHAIN = 256
+const LEAF_CLEANUP_RADIUS = 8
+const MAX_LEAF_CLEANUP_BLOCKS = 128
 
 export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   readonly name = 'gather_resource' as const
@@ -365,6 +367,16 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           signal
         )
         if (sweep) return sweep
+
+        if (activeCapabilityStrategy.capability.id === 'tree_felling') {
+          const cleanup = await this.cleanupDecayingLeaves(
+            candidate,
+            profile,
+            signal
+          )
+          if (cleanup?.status === 'cancelled') return cleanup
+        }
+
         if (inventoryCountForProfile(this.dependencies.resources, profile) >= targetCount) {
           failures = 0
           lastFailureCode = null
@@ -445,6 +457,61 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     return { status: 'succeeded', code: 'gathered' }
   }
 
+
+  private async cleanupDecayingLeaves(
+    origin: ResourceCandidate,
+    profile: ResourceProfile,
+    signal: AbortSignal
+  ): Promise<SkillResult | null> {
+    if (
+      profile.leafCleanupPolicy !== 'remove_after_felling' ||
+      profile.relatedLeafNames.length === 0 ||
+      !this.dependencies.resources.findDecayingLeafBlocks
+    ) {
+      return null
+    }
+
+    const leaves = await this.dependencies.resources.findDecayingLeafBlocks(
+      profile.relatedLeafNames,
+      origin.position,
+      LEAF_CLEANUP_RADIUS,
+      MAX_LEAF_CLEANUP_BLOCKS,
+      signal
+    )
+    if (signal.aborted) return cancelled(signal)
+    if (leaves.length === 0) return null
+
+    const permitDecision = this.dependencies.safety.issueResourceMutationPermit(
+      'gather_resource',
+      profile.relatedLeafNames,
+      { capabilities: ['break_blocks'] },
+      this.dependencies.state()
+    )
+    if (permitDecision.kind !== 'allow') return null
+
+    for (const leaf of leaves) {
+      if (signal.aborted) return cancelled(signal)
+      if (this.dependencies.protection.isProtected(leaf.position)) continue
+
+      const navigation = await this.dependencies.navigation.goTo(
+        leaf.approachPosition ?? leaf.position,
+        { range: 1, canDig: false },
+        signal
+      )
+      if (navigation.status === 'cancelled') return navigation
+      if (navigation.status !== 'succeeded') continue
+
+      const removed = await this.dependencies.resources.harvestResourceBlock(
+        leaf,
+        permitDecision.permit,
+        signal,
+        { requireCollection: false }
+      )
+      if (removed.status === 'cancelled') return removed
+    }
+
+    return null
+  }
 
   private async collectAcceleratedDrops(
     candidate: ResourceCandidate,
