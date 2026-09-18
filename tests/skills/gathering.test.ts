@@ -38,6 +38,7 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
   readonly navigationAttempts: Position[] = []
   readonly dropped: DroppedResource[] = []
   chainBreakCount = 1
+  collectFirstImmediately = true
   readonly navigationCanDig: boolean[] = []
   readonly inventory = new Map<string, number>()
   readonly blocks = new Map<string, FakeBlock>()
@@ -106,7 +107,7 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
 
     for (const [index, block] of matching.entries()) {
       this.blocks.delete(key(block.position))
-      if (index === 0) {
+      if (index === 0 && this.collectFirstImmediately) {
         this.inventory.set(target.blockName, this.inventoryCount(target.blockName) + 1)
       } else {
         this.dropped.push({
@@ -117,7 +118,9 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
         })
       }
     }
-    return { status: 'succeeded', code: 'collected' }
+    return this.collectFirstImmediately
+      ? { status: 'succeeded', code: 'collected' }
+      : { status: 'failed', code: 'item_not_collected' }
   }
 
 
@@ -378,6 +381,57 @@ test('gather_resource collects bounded extra drops after one chained tree harves
   assert.equal(world.dropped.length, 0)
   assert.deepEqual(world.toolPreparationKinds, ['axe'])
   assert.deepEqual(world.harvestOptions, [{ sneak: true }])
+  assert.deepEqual(capabilityNotices, [{
+    capability: 'tree_felling',
+    resource: 'oak_log',
+    maxChain: 4
+  }])
+})
+
+
+test('gather_resource recovers every chained drop when the first pickup is delayed', async () => {
+  const capabilityNotices: Array<{ capability: string; resource: string; maxChain: number }> = []
+  const world = new FakeGatheringWorld([
+    { blockName: 'oak_log', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 5, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 6, y: 64, z: 0 } },
+    { blockName: 'oak_log', position: { x: 7, y: 64, z: 0 } }
+  ])
+  world.chainBreakCount = 4
+  world.collectFirstImmediately = false
+
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource({
+      ...treeFellingCapability,
+      constraints: {
+        ...treeFellingCapability.constraints,
+        max_chain: 4
+      }
+    }),
+    onCapabilityUsed: notice => capabilityNotices.push({ ...notice }),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'oak_log',
+    quantity: 4
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.equal(world.harvestAttempts.length, 1)
+  assert.equal(world.inventoryCount('oak_log'), 4)
+  assert.equal(world.dropped.length, 0)
   assert.deepEqual(capabilityNotices, [{
     capability: 'tree_felling',
     resource: 'oak_log',
