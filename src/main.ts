@@ -48,7 +48,10 @@ import {
   MoxueBridgeCapabilities,
   type ServerCapabilityStatusSource
 } from './minecraft/moxuebridge-capabilities.js'
-import { MoxueBridgeResourceCatalog } from './minecraft/moxuebridge-resources.js'
+import {
+  MoxueBridgeResourceCatalog,
+  type ServerResourceCatalogSource
+} from './minecraft/moxuebridge-resources.js'
 import type { ResourceProfileSource } from './minecraft/resource-profiles.js'
 import {
   createMineflayerRuntimeBundle,
@@ -207,7 +210,7 @@ export interface ApplicationServerCapabilitiesPort extends ServerCapabilityStatu
   stop(): void
 }
 
-export interface ApplicationResourceProfilesPort extends ResourceProfileSource {
+export interface ApplicationResourceProfilesPort extends ServerResourceCatalogSource {
   start(): Promise<void>
   stop(): void
 }
@@ -332,6 +335,7 @@ export function createApplication(
     memory,
     registry,
     ...(serverCapabilities ? { serverCapabilities } : {}),
+    ...(resourceProfiles ? { serverResources: resourceProfiles } : {}),
     identity,
     identityMode,
     manualAccess,
