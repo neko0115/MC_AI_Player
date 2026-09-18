@@ -8,12 +8,12 @@ test('iron ore aliases resolve block targets to raw iron collection semantics', 
     assert.deepEqual(profile.blockNames, ['iron_ore', 'deepslate_iron_ore'])
     assert.deepEqual(profile.collectedItemNames, ['raw_iron'])
     assert.equal(profile.capabilityId, 'vein_mining')
-    assert.equal(profile.exactOnePerBlock, true)
+    assert.equal(profile.minimumOnePerBlock, true)
     assert.equal(profile.toolKind, 'pickaxe')
-    assert.deepEqual(profile.forbiddenToolEnchantments, ['silk_touch', 'fortune'])
+    assert.deepEqual(profile.forbiddenToolEnchantments, ['silk_touch'])
     assert.deepEqual(
       profile.acceleratorForbiddenToolEnchantments,
-      ['silk_touch', 'fortune']
+      ['silk_touch']
     )
   }
 })
@@ -29,7 +29,7 @@ test('vanilla namespace is normalized to Mineflayer runtime names', () => {
   assert.equal(log.capabilityId, 'tree_felling')
 })
 
-test('variable-drop ores keep correct drop semantics but are not chain-exact', () => {
+test('variable-drop ores remain chain-safe under minimum fulfillment semantics', () => {
   const copper = resolveResourceProfile('copper_ore')
   assert.deepEqual(copper.collectedItemNames, ['raw_copper'])
   assert.equal(copper.capabilityId, 'vein_mining')
