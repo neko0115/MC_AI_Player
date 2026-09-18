@@ -47,6 +47,8 @@ import {
   MoxueBridgeCapabilities,
   type ServerCapabilityStatusSource
 } from './minecraft/moxuebridge-capabilities.js'
+import { MoxueBridgeResourceCatalog } from './minecraft/moxuebridge-resources.js'
+import type { ResourceProfileSource } from './minecraft/resource-profiles.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
@@ -204,6 +206,11 @@ export interface ApplicationServerCapabilitiesPort extends ServerCapabilityStatu
   stop(): void
 }
 
+export interface ApplicationResourceProfilesPort extends ResourceProfileSource {
+  start(): Promise<void>
+  stop(): void
+}
+
 export interface ApplicationGeminiDecisionStackPort {
   readonly executor: LogicalDecisionExecutor
   readonly configManager: Pick<RoutingConfigManager, 'snapshot' | 'reload'>
@@ -216,6 +223,9 @@ export interface ApplicationDependencies {
   readonly createServerCapabilities?: (
     config: Extract<MoxueBridgeConfig, { enabled: true }>
   ) => ApplicationServerCapabilitiesPort
+  readonly createResourceProfiles?: (
+    config: Extract<MoxueBridgeConfig, { enabled: true }>
+  ) => ApplicationResourceProfilesPort
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
   readonly createLogicalDecisionExecutor?: (
@@ -256,6 +266,11 @@ export function createApplication(
   const serverCapabilities = moxueBridgeConfig.enabled
     ? createServerCapabilities(moxueBridgeConfig)
     : null
+  const createResourceProfiles =
+    dependencies.createResourceProfiles ?? createDefaultResourceProfiles
+  const resourceProfiles = moxueBridgeConfig.enabled
+    ? createResourceProfiles(moxueBridgeConfig)
+    : null
 
   const registry = new SkillRegistry()
   registerProductionSkills(
@@ -264,7 +279,8 @@ export function createApplication(
     safety,
     state,
     events,
-    serverCapabilities ?? undefined
+    serverCapabilities ?? undefined,
+    resourceProfiles ?? undefined
   )
   const executor = new SkillExecutor(registry, { events })
   const goals = new GoalManager({ skillController: executor, events })
@@ -393,6 +409,7 @@ export function createApplication(
       if (started) throw new Error('application is already started')
 
       await serverCapabilities?.start()
+      await resourceProfiles?.start()
       try {
         await runtime.adapter.connect()
         const address = await controlServer.start()
@@ -407,6 +424,7 @@ export function createApplication(
       } catch (error) {
         await safeDisconnect(runtime)
         await adapterEventTail
+        resourceProfiles?.stop()
         serverCapabilities?.stop()
         throw error
       }
@@ -416,6 +434,7 @@ export function createApplication(
       if (closed) return
       closed = true
 
+      resourceProfiles?.stop()
       serverCapabilities?.stop()
       if (adminServer) await contain(() => adminServer.close())
       await contain(() => controlServer.close())
@@ -519,7 +538,8 @@ function registerProductionSkills(
   safety: SafetyPolicy,
   state: WorldStateCache,
   events: RuntimeEventBus,
-  serverCapabilities?: ServerCapabilityStatusSource
+  serverCapabilities?: ServerCapabilityStatusSource,
+  resourceProfiles?: ResourceProfileSource
 ): void {
   const navigation = createNavigationSkills(runtime.adapter)
   registry.register(navigation.goTo)
@@ -534,7 +554,11 @@ function registerProductionSkills(
   registry.register(new EquipSkill(runtime.inventory))
 
   const protection = new RegionProtectionPolicy([])
-  registry.register(new FindResourceSkill(runtime.gathering, protection))
+  registry.register(new FindResourceSkill(
+    runtime.gathering,
+    protection,
+    resourceProfiles ? { resourceProfiles } : {}
+  ))
   registry.register(new GatherResourceSkill({
     resources: runtime.gathering,
     navigation: runtime.adapter,
@@ -542,6 +566,7 @@ function registerProductionSkills(
     state: () => state.snapshot(),
     protection,
     ...(serverCapabilities ? { capabilities: serverCapabilities } : {}),
+    ...(resourceProfiles ? { resourceProfiles } : {}),
     onCapabilityUsed: notice => {
       void events.publish({
         type: 'server_capability_used',
@@ -573,6 +598,17 @@ function createDefaultServerCapabilities(
   config: Extract<MoxueBridgeConfig, { enabled: true }>
 ): ApplicationServerCapabilitiesPort {
   return new MoxueBridgeCapabilities({
+    baseUrl: config.baseUrl,
+    bearerToken: config.bearerToken,
+    timeoutMs: config.timeoutMs,
+    refreshIntervalMs: config.refreshIntervalMs
+  })
+}
+
+function createDefaultResourceProfiles(
+  config: Extract<MoxueBridgeConfig, { enabled: true }>
+): ApplicationResourceProfilesPort {
+  return new MoxueBridgeResourceCatalog({
     baseUrl: config.baseUrl,
     bearerToken: config.bearerToken,
     timeoutMs: config.timeoutMs,
