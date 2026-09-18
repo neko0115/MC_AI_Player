@@ -7,11 +7,23 @@ import type {
 } from '../contracts/events.js'
 import type { SkillName } from '../contracts/skills.js'
 import type { MinecraftMemory, MinecraftMemoryType } from '../memory/repository.js'
+import type { ServerCapability } from '../minecraft/moxuebridge-capabilities.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
 export interface DecisionSkillDescription {
   readonly name: SkillName
   readonly description: string
+}
+
+export type DecisionCapabilityConstraint = string | number | boolean | null
+
+export interface DecisionServerCapability {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly trigger: string
+  readonly usage: string
+  readonly constraints: Readonly<Record<string, DecisionCapabilityConstraint>>
 }
 
 export interface DecisionTaskContext {
@@ -62,6 +74,7 @@ export interface DecisionContext {
   readonly recentEvents: readonly RuntimeEvent[]
   readonly memories: readonly DecisionMemorySummary[]
   readonly skills: readonly DecisionSkillDescription[]
+  readonly serverCapabilities: readonly DecisionServerCapability[]
   readonly safetyConstraints: readonly string[]
 }
 
@@ -72,6 +85,7 @@ export interface ContextBuilderInput {
   readonly currentGoal: GoalRecord | null
   readonly memories: readonly MinecraftMemory[]
   readonly skills: readonly DecisionSkillDescription[]
+  readonly serverCapabilities?: readonly ServerCapability[]
   readonly safetyConstraints: readonly string[]
 }
 
@@ -84,6 +98,10 @@ export interface ContextBuilderOptions {
   readonly maxMemoryTags?: number
   readonly maxSkills?: number
   readonly maxSkillDescriptionChars?: number
+  readonly maxServerCapabilities?: number
+  readonly maxServerCapabilityDescriptionChars?: number
+  readonly maxServerCapabilityUsageChars?: number
+  readonly maxServerCapabilityConstraints?: number
   readonly maxSafetyConstraints?: number
   readonly maxSafetyConstraintChars?: number
   readonly maxTaskObjectiveChars?: number
@@ -99,6 +117,10 @@ interface NormalizedOptions {
   maxMemoryTags: number
   maxSkills: number
   maxSkillDescriptionChars: number
+  maxServerCapabilities: number
+  maxServerCapabilityDescriptionChars: number
+  maxServerCapabilityUsageChars: number
+  maxServerCapabilityConstraints: number
   maxSafetyConstraints: number
   maxSafetyConstraintChars: number
   maxTaskObjectiveChars: number
@@ -135,6 +157,10 @@ export class ContextBuilder {
       maxMemoryTags: options.maxMemoryTags ?? 8,
       maxSkills: options.maxSkills ?? 32,
       maxSkillDescriptionChars: options.maxSkillDescriptionChars ?? 300,
+      maxServerCapabilities: options.maxServerCapabilities ?? 16,
+      maxServerCapabilityDescriptionChars: options.maxServerCapabilityDescriptionChars ?? 300,
+      maxServerCapabilityUsageChars: options.maxServerCapabilityUsageChars ?? 500,
+      maxServerCapabilityConstraints: options.maxServerCapabilityConstraints ?? 16,
       maxSafetyConstraints: options.maxSafetyConstraints ?? 16,
       maxSafetyConstraintChars: options.maxSafetyConstraintChars ?? 300,
       maxTaskObjectiveChars: options.maxTaskObjectiveChars ?? 1000,
@@ -185,12 +211,50 @@ export class ContextBuilder {
           name: skill.name,
           description: truncate(skill.description.trim(), this.options.maxSkillDescriptionChars)
         })),
+      serverCapabilities: (input.serverCapabilities ?? [])
+        .filter(capability => capability.available)
+        .slice(0, this.options.maxServerCapabilities)
+        .map(capability => summarizeServerCapability(capability, this.options)),
       safetyConstraints: input.safetyConstraints
         .map(value => value.trim())
         .filter(Boolean)
         .slice(0, this.options.maxSafetyConstraints)
         .map(value => truncate(value, this.options.maxSafetyConstraintChars))
     }
+  }
+}
+
+
+function summarizeServerCapability(
+  capability: ServerCapability,
+  options: NormalizedOptions
+): DecisionServerCapability {
+  const constraints: Record<string, DecisionCapabilityConstraint> = {}
+  for (const [key, value] of Object.entries(capability.constraints)
+    .slice(0, options.maxServerCapabilityConstraints)) {
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      constraints[key] = value
+    }
+  }
+
+  return {
+    id: capability.id,
+    name: capability.name,
+    description: truncate(
+      capability.description.trim(),
+      options.maxServerCapabilityDescriptionChars
+    ),
+    trigger: capability.usage.trigger,
+    usage: truncate(
+      capability.usage.human.trim(),
+      options.maxServerCapabilityUsageChars
+    ),
+    constraints
   }
 }
 
