@@ -71,7 +71,13 @@ export const GoalRequestSchema = z.discriminatedUnion('kind', [
 export type GoalRequest = z.infer<typeof GoalRequestSchema>
 export type GoalKind = GoalRequest['kind']
 
-export type GoalStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type GoalStatus =
+  | 'queued'
+  | 'running'
+  | 'suspended'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
 export type GoalSource = 'player' | 'ai' | 'system'
 
 export interface GoalRecord {
