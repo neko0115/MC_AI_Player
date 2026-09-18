@@ -24,6 +24,7 @@ class FakeBot extends EventEmitter {
   blockName = 'oak_log'
   searchPositions = [new Vec3(4, 64, 0)]
   canDig = true
+  visible = true
   harvestTools: Readonly<Record<string, boolean>> | undefined
   blockProperties: Record<string, unknown> = {}
   equippedItem: FakeItem | null = null
@@ -52,6 +53,10 @@ class FakeBot extends EventEmitter {
       ...(this.harvestTools ? { harvestTools: this.harvestTools } : {}),
       getProperties: () => ({ ...this.blockProperties })
     }
+  }
+
+  canSeeBlock() {
+    return this.visible
   }
 
   canDigBlock() {
@@ -125,6 +130,38 @@ test('bounded Mineflayer search returns semantic resource candidates', async () 
 
   assert.deepEqual(result, [oak])
   assert.deepEqual(runtime.currentPosition(), { x: 0, y: 64, z: 0 })
+})
+
+test('ordinary resource scan refuses loaded but hidden blocks', async () => {
+  const bot = new FakeBot()
+  bot.blockName = 'iron_ore'
+  bot.visible = false
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const hidden = await runtime.findResourceBlocks(
+    {
+      blockNames: ['iron_ore'],
+      origin: { x: 0, y: 64, z: 0 },
+      radius: 16,
+      limit: 4,
+      visibility: 'visible'
+    },
+    new AbortController().signal
+  )
+  assert.deepEqual(hidden, [])
+
+  const loaded = await runtime.findResourceBlocks(
+    {
+      blockNames: ['iron_ore'],
+      origin: { x: 0, y: 64, z: 0 },
+      radius: 16,
+      limit: 4,
+      visibility: 'loaded'
+    },
+    new AbortController().signal
+  )
+  assert.equal(loaded.length, 1)
+  assert.equal(loaded[0]?.blockName, 'iron_ore')
 })
 
 test('decaying leaf scan only returns natural unsupported leaves', async () => {
