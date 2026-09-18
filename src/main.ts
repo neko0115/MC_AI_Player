@@ -35,6 +35,7 @@ import {
 import {
   ControlServer,
   type ControlAiStatusPort,
+  type ControlCapabilityStatusPort,
   type ControlServerAddress,
   type ControlServerOptions
 } from './api/control-server.js'
@@ -44,7 +45,8 @@ import { SqliteMemoryRepository } from './memory/sqlite-repository.js'
 import { MinecraftIdentityRegistry } from './minecraft/identity-registry.js'
 import {
   MoxueBridgeCapabilities,
-  type ServerCapabilitySource
+  type ServerCapabilitySource,
+  type ServerCapabilityStatusSource
 } from './minecraft/moxuebridge-capabilities.js'
 import {
   createMineflayerRuntimeBundle,
@@ -198,7 +200,7 @@ export interface ApplicationAdminServerPort {
   close(): Promise<void>
 }
 
-export interface ApplicationServerCapabilitiesPort extends ServerCapabilitySource {
+export interface ApplicationServerCapabilitiesPort extends ServerCapabilityStatusSource {
   start(): Promise<void>
   stop(): void
 }
@@ -353,6 +355,9 @@ export function createApplication(
       })
   })
 
+  const capabilityStatus: ControlCapabilityStatusPort | undefined = serverCapabilities
+    ? createControlCapabilityStatus(serverCapabilities)
+    : undefined
   const createControlServer = dependencies.createControlServer ?? (options => new ControlServer(options))
   const controlServer = createControlServer({
     host: controlConfig.host,
@@ -365,7 +370,8 @@ export function createApplication(
     state,
     memory,
     events,
-    ...(aiStatus ? { aiStatus } : {})
+    ...(aiStatus ? { aiStatus } : {}),
+    ...(capabilityStatus ? { capabilityStatus } : {})
   })
 
   const createAdminServer = dependencies.createAdminServer ?? (options => new AdminServer(options))
@@ -426,6 +432,20 @@ export function createApplication(
       geminiStack?.close()
       memory.close()
       started = false
+    }
+  }
+}
+
+
+function createControlCapabilityStatus(
+  source: ServerCapabilityStatusSource
+): ControlCapabilityStatusPort {
+  return {
+    snapshot() {
+      return {
+        state: source.status().state,
+        ids: source.snapshot().map(capability => capability.id)
+      }
     }
   }
 }
