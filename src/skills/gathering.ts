@@ -26,6 +26,7 @@ import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
 type GatherArgs = Extract<GoalRequest, { kind: 'gather_resource' }>['args']
+type ExploreArgs = Extract<GoalRequest, { kind: 'explore_resource' }>['args']
 
 export interface FindResourceArgs {
   readonly resource: string
@@ -143,6 +144,165 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
       summary: `${candidate.blockName}@${candidate.position.x},${candidate.position.y},${candidate.position.z}`
     }
   }
+}
+
+export interface ExploreResourceOptions {
+  readonly defaultRadius?: number
+  readonly defaultMaxSteps?: number
+  readonly maxCandidatesPerStep?: number
+  readonly resourceProfiles?: ResourceProfileSource
+}
+
+export class ExploreResourceSkill implements SkillDefinition<ExploreArgs> {
+  readonly name = 'explore_resource' as const
+  private readonly defaultRadius: number
+  private readonly defaultMaxSteps: number
+  private readonly maxCandidatesPerStep: number
+  private readonly resourceProfiles: ResourceProfileSource | undefined
+
+  constructor(
+    private readonly resources: ResourceGatheringAdapter,
+    private readonly navigation: ResourceNavigationAdapter,
+    private readonly protection: ResourceProtectionPolicy,
+    options: ExploreResourceOptions = {}
+  ) {
+    this.defaultRadius = options.defaultRadius ?? 24
+    this.defaultMaxSteps = options.defaultMaxSteps ?? 8
+    this.maxCandidatesPerStep = options.maxCandidatesPerStep ?? 16
+    this.resourceProfiles = options.resourceProfiles
+    validatePositiveInteger(this.defaultRadius, 'defaultRadius')
+    validatePositiveInteger(this.defaultMaxSteps, 'defaultMaxSteps')
+    validatePositiveInteger(this.maxCandidatesPerStep, 'maxCandidatesPerStep')
+  }
+
+  async execute(
+    { signal }: SkillContext,
+    args: ExploreArgs
+  ): Promise<SkillResult> {
+    if (signal.aborted) return cancelled(signal)
+
+    const resource = normalizeResourceName(args.resource)
+    if (!resource) return { status: 'failed', code: 'invalid_resource' }
+    const profile = resolveResourceProfile(resource, this.resourceProfiles)
+
+    const radius = args.radius ?? this.defaultRadius
+    const maxSteps = args.maxSteps ?? this.defaultMaxSteps
+    if (
+      !Number.isInteger(radius) ||
+      radius < 4 ||
+      radius > 64 ||
+      !Number.isInteger(maxSteps) ||
+      maxSteps < 1 ||
+      maxSteps > 16
+    ) {
+      return { status: 'failed', code: 'invalid_exploration_bounds' }
+    }
+
+    const initiallyVisible = await this.visibleCandidate(
+      profile,
+      radius,
+      signal
+    )
+    if (initiallyVisible) {
+      return resourceFoundResult(initiallyVisible)
+    }
+
+    if (!this.resources.findExplorationWaypoints) {
+      return { status: 'failed', code: 'exploration_unavailable' }
+    }
+
+    const visited = new Set<string>()
+    for (let step = 0; step < maxSteps; step += 1) {
+      if (signal.aborted) return cancelled(signal)
+      const origin = this.resources.currentPosition()
+      if (!origin) return { status: 'failed', code: 'minecraft_not_ready' }
+
+      const waypoints = await this.resources.findExplorationWaypoints(
+        {
+          origin,
+          radius,
+          limit: this.maxCandidatesPerStep
+        },
+        signal
+      )
+      if (signal.aborted) return cancelled(signal)
+
+      let moved = false
+      for (const waypoint of waypoints) {
+        const key = positionKeyForSkill(waypoint)
+        if (visited.has(key) || this.protection.isProtected(waypoint)) continue
+        visited.add(key)
+
+        const navigation = await this.navigation.goTo(
+          waypoint,
+          { range: 1, canDig: false },
+          signal
+        )
+        if (navigation.status === 'cancelled') return navigation
+        if (navigation.status !== 'succeeded') continue
+
+        moved = true
+        const visible = await this.visibleCandidate(
+          profile,
+          radius,
+          signal
+        )
+        if (visible) {
+          return resourceFoundResult(visible)
+        }
+        break
+      }
+
+      if (!moved) {
+        return { status: 'failed', code: 'exploration_exhausted' }
+      }
+    }
+
+    return { status: 'failed', code: 'resource_not_visible' }
+  }
+
+  private async visibleCandidate(
+    profile: ResourceProfile,
+    radius: number,
+    signal: AbortSignal
+  ): Promise<ResourceCandidate | null> {
+    const origin = this.resources.currentPosition()
+    if (!origin) return null
+
+    const candidates = await this.resources.findResourceBlocks(
+      {
+        blockNames: profile.blockNames,
+        origin,
+        radius,
+        limit: this.maxCandidatesPerStep,
+        visibility: 'visible'
+      },
+      signal
+    )
+    if (signal.aborted) return null
+
+    return selectCandidate(
+      candidates,
+      profile.blockNames,
+      origin,
+      this.protection,
+      new Set()
+    )
+  }
+}
+
+function resourceFoundResult(
+  candidate: ResourceCandidate
+): SkillResult {
+  return {
+    status: 'succeeded',
+    code: 'resource_found',
+    summary: `${candidate.blockName}@${candidate.position.x},${candidate.position.y},${candidate.position.z}`
+  }
+}
+
+function positionKeyForSkill(position: Position): string {
+  return `${position.x},${position.y},${position.z}`
 }
 
 export interface GatheringOptions {
