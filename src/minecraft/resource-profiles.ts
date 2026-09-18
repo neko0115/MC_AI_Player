@@ -6,7 +6,9 @@ export interface ResourceProfile {
   readonly collectedItemNames: readonly string[]
   readonly capabilityId: ResourceCapabilityId | null
   readonly exactOnePerBlock: boolean
+  readonly toolKind: 'pickaxe' | null
   readonly forbiddenToolEnchantments: readonly string[]
+  readonly acceleratorForbiddenToolEnchantments: readonly string[]
 }
 
 interface StaticProfileDefinition {
@@ -15,10 +17,13 @@ interface StaticProfileDefinition {
   readonly collectedItemNames: readonly string[]
   readonly capabilityId: ResourceCapabilityId
   readonly exactOnePerBlock: boolean
+  readonly toolKind: 'pickaxe'
   readonly forbiddenToolEnchantments?: readonly string[]
+  readonly acceleratorForbiddenToolEnchantments?: readonly string[]
 }
 
-const EXACT_ORE_TOOL_FORBIDDEN = Object.freeze(['silk_touch', 'fortune'] as const)
+const ORE_DROP_FORBIDDEN = Object.freeze(['silk_touch'] as const)
+const EXACT_ORE_ACCELERATOR_FORBIDDEN = Object.freeze(['silk_touch', 'fortune'] as const)
 
 const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
   {
@@ -27,7 +32,9 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['raw_iron'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: EXACT_ORE_TOOL_FORBIDDEN
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
   },
   {
     aliases: ['gold_ore', 'deepslate_gold_ore', 'raw_gold'],
@@ -35,7 +42,9 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['raw_gold'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: EXACT_ORE_TOOL_FORBIDDEN
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
   },
   {
     aliases: ['coal_ore', 'deepslate_coal_ore', 'coal'],
@@ -43,7 +52,9 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['coal'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: EXACT_ORE_TOOL_FORBIDDEN
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
   },
   {
     aliases: ['diamond_ore', 'deepslate_diamond_ore', 'diamond'],
@@ -51,7 +62,9 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['diamond'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: EXACT_ORE_TOOL_FORBIDDEN
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
   },
   {
     aliases: ['emerald_ore', 'deepslate_emerald_ore', 'emerald'],
@@ -59,7 +72,9 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['emerald'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: EXACT_ORE_TOOL_FORBIDDEN
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
   },
   {
     aliases: ['nether_quartz_ore', 'quartz'],
@@ -67,7 +82,45 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['quartz'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: EXACT_ORE_TOOL_FORBIDDEN
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN,
+    acceleratorForbiddenToolEnchantments: EXACT_ORE_ACCELERATOR_FORBIDDEN
+  },
+  {
+    aliases: ['copper_ore', 'deepslate_copper_ore', 'raw_copper'],
+    blockNames: ['copper_ore', 'deepslate_copper_ore'],
+    collectedItemNames: ['raw_copper'],
+    capabilityId: 'vein_mining',
+    exactOnePerBlock: false,
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN
+  },
+  {
+    aliases: ['redstone_ore', 'deepslate_redstone_ore', 'redstone'],
+    blockNames: ['redstone_ore', 'deepslate_redstone_ore'],
+    collectedItemNames: ['redstone'],
+    capabilityId: 'vein_mining',
+    exactOnePerBlock: false,
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN
+  },
+  {
+    aliases: ['lapis_ore', 'deepslate_lapis_ore', 'lapis_lazuli'],
+    blockNames: ['lapis_ore', 'deepslate_lapis_ore'],
+    collectedItemNames: ['lapis_lazuli'],
+    capabilityId: 'vein_mining',
+    exactOnePerBlock: false,
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN
+  },
+  {
+    aliases: ['nether_gold_ore', 'gold_nugget'],
+    blockNames: ['nether_gold_ore'],
+    collectedItemNames: ['gold_nugget'],
+    capabilityId: 'vein_mining',
+    exactOnePerBlock: false,
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: ORE_DROP_FORBIDDEN
   },
   {
     aliases: ['ancient_debris'],
@@ -75,7 +128,9 @@ const STATIC_PROFILES: readonly StaticProfileDefinition[] = Object.freeze([
     collectedItemNames: ['ancient_debris'],
     capabilityId: 'vein_mining',
     exactOnePerBlock: true,
-    forbiddenToolEnchantments: []
+    toolKind: 'pickaxe',
+    forbiddenToolEnchantments: [],
+    acceleratorForbiddenToolEnchantments: []
   }
 ])
 
@@ -93,7 +148,13 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
       collectedItemNames: [...staticProfile.collectedItemNames],
       capabilityId: staticProfile.capabilityId,
       exactOnePerBlock: staticProfile.exactOnePerBlock,
-      forbiddenToolEnchantments: [...(staticProfile.forbiddenToolEnchantments ?? [])]
+      toolKind: staticProfile.toolKind,
+      forbiddenToolEnchantments: [...(staticProfile.forbiddenToolEnchantments ?? [])],
+      acceleratorForbiddenToolEnchantments: [
+        ...(staticProfile.acceleratorForbiddenToolEnchantments
+          ?? staticProfile.forbiddenToolEnchantments
+          ?? [])
+      ]
     }
   }
 
@@ -105,7 +166,9 @@ export function resolveResourceProfile(resource: string): ResourceProfile {
     collectedItemNames: [runtimeName],
     capabilityId,
     exactOnePerBlock: capabilityId === 'tree_felling',
-    forbiddenToolEnchantments: []
+    toolKind: null,
+    forbiddenToolEnchantments: [],
+    acceleratorForbiddenToolEnchantments: []
   }
 }
 
