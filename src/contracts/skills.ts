@@ -25,6 +25,7 @@ export interface SkillResult {
 
 export interface SkillContext {
   signal: AbortSignal
+  executionId?: string
 }
 
 export interface SkillDefinition<A> {
