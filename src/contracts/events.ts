@@ -106,6 +106,15 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('inventory_changed'), at: AtSchema, items: z.array(ItemStackSnapshotSchema).max(256) }).strict(),
   z.object({ type: z.literal('goal_started'), at: AtSchema, goalId: EventCodeSchema }).strict(),
+  z
+    .object({
+      type: z.literal('goal_suspended'),
+      at: AtSchema,
+      goalId: EventCodeSchema,
+      code: EventCodeSchema
+    })
+    .strict(),
+  z.object({ type: z.literal('goal_resumed'), at: AtSchema, goalId: EventCodeSchema }).strict(),
   z.object({ type: z.literal('goal_completed'), at: AtSchema, goalId: EventCodeSchema }).strict(),
   z
     .object({
