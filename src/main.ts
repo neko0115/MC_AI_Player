@@ -58,6 +58,7 @@ import {
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
 import { DecisionCoordinator } from './runtime/decision-coordinator.js'
+import { ThreatSupervisor } from './runtime/threat-supervisor.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
 import { GatherResourceSkill, FindResourceSkill, RegionProtectionPolicy } from './skills/gathering.js'
@@ -305,6 +306,14 @@ export function createApplication(
       })
   })
 
+  const threatSupervisor = new ThreatSupervisor({
+    events,
+    state,
+    goals,
+    navigation: runtime.adapter
+  })
+  threatSupervisor.start()
+
   let geminiStack: ApplicationGeminiDecisionStackPort | null = null
   let logicalExecutor: LogicalDecisionExecutor
   if (dependencies.createLogicalDecisionExecutor) {
@@ -441,6 +450,7 @@ export function createApplication(
       if (closed) return
       closed = true
 
+      threatSupervisor.dispose()
       resourceProfiles?.stop()
       serverCapabilities?.stop()
       if (adminServer) await contain(() => adminServer.close())
