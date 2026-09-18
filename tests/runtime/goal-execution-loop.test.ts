@@ -6,13 +6,25 @@ import { wireGoalExecution } from '../../src/runtime/goal-execution-loop.js'
 import { RuntimeEventBus } from '../../src/telemetry/event-bus.js'
 
 class DeferredExecutor {
-  readonly executeCalls: Array<{ name: SkillName; args: unknown }> = []
+  readonly executeCalls: Array<{
+    name: SkillName
+    args: unknown
+    executionId?: string
+  }> = []
   readonly cancelReasons: string[] = []
   private pending: ((result: SkillResult) => void) | null = null
   throwNext = false
 
-  async execute(name: SkillName, args: unknown): Promise<SkillResult> {
-    this.executeCalls.push({ name, args: structuredClone(args) })
+  async execute(
+    name: SkillName,
+    args: unknown,
+    executionId?: string
+  ): Promise<SkillResult> {
+    this.executeCalls.push({
+      name,
+      args: structuredClone(args),
+      ...(executionId ? { executionId } : {})
+    })
     if (this.throwNext) {
       this.throwNext = false
       throw new Error('PRIVATE_EXECUTOR_FAILURE_DETAIL')
@@ -67,10 +79,47 @@ test('goal_started launches deterministic skill execution without blocking GoalM
     assert.equal(submitted.goalId, 'goal-1')
     assert.equal(submitted.status, 'running')
     await waitFor(() => current.executor.executeCalls.length === 1)
-    assert.deepEqual(current.executor.executeCalls, [{ name: 'stay', args: {} }])
+    assert.deepEqual(current.executor.executeCalls, [{
+      name: 'stay',
+      args: {},
+      executionId: 'goal-1'
+    }])
     assert.equal(current.goals.getGoal('goal-1')?.status, 'running')
 
     current.executor.finish({ status: 'succeeded', code: 'held_position' })
+    await waitFor(() => current.goals.getGoal('goal-1')?.status === 'succeeded')
+  } finally {
+    binding.dispose()
+  }
+})
+
+test('an immediate resume is latched until the cancelled execution fully tears down', async () => {
+  const current = runtime()
+  const binding = wireGoalExecution({
+    events: current.events,
+    goals: current.goals,
+    executor: current.executor
+  })
+  try {
+    await current.goals.submit(
+      { kind: 'gather_resource', args: { resource: 'oak_log', quantity: 2 } },
+      'ai'
+    )
+    await waitFor(() => current.executor.executeCalls.length === 1)
+
+    const suspended = current.goals.suspendActive('threat_suspended')
+    const resumed = current.goals.resumeSuspended()
+
+    assert.equal(await suspended, true)
+    assert.equal(await resumed, true)
+
+    await waitFor(() => current.executor.executeCalls.length === 2)
+    assert.deepEqual(
+      current.executor.executeCalls.map(call => call.executionId),
+      ['goal-1', 'goal-1']
+    )
+
+    current.executor.finish({ status: 'succeeded', code: 'gathered' })
     await waitFor(() => current.goals.getGoal('goal-1')?.status === 'succeeded')
   } finally {
     binding.dispose()
