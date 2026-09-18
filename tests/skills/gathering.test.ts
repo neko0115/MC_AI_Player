@@ -221,7 +221,8 @@ const veinMiningCapability: ServerCapability = {
     same_block_only: true,
     correct_tool_required: true,
     must_sneak: true,
-    tool_kind: 'pickaxe'
+    tool_kind: 'pickaxe',
+    exact_block: 'minecraft:iron_ore'
   }
 }
 
@@ -241,7 +242,8 @@ const treeFellingCapability: ServerCapability = {
     correct_tool_required: true,
     must_sneak: true,
     tool_kind: 'axe',
-    merge_item_drops: false
+    merge_item_drops: false,
+    exact_block: 'minecraft:oak_log'
   }
 }
 
@@ -482,6 +484,40 @@ test('vein_mining uses the resource profile to count raw iron and exclude Silk T
   assert.deepEqual(world.harvestOptions, [{
     expectedItemNames: ['raw_iron'],
     sneak: true
+  }])
+})
+
+test('exact block scope prevents iron-ore acceleration from being applied to deepslate iron ore', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'deepslate_iron_ore', position: { x: 4, y: 64, z: 0 } }
+  ])
+
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource(veinMiningCapability),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'raw_iron',
+    quantity: 1
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.equal(world.inventoryCount('raw_iron'), 1)
+  assert.deepEqual(world.toolPreparationKinds, ['pickaxe'])
+  assert.deepEqual(world.harvestOptions, [{
+    expectedItemNames: ['raw_iron']
   }])
 })
 
