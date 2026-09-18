@@ -10,7 +10,7 @@ test('iron ore aliases resolve block targets to raw iron collection semantics', 
     assert.equal(profile.capabilityId, 'vein_mining')
     assert.equal(profile.exactOnePerBlock, true)
     assert.equal(profile.toolKind, 'pickaxe')
-    assert.deepEqual(profile.forbiddenToolEnchantments, ['silk_touch'])
+    assert.deepEqual(profile.forbiddenToolEnchantments, ['silk_touch', 'fortune'])
     assert.deepEqual(
       profile.acceleratorForbiddenToolEnchantments,
       ['silk_touch', 'fortune']
