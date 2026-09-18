@@ -145,8 +145,10 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     if (!bot) return []
 
     const blockNames = normalizeBlockNames(request.blockNames)
+    const visibility = request.visibility ?? 'visible'
     if (
       blockNames === null ||
+      (visibility !== 'visible' && visibility !== 'loaded') ||
       !isFinitePosition(request.origin) ||
       !Number.isFinite(request.radius) ||
       request.radius < 1 ||
@@ -178,6 +180,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (signal.aborted) return []
       const block = bot.blockAt(position)
       if (!block || !blockNames.includes(block.name)) continue
+      if (visibility === 'visible' && !bot.canSeeBlock(block)) continue
 
       const targetPosition = {
         x: block.position.x,
