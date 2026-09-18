@@ -293,6 +293,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       const capabilityStrategy = selectHarvestCapability(
         this.dependencies.capabilities,
         profile,
+        candidate.blockName,
         remainingBeforeHarvest
       )
       let harvestOptions = expectedDropOptions(profile, candidate)
@@ -630,6 +631,7 @@ async function prepareCapabilityHarvest(
 function selectHarvestCapability(
   source: ServerCapabilityStatusSource | undefined,
   profile: ResourceProfile,
+  candidateBlockName: string,
   remaining: number
 ): CapabilityHarvestStrategy | null {
   if (!source || remaining < 1) return null
@@ -646,6 +648,8 @@ function selectHarvestCapability(
   // fits inside the remaining bounded gather request. Unknown scope or bounds
   // fail closed to ordinary one-block harvesting.
   if (booleanConstraint(capability, 'same_block_only') !== true) return null
+  const exactBlock = exactBlockConstraint(capability)
+  if (exactBlock === null || exactBlock !== candidateBlockName) return null
   if (maxChain === null || maxChain > remaining) return null
 
   const trigger = capability.usage.trigger
@@ -765,6 +769,20 @@ function positiveIntegerConstraint(
     : null
 }
 
+
+function exactBlockConstraint(
+  capability: ServerCapability
+): string | null {
+  const value = capability.constraints.exact_block
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return null
+  const separator = normalized.indexOf(':')
+  if (separator < 0) return normalized
+  return normalized.slice(0, separator) === 'minecraft'
+    ? normalized.slice(separator + 1)
+    : normalized
+}
 
 function toolKindConstraint(
   capability: ServerCapability
