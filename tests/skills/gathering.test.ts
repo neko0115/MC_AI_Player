@@ -14,7 +14,8 @@ import type {
   ResourceGatheringAdapter,
   ResourceHarvestOptions,
   ResourceNavigationAdapter,
-  ResourceSearchRequest
+  ResourceSearchRequest,
+  ResourceToolPreparationOptions
 } from '../../src/minecraft/gathering.js'
 import {
   FindResourceSkill,
@@ -35,6 +36,7 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
   readonly harvestOptions: Array<ResourceHarvestOptions | undefined> = []
   readonly toolPreparationAttempts: ResourceCandidate[] = []
   readonly toolPreparationKinds: Array<'axe' | 'pickaxe' | undefined> = []
+  readonly toolPreparationForbidden: string[][] = []
   readonly navigationAttempts: Position[] = []
   readonly dropped: DroppedResource[] = []
   chainBreakCount = 1
@@ -73,14 +75,15 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
   async prepareResourceTool(
     target: ResourceCandidate,
     signal: AbortSignal,
-    toolKind?: 'axe' | 'pickaxe'
+    options: ResourceToolPreparationOptions = {}
   ): Promise<SkillResult> {
     if (signal.aborted) return { status: 'cancelled', code: 'cancelled' }
     this.toolPreparationAttempts.push({
       blockName: target.blockName,
       position: { ...target.position }
     })
-    this.toolPreparationKinds.push(toolKind)
+    this.toolPreparationKinds.push(options.toolKind)
+    this.toolPreparationForbidden.push([...(options.forbiddenEnchantments ?? [])])
     return { status: 'succeeded', code: 'correct_tool_equipped' }
   }
 
@@ -105,14 +108,17 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
       .sort((a, b) => distance(a.position, target.position) - distance(b.position, target.position))
       .slice(0, options ? this.chainBreakCount : 1)
 
+    const collectedItem =
+      options?.expectedItemNames?.[0] ?? target.blockName
+
     for (const [index, block] of matching.entries()) {
       this.blocks.delete(key(block.position))
       if (index === 0 && this.collectFirstImmediately) {
-        this.inventory.set(target.blockName, this.inventoryCount(target.blockName) + 1)
+        this.inventory.set(collectedItem, this.inventoryCount(collectedItem) + 1)
       } else {
         this.dropped.push({
           entityId: 100 + this.dropped.length,
-          itemName: target.blockName,
+          itemName: collectedItem,
           count: 1,
           position: { ...block.position }
         })
@@ -214,7 +220,8 @@ const veinMiningCapability: ServerCapability = {
     max_chain: 2,
     same_block_only: true,
     correct_tool_required: true,
-    must_sneak: true
+    must_sneak: true,
+    tool_kind: 'pickaxe'
   }
 }
 
@@ -439,25 +446,20 @@ test('gather_resource recovers every chained drop when the first pickup is delay
   }])
 })
 
-test('vein_mining remains discoverable but does not actuate before resource-profile accounting exists', async () => {
+test('vein_mining uses the resource profile to count raw iron and exclude Silk Touch/Fortune', async () => {
   const world = new FakeGatheringWorld([
     { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
-    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+    { blockName: 'iron_ore', position: { x: 5, y: 64, z: 0 } }
   ])
-  const capability = {
-    ...veinMiningCapability,
-    constraints: {
-      ...veinMiningCapability.constraints,
-      tool_kind: 'pickaxe'
-    }
-  }
+  world.chainBreakCount = 2
+
   const skill = new GatherResourceSkill({
     resources: world,
     navigation: world,
     safety: new SafetyPolicy(),
     state: () => worldState(world),
     protection: new RegionProtectionPolicy([]),
-    capabilities: capabilitySource(capability),
+    capabilities: capabilitySource(veinMiningCapability),
     options: {
       initialSearchRadius: 16,
       maxSearchRadius: 16,
@@ -473,8 +475,78 @@ test('vein_mining remains discoverable but does not actuate before resource-prof
   })
 
   assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
-  assert.deepEqual(world.toolPreparationKinds, [])
-  assert.deepEqual(world.harvestOptions, [undefined, undefined])
+  assert.equal(world.inventoryCount('iron_ore'), 0)
+  assert.equal(world.inventoryCount('raw_iron'), 2)
+  assert.deepEqual(world.toolPreparationKinds, ['pickaxe'])
+  assert.deepEqual(world.toolPreparationForbidden, [['silk_touch', 'fortune']])
+  assert.deepEqual(world.harvestOptions, [{
+    expectedItemNames: ['raw_iron'],
+    sneak: true
+  }])
+})
+
+test('unsafe vein capability falls back to one-block raw-iron gathering with a non-Silk pickaxe', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
+    { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
+  ])
+  const unsafe = {
+    ...veinMiningCapability,
+    constraints: {
+      ...veinMiningCapability.constraints,
+      same_block_only: false
+    }
+  }
+  const skill = new GatherResourceSkill({
+    resources: world,
+    navigation: world,
+    safety: new SafetyPolicy(),
+    state: () => worldState(world),
+    protection: new RegionProtectionPolicy([]),
+    capabilities: capabilitySource(unsafe),
+    options: {
+      initialSearchRadius: 16,
+      maxSearchRadius: 16,
+      searchStep: 8,
+      maxRetries: 2,
+      maxCandidatesPerSearch: 8
+    }
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'iron_ore',
+    quantity: 2
+  })
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
+  assert.equal(world.inventoryCount('raw_iron'), 2)
+  assert.deepEqual(world.toolPreparationKinds, ['pickaxe', 'pickaxe'])
+  assert.deepEqual(world.toolPreparationForbidden, [['silk_touch'], ['silk_touch']])
+  assert.deepEqual(world.harvestOptions, [
+    { expectedItemNames: ['raw_iron'] },
+    { expectedItemNames: ['raw_iron'] }
+  ])
+})
+
+test('find_resource accepts the canonical raw-iron alias and searches both iron ore variants', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'deepslate_iron_ore', position: { x: 4, y: 64, z: 0 } }
+  ])
+  const skill = new FindResourceSkill(world, new RegionProtectionPolicy([]), {
+    maxSearchRadius: 16,
+    maxCandidatesPerSearch: 8
+  })
+
+  const result = await skill.execute({ signal: new AbortController().signal }, {
+    resource: 'raw_iron',
+    radius: 16
+  })
+
+  assert.equal(result.status, 'succeeded')
+  assert.deepEqual(world.searchRequests[0]?.blockNames, [
+    'iron_ore',
+    'deepslate_iron_ore'
+  ])
 })
 
 test('gather_resource never uses stale capability data for multi-block mutation', async () => {
