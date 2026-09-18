@@ -269,6 +269,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         remainingBeforeHarvest
       )
       let harvestOptions: ResourceHarvestOptions | undefined
+      let activeCapabilityStrategy: CapabilityHarvestStrategy | null = null
       if (capabilityStrategy) {
         const prepared = await prepareCapabilityHarvest(
           this.dependencies.resources,
@@ -277,7 +278,10 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           signal
         )
         if (prepared.kind === 'cancelled') return prepared.result
-        if (prepared.kind === 'ready') harvestOptions = capabilityStrategy.options
+        if (prepared.kind === 'ready') {
+          harvestOptions = capabilityStrategy.options
+          activeCapabilityStrategy = capabilityStrategy
+        }
       }
 
       const harvested = await this.dependencies.resources.harvestResourceBlock(
@@ -287,6 +291,21 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         harvestOptions
       )
       if (harvested.status === 'cancelled') return harvested
+
+      if (
+        harvested.status === 'succeeded' &&
+        activeCapabilityStrategy &&
+        this.dependencies.resources.inventoryCount(resource) < targetCount
+      ) {
+        const sweep = await this.collectAcceleratedDrops(
+          candidate,
+          resource,
+          targetCount,
+          activeCapabilityStrategy.maxChain,
+          signal
+        )
+        if (sweep) return sweep
+      }
 
       if (harvested.status !== 'succeeded') {
         if (harvested.code === 'item_not_collected') {
@@ -359,6 +378,44 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     }
 
     return { status: 'succeeded', code: 'gathered' }
+  }
+
+
+  private async collectAcceleratedDrops(
+    candidate: ResourceCandidate,
+    resource: string,
+    targetCount: number,
+    maxChain: number,
+    signal: AbortSignal
+  ): Promise<SkillResult | null> {
+    if (!this.dependencies.resources.findDroppedResource) return null
+
+    const attempts = Math.min(Math.max(1, maxChain), 64)
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (signal.aborted) return cancelled(signal)
+      if (this.dependencies.resources.inventoryCount(resource) >= targetCount) {
+        return null
+      }
+
+      const before = this.dependencies.resources.inventoryCount(resource)
+      const cursor = this.dependencies.resources.resourceCollectionCursor?.() ?? null
+      const recovery = await this.recoverDroppedResource(
+        candidate,
+        resource,
+        before,
+        cursor,
+        signal
+      )
+
+      if (recovery.kind === 'terminal') return recovery.result
+      if (recovery.kind === 'collected') continue
+      if (recovery.kind === 'collected_by_player') {
+        return { status: 'failed', code: 'item_not_collected' }
+      }
+      break
+    }
+
+    return null
   }
 
   private async recoverDroppedResource(
@@ -465,6 +522,8 @@ interface CapabilityHarvestStrategy {
   readonly capability: ServerCapability
   readonly options: ResourceHarvestOptions
   readonly correctToolRequired: boolean
+  readonly maxChain: number
+  readonly toolKind: 'axe' | 'pickaxe' | null
 }
 
 type CapabilityPreparation =
@@ -481,7 +540,11 @@ async function prepareCapabilityHarvest(
   if (!strategy.correctToolRequired) return { kind: 'ready' }
   if (!resources.prepareResourceTool) return { kind: 'fallback' }
 
-  const prepared = await resources.prepareResourceTool(candidate, signal)
+  const prepared = await resources.prepareResourceTool(
+    candidate,
+    signal,
+    strategy.toolKind ?? undefined
+  )
   if (prepared.status === 'cancelled') {
     return { kind: 'cancelled', result: prepared }
   }
@@ -500,6 +563,10 @@ function selectHarvestCapability(
 
   const capabilityId = resourceCapabilityId(resource)
   if (!capabilityId) return null
+  // Ore block names frequently differ from their dropped item names.
+  // Keep vein mining discoverable in context/status, but do not actuate it
+  // until a resource-profile layer can prove block -> item accounting.
+  if (capabilityId === 'vein_mining') return null
   const capability = source.get(capabilityId)
   if (!capability?.available) return null
 
@@ -519,11 +586,17 @@ function selectHarvestCapability(
     trigger === 'sneak_and_break' ||
     booleanConstraint(capability, 'must_sneak') === true
 
+  const correctToolRequired =
+    booleanConstraint(capability, 'correct_tool_required') === true
+  const toolKind = toolKindConstraint(capability)
+  if (correctToolRequired && toolKind === null) return null
+
   return {
     capability,
     options: mustSneak ? { sneak: true } : {},
-    correctToolRequired:
-      booleanConstraint(capability, 'correct_tool_required') === true
+    correctToolRequired,
+    maxChain,
+    toolKind
   }
 }
 
@@ -546,6 +619,16 @@ function positiveIntegerConstraint(
 ): number | null {
   const value = capability.constraints[key]
   return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : null
+}
+
+
+function toolKindConstraint(
+  capability: ServerCapability
+): 'axe' | 'pickaxe' | null {
+  const value = capability.constraints.tool_kind
+  return value === 'axe' || value === 'pickaxe'
     ? value
     : null
 }
