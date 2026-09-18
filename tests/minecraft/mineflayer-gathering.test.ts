@@ -205,6 +205,27 @@ test('capability tool preparation equips one tool accepted by the target block',
   assert.equal(bot.equippedItem?.name, 'iron_pickaxe')
 })
 
+
+test('semantic axe preparation equips an axe when vanilla block metadata has no harvest tool requirement', async () => {
+  const bot = new FakeBot()
+  bot.harvestTools = undefined
+  bot.inventoryItems.push(
+    { name: 'stick', count: 2, type: 280 },
+    { name: 'stone_axe', count: 1, type: 275 },
+    { name: 'iron_axe', count: 1, type: 258 }
+  )
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const result = await runtime.prepareResourceTool(
+    oak,
+    new AbortController().signal,
+    'axe'
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'correct_tool_equipped' })
+  assert.equal(bot.equippedItem?.name, 'iron_axe')
+})
+
 test('sneak harvest always releases the sneak control state after digging', async () => {
   const bot = new FakeBot()
   const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
