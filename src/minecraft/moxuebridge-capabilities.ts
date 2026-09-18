@@ -4,12 +4,12 @@ const CapabilitySourceSchema = z.object({
   plugin: z.string().trim().min(1).max(128),
   version: z.string().trim().min(1).max(128),
   provenance: z.string().trim().min(1).max(64)
-}).strict()
+})
 
 const CapabilityUsageSchema = z.object({
   trigger: z.string().trim().min(1).max(128),
   human: z.string().trim().min(1).max(500)
-}).strict()
+})
 
 export const ServerCapabilitySchema = z.object({
   id: z.string().trim().min(1).max(128),
@@ -22,7 +22,7 @@ export const ServerCapabilitySchema = z.object({
     z.string().trim().min(1).max(128),
     z.unknown()
   )
-}).strict()
+})
 
 const ServerCapabilityListSchema = z.array(ServerCapabilitySchema).max(128)
 
@@ -151,6 +151,9 @@ export class MoxueBridgeCapabilities implements ServerCapabilityStatusSource {
       const next = new Map<string, ServerCapability>()
       for (const capability of parsed) {
         if (!capability.available) continue
+        if (next.has(capability.id)) {
+          throw new Error('invalid_response')
+        }
         next.set(capability.id, cloneCapability(capability))
       }
 
@@ -253,6 +256,7 @@ function classifyRefreshError(error: unknown, signal: AbortSignal): string {
   if (error instanceof Error) {
     if (/^http_[0-9]{3}$/.test(error.message)) return error.message
     if (error.message === 'response_too_large') return error.message
+    if (error.message === 'invalid_response') return error.message
   }
   return 'request_failed'
 }
