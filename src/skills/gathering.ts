@@ -366,6 +366,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         const sweep = await this.collectAcceleratedDrops(
           candidate,
           profile,
+          targetCount,
           activeCapabilityStrategy.maxChain,
           signal
         )
@@ -519,6 +520,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
   private async collectAcceleratedDrops(
     candidate: ResourceCandidate,
     profile: ResourceProfile,
+    targetCount: number,
     maxChain: number,
     signal: AbortSignal
   ): Promise<SkillResult | null> {
@@ -540,7 +542,12 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       if (recovery.kind === 'terminal') return recovery.result
       if (recovery.kind === 'collected') continue
       if (recovery.kind === 'collected_by_player') {
-        return { status: 'failed', code: 'item_not_collected' }
+        return inventoryCountForProfile(
+          this.dependencies.resources,
+          profile
+        ) >= targetCount
+          ? null
+          : { status: 'failed', code: 'item_not_collected' }
       }
       break
     }
