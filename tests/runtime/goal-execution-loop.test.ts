@@ -107,11 +107,14 @@ test('an immediate resume is latched until the cancelled execution fully tears d
     )
     await waitFor(() => current.executor.executeCalls.length === 1)
 
-    const suspended = current.goals.suspendActive('threat_suspended')
-    const resumed = current.goals.resumeSuspended()
-
-    assert.equal(await suspended, true)
-    assert.equal(await resumed, true)
+    assert.equal(
+      await current.goals.suspendActive('threat_suspended'),
+      true
+    )
+    assert.equal(
+      await current.goals.resumeSuspended(),
+      true
+    )
 
     await waitFor(() => current.executor.executeCalls.length === 2)
     assert.deepEqual(
