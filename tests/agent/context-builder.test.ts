@@ -204,3 +204,73 @@ test('context builder exposes stable server capability semantics without leaking
   assert.equal(JSON.stringify(context).includes('2.11.2'), false)
 })
 
+
+
+test('context builder exposes bounded resource semantics and ranks task-relevant resources first', () => {
+  const builder = new ContextBuilder({
+    maxServerResources: 2
+  })
+
+  const context = builder.build({
+    worldKey: WORLD_KEY,
+    task: {
+      taskId: 'task-resource-1',
+      objective: '幫我找 examplemod:titanium_ore 並取得 raw titanium',
+      phase: 'active',
+      consecutiveReplans: 0,
+      previousAction: null
+    },
+    state: state([]),
+    currentGoal: null,
+    memories: [],
+    skills: [],
+    serverResources: [
+      {
+        id: 'examplemod:copper_ore',
+        kind: 'ore',
+        aliases: [],
+        blockIds: ['examplemod:copper_ore'],
+        collectedItemIds: ['examplemod:raw_copper'],
+        minimumDropCount: 1,
+        toolKind: 'pickaxe',
+        capabilityId: 'vein_mining',
+        relatedLeaves: [],
+        cleanupPolicy: null,
+        confidence: 'authoritative'
+      },
+      {
+        id: 'examplemod:titanium_ore',
+        kind: 'ore',
+        aliases: ['examplemod:titanium'],
+        blockIds: ['examplemod:titanium_ore'],
+        collectedItemIds: ['examplemod:raw_titanium'],
+        minimumDropCount: 1,
+        toolKind: 'pickaxe',
+        capabilityId: 'vein_mining',
+        relatedLeaves: [],
+        cleanupPolicy: null,
+        confidence: 'authoritative'
+      },
+      {
+        id: 'examplemod:rubber_log',
+        kind: 'log',
+        aliases: [],
+        blockIds: ['examplemod:rubber_log'],
+        collectedItemIds: ['examplemod:rubber_log'],
+        minimumDropCount: 1,
+        toolKind: 'axe',
+        capabilityId: 'tree_felling',
+        relatedLeaves: ['examplemod:rubber_leaves'],
+        cleanupPolicy: 'natural_decay',
+        confidence: 'inferred'
+      }
+    ],
+    safetyConstraints: []
+  })
+
+  assert.equal(context.serverResources?.length, 2)
+  assert.equal(context.serverResources?.[0]?.id, 'examplemod:titanium_ore')
+  assert.deepEqual(context.serverResources?.[0]?.drops, ['examplemod:raw_titanium'])
+  assert.equal(context.serverResources?.[0]?.toolKind, 'pickaxe')
+  assert.equal(context.serverResources?.[1]?.id, 'examplemod:copper_ore')
+})
