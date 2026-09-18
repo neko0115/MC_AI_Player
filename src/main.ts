@@ -2,13 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { AiConfig, MinecraftConfig } from './config.js'
+import type {
+  AiConfig,
+  MinecraftConfig,
+  MoxueBridgeConfig
+} from './config.js'
 import {
   loadAdminApiConfig,
   loadAiConfig,
   loadControlApiConfig,
   loadMinecraftConfig,
-  loadMinecraftServerIdentityMode
+  loadMinecraftServerIdentityMode,
+  loadMoxueBridgeConfig
 } from './config.js'
 import type { RuntimeEvent } from './contracts/events.js'
 import { ContextBuilder, type DecisionContext } from './agent/context-builder.js'
@@ -37,6 +42,10 @@ import { GoalManager } from './goals/goal-manager.js'
 import type { MinecraftMemoryRepository } from './memory/repository.js'
 import { SqliteMemoryRepository } from './memory/sqlite-repository.js'
 import { MinecraftIdentityRegistry } from './minecraft/identity-registry.js'
+import {
+  MoxueBridgeCapabilities,
+  type ServerCapabilitySource
+} from './minecraft/moxuebridge-capabilities.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
@@ -189,6 +198,11 @@ export interface ApplicationAdminServerPort {
   close(): Promise<void>
 }
 
+export interface ApplicationServerCapabilitiesPort extends ServerCapabilitySource {
+  start(): Promise<void>
+  stop(): void
+}
+
 export interface ApplicationGeminiDecisionStackPort {
   readonly executor: LogicalDecisionExecutor
   readonly configManager: Pick<RoutingConfigManager, 'snapshot' | 'reload'>
@@ -198,6 +212,9 @@ export interface ApplicationGeminiDecisionStackPort {
 
 export interface ApplicationDependencies {
   readonly createRuntime?: (config: MinecraftConfig) => MineflayerRuntimeBundle
+  readonly createServerCapabilities?: (
+    config: Extract<MoxueBridgeConfig, { enabled: true }>
+  ) => ApplicationServerCapabilitiesPort
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
   readonly createLogicalDecisionExecutor?: (
@@ -225,6 +242,7 @@ export function createApplication(
   const controlConfig = loadControlApiConfig(env)
   const adminConfig = loadAdminApiConfig(env)
   const identityMode = loadMinecraftServerIdentityMode(env)
+  const moxueBridgeConfig = loadMoxueBridgeConfig(env)
 
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: DEFAULT_RECENT_EVENT_LIMIT })
@@ -232,9 +250,21 @@ export function createApplication(
   const recorder = (dependencies.createRecorder ?? createDefaultRecorder)(DEFAULT_EVENT_LOG_PATH)
   const runtime = (dependencies.createRuntime ?? createMineflayerRuntimeBundle)(minecraftConfig)
   const safety = new SafetyPolicy()
+  const createServerCapabilities =
+    dependencies.createServerCapabilities ?? createDefaultServerCapabilities
+  const serverCapabilities = moxueBridgeConfig.enabled
+    ? createServerCapabilities(moxueBridgeConfig)
+    : null
 
   const registry = new SkillRegistry()
-  registerProductionSkills(registry, runtime, safety, state, events)
+  registerProductionSkills(
+    registry,
+    runtime,
+    safety,
+    state,
+    events,
+    serverCapabilities ?? undefined
+  )
   const executor = new SkillExecutor(registry, { events })
   const goals = new GoalManager({ skillController: executor, events })
   const executionBinding = wireGoalExecution({ events, goals, executor })
@@ -281,6 +311,7 @@ export function createApplication(
     goals,
     memory,
     registry,
+    ...(serverCapabilities ? { serverCapabilities } : {}),
     identity,
     identityMode,
     manualAccess,
@@ -356,8 +387,9 @@ export function createApplication(
       if (closed) throw new Error('application is closed')
       if (started) throw new Error('application is already started')
 
-      await runtime.adapter.connect()
+      await serverCapabilities?.start()
       try {
+        await runtime.adapter.connect()
         const address = await controlServer.start()
         try {
           await adminServer?.start()
@@ -370,6 +402,7 @@ export function createApplication(
       } catch (error) {
         await safeDisconnect(runtime)
         await adapterEventTail
+        serverCapabilities?.stop()
         throw error
       }
     },
@@ -378,6 +411,7 @@ export function createApplication(
       if (closed) return
       closed = true
 
+      serverCapabilities?.stop()
       if (adminServer) await contain(() => adminServer.close())
       await contain(() => controlServer.close())
       await contain(() => coordinator.clearAiWork('application_shutdown'))
@@ -459,7 +493,8 @@ function registerProductionSkills(
   runtime: MineflayerRuntimeBundle,
   safety: SafetyPolicy,
   state: WorldStateCache,
-  events: RuntimeEventBus
+  events: RuntimeEventBus,
+  serverCapabilities?: ServerCapabilitySource
 ): void {
   const navigation = createNavigationSkills(runtime.adapter)
   registry.register(navigation.goTo)
@@ -481,6 +516,7 @@ function registerProductionSkills(
     safety,
     state: () => state.snapshot(),
     protection,
+    ...(serverCapabilities ? { capabilities: serverCapabilities } : {}),
     onCooperativePickup: notice => {
       void events.publish({
         type: 'cooperative_pickup',
@@ -494,6 +530,18 @@ function registerProductionSkills(
       })
     }
   }))
+}
+
+
+function createDefaultServerCapabilities(
+  config: Extract<MoxueBridgeConfig, { enabled: true }>
+): ApplicationServerCapabilitiesPort {
+  return new MoxueBridgeCapabilities({
+    baseUrl: config.baseUrl,
+    bearerToken: config.bearerToken,
+    timeoutMs: config.timeoutMs,
+    refreshIntervalMs: config.refreshIntervalMs
+  })
 }
 
 function createDefaultMemory(filename: string): MinecraftMemoryRepository {
