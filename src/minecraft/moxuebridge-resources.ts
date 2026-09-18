@@ -36,6 +36,24 @@ const ResourceDescriptorListSchema =
 type ResourceDescriptor =
   z.infer<typeof ResourceDescriptorSchema>
 
+export interface ServerResourceSummary {
+  readonly id: string
+  readonly kind: string
+  readonly aliases: readonly string[]
+  readonly blockIds: readonly string[]
+  readonly collectedItemIds: readonly string[]
+  readonly minimumDropCount: number
+  readonly toolKind: string | null
+  readonly capabilityId: string | null
+  readonly relatedLeaves: readonly string[]
+  readonly cleanupPolicy: LeafCleanupPolicy | null
+  readonly confidence: 'authoritative' | 'inferred'
+}
+
+export interface ServerResourceCatalogSource extends ResourceProfileSource {
+  snapshot(): readonly ServerResourceSummary[]
+}
+
 type FetchLike = (
   input: string | URL,
   init?: RequestInit
@@ -55,7 +73,7 @@ const DEFAULT_REFRESH_INTERVAL_MS = 30_000
 const DEFAULT_MAX_RESPONSE_BYTES = 512 * 1024
 
 export class MoxueBridgeResourceCatalog
-implements ResourceProfileSource {
+implements ServerResourceCatalogSource {
   private readonly baseUrl: string
   private readonly bearerToken: string
   private readonly timeoutMs: number
@@ -63,6 +81,7 @@ implements ResourceProfileSource {
   private readonly maxResponseBytes: number
   private readonly fetchImpl: FetchLike
   private profiles = new Map<string, ResourceProfile>()
+  private descriptors: ResourceDescriptor[] = []
   private timer: NodeJS.Timeout | null = null
 
   constructor(options: MoxueBridgeResourceCatalogOptions) {
@@ -125,6 +144,7 @@ implements ResourceProfileSource {
       // profiles remain available, so absence of the optional catalog is safe.
       if (response.status === 404) {
         this.profiles = new Map()
+        this.descriptors = []
         return true
       }
       if (response.status !== 200) {
@@ -152,6 +172,7 @@ implements ResourceProfileSource {
       }
 
       this.profiles = next
+      this.descriptors = descriptors.map(cloneDescriptor)
       return true
     } catch {
       return false
@@ -164,6 +185,42 @@ implements ResourceProfileSource {
     const key = normalizeLookupKey(resource)
     const profile = this.profiles.get(key)
     return profile ? cloneProfile(profile, key) : undefined
+  }
+
+  snapshot(): readonly ServerResourceSummary[] {
+    return this.descriptors
+      .map(descriptor => ({
+        id: descriptor.id,
+        kind: descriptor.kind,
+        aliases: [...descriptor.aliases],
+        blockIds: [...descriptor.block_ids],
+        collectedItemIds: [...descriptor.collected_item_ids],
+        minimumDropCount: descriptor.minimum_drop_count,
+        toolKind: descriptor.tool_kind ?? null,
+        capabilityId: descriptor.capability_id ?? null,
+        relatedLeaves: [...(descriptor.related_blocks.leaves ?? [])],
+        cleanupPolicy:
+          (descriptor.cleanup_policy as LeafCleanupPolicy | null | undefined)
+          ?? null,
+        confidence: descriptor.confidence
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id))
+  }
+}
+
+function cloneDescriptor(
+  descriptor: ResourceDescriptor
+): ResourceDescriptor {
+  return {
+    ...descriptor,
+    aliases: [...descriptor.aliases],
+    block_ids: [...descriptor.block_ids],
+    collected_item_ids: [...descriptor.collected_item_ids],
+    forbidden_enchantments: [...descriptor.forbidden_enchantments],
+    related_blocks: Object.fromEntries(
+      Object.entries(descriptor.related_blocks)
+        .map(([key, values]) => [key, [...values]])
+    )
   }
 }
 
