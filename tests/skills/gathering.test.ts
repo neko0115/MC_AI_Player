@@ -485,7 +485,7 @@ test('vein_mining uses the resource profile to count raw iron and exclude Silk T
   }])
 })
 
-test('unsafe vein capability falls back to one-block raw-iron gathering with a non-Silk pickaxe', async () => {
+test('unsafe vein capability falls back to one-block raw-iron gathering with a deterministic pickaxe', async () => {
   const world = new FakeGatheringWorld([
     { blockName: 'iron_ore', position: { x: 4, y: 64, z: 0 } },
     { blockName: 'iron_ore', position: { x: 6, y: 64, z: 0 } }
@@ -521,7 +521,10 @@ test('unsafe vein capability falls back to one-block raw-iron gathering with a n
   assert.deepEqual(result, { status: 'succeeded', code: 'gathered' })
   assert.equal(world.inventoryCount('raw_iron'), 2)
   assert.deepEqual(world.toolPreparationKinds, ['pickaxe', 'pickaxe'])
-  assert.deepEqual(world.toolPreparationForbidden, [['silk_touch'], ['silk_touch']])
+  assert.deepEqual(world.toolPreparationForbidden, [
+    ['silk_touch', 'fortune'],
+    ['silk_touch', 'fortune']
+  ])
   assert.deepEqual(world.harvestOptions, [
     { expectedItemNames: ['raw_iron'] },
     { expectedItemNames: ['raw_iron'] }
