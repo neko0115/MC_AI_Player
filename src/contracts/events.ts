@@ -143,6 +143,15 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
+      type: z.literal('server_capability_used'),
+      at: AtSchema,
+      capability: EventCodeSchema,
+      resource: z.string().trim().min(1).max(128),
+      maxChain: z.number().int().min(1).max(2304)
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('cooperative_pickup'),
       at: AtSchema,
       resource: z.string().trim().min(1).max(128),
