@@ -28,6 +28,16 @@ export interface ControlApiConfig {
   readonly maxBodyBytes: number
 }
 
+export type MoxueBridgeConfig =
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true
+      readonly baseUrl: string
+      readonly bearerToken: string
+      readonly timeoutMs: number
+      readonly refreshIntervalMs: number
+    }
+
 export type AdminApiConfig =
   | { readonly enabled: false }
   | {
@@ -44,6 +54,9 @@ const MAX_CONTROL_BODY_BYTES = 1024 * 1024
 const DEFAULT_AI_ROUTING_PATH = 'data/ai-routing.json'
 const MAX_AI_ROUTING_PATH_LENGTH = 4096
 const DEFAULT_ADMIN_PORT = 8767
+const DEFAULT_MOXUEBRIDGE_TIMEOUT_MS = 800
+const DEFAULT_MOXUEBRIDGE_REFRESH_INTERVAL_MS = 30_000
+const MAX_MOXUEBRIDGE_URL_LENGTH = 2048
 const MAX_TOKEN_LENGTH = 4096
 
 export function loadMinecraftConfig(env: NodeJS.ProcessEnv): MinecraftConfig {
@@ -103,6 +116,59 @@ export function loadMinecraftServerIdentityMode(
   return env.MC_SERVER_IDENTITY_MODE?.trim().toLowerCase() === 'online'
     ? 'online'
     : 'offline'
+}
+
+export function loadMoxueBridgeConfig(
+  env: Readonly<Record<string, string | undefined>>
+): MoxueBridgeConfig {
+  const rawBaseUrl = env.MC_MOXUEBRIDGE_BASE_URL?.trim()
+  if (!rawBaseUrl) {
+    return { enabled: false }
+  }
+  if (rawBaseUrl.length > MAX_MOXUEBRIDGE_URL_LENGTH) {
+    throw new Error(`MC_MOXUEBRIDGE_BASE_URL must be at most ${MAX_MOXUEBRIDGE_URL_LENGTH} characters`)
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(rawBaseUrl)
+  } catch {
+    throw new Error('MC_MOXUEBRIDGE_BASE_URL must be a valid URL')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('MC_MOXUEBRIDGE_BASE_URL must use http or https')
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('MC_MOXUEBRIDGE_BASE_URL must not contain credentials, query, or fragment')
+  }
+
+  const bearerToken = env.MC_MOXUEBRIDGE_TOKEN?.trim()
+  if (!bearerToken) {
+    throw new Error('MC_MOXUEBRIDGE_TOKEN is required when MC_MOXUEBRIDGE_BASE_URL is set')
+  }
+  if (bearerToken.length > MAX_TOKEN_LENGTH) {
+    throw new Error(`MC_MOXUEBRIDGE_TOKEN must be at most ${MAX_TOKEN_LENGTH} characters`)
+  }
+
+  return {
+    enabled: true,
+    baseUrl: parsed.toString().replace(/\/+$/, ''),
+    bearerToken,
+    timeoutMs: parseIntegerSetting(
+      env.MC_MOXUEBRIDGE_TIMEOUT_MS,
+      DEFAULT_MOXUEBRIDGE_TIMEOUT_MS,
+      'MC_MOXUEBRIDGE_TIMEOUT_MS',
+      1,
+      60_000
+    ),
+    refreshIntervalMs: parseIntegerSetting(
+      env.MC_MOXUEBRIDGE_REFRESH_INTERVAL_MS,
+      DEFAULT_MOXUEBRIDGE_REFRESH_INTERVAL_MS,
+      'MC_MOXUEBRIDGE_REFRESH_INTERVAL_MS',
+      250,
+      24 * 60 * 60 * 1000
+    )
+  }
 }
 
 export function loadAdminApiConfig(
