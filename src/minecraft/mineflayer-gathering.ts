@@ -475,10 +475,10 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
 }
 
 
-function selectSemanticTool(
-  items: ReadonlyArray<{ readonly name: string }>,
+function selectSemanticTool<T extends { readonly name: string }>(
+  items: readonly T[],
   toolKind: 'axe' | 'pickaxe' | undefined
-): { readonly name: string } | undefined {
+): T | undefined {
   if (!toolKind) return undefined
   for (const material of TOOL_MATERIAL_PREFERENCE) {
     const exactName = `${material}_${toolKind}`
