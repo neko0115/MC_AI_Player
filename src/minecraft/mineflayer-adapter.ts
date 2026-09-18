@@ -106,6 +106,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
   private navigationBot: Bot | null = null
   private navigationMovements: Movements | null = null
   private lastPositionCell: string | null = null
+  private readonly lastHostileCells = new Map<number, string>()
 
   constructor(
     private readonly config: MinecraftConfig,
@@ -423,6 +424,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
     }
     const bot = this.createBot(options)
     this.lastPositionCell = null
+    this.lastHostileCells.clear()
     this.bot = bot
     this.attachObservationListeners(bot)
   }
@@ -475,8 +477,11 @@ export class MineflayerAdapter implements MinecraftAdapter {
     })
 
     bot.on('entitySpawn', entity => {
+      if (this.bot !== bot) return
+
+      this.emitHostileIfPositioned(entity)
+
       if (
-        this.bot !== bot ||
         entity.type !== 'player' ||
         !entity.username ||
         entity.username === bot.username
@@ -488,6 +493,23 @@ export class MineflayerAdapter implements MinecraftAdapter {
         ...(entity.uuid ? { uuid: entity.uuid } : {}),
         entity
       })
+    })
+
+    bot.on('entityMoved', entity => {
+      if (this.bot !== bot) return
+      this.emitHostileIfPositioned(entity)
+    })
+
+    bot.on('entityGone', entity => {
+      if (this.bot !== bot) return
+      const entityId = Number(entity.id)
+      if (
+        Number.isInteger(entityId) &&
+        entityId >= 0 &&
+        this.lastHostileCells.delete(entityId)
+      ) {
+        this.emit(this.bridge.hostileLeft(entityId))
+      }
     })
 
     bot.on('chat', (username, message) => {
@@ -518,12 +540,41 @@ export class MineflayerAdapter implements MinecraftAdapter {
         this.navigationMovements = null
       }
       this.lastPositionCell = null
+      this.lastHostileCells.clear()
       this.bot = null
       this.emit(this.bridge.ended(reason))
       if (!this.operatorDisconnect) {
         this.scheduleReconnect()
       }
     })
+  }
+
+  private emitHostileIfPositioned(entity: {
+    id?: number
+    type?: string
+    name?: string
+    position?: { x: number; y: number; z: number }
+  }): void {
+    const entityId = Number(entity.id)
+    const kind = hostileKind(entity)
+    if (
+      kind === null ||
+      !Number.isInteger(entityId) ||
+      entityId < 0 ||
+      !entity.position
+    ) {
+      return
+    }
+
+    const cell = positionCell(entity.position)
+    if (this.lastHostileCells.get(entityId) === cell) return
+
+    this.lastHostileCells.set(entityId, cell)
+    this.emit(this.bridge.hostileSeen({
+      id: entityId,
+      name: kind,
+      position: entity.position
+    }))
   }
 
   private emitPlayerIfPositioned(player: Parameters<ObservationBridge['playerSeen']>[0]): void {
@@ -624,6 +675,51 @@ export class MineflayerAdapter implements MinecraftAdapter {
       listener(event)
     }
   }
+}
+
+const DEFINITELY_HOSTILE_MOBS = new Set([
+  'blaze',
+  'bogged',
+  'breeze',
+  'cave_spider',
+  'creeper',
+  'drowned',
+  'elder_guardian',
+  'ender_dragon',
+  'endermite',
+  'evoker',
+  'ghast',
+  'guardian',
+  'hoglin',
+  'husk',
+  'magma_cube',
+  'phantom',
+  'piglin_brute',
+  'pillager',
+  'ravager',
+  'shulker',
+  'silverfish',
+  'skeleton',
+  'slime',
+  'stray',
+  'vex',
+  'vindicator',
+  'warden',
+  'witch',
+  'wither',
+  'wither_skeleton',
+  'zoglin',
+  'zombie',
+  'zombie_villager'
+])
+
+function hostileKind(entity: {
+  type?: string
+  name?: string
+}): string | null {
+  if (entity.type !== 'mob') return null
+  const name = entity.name?.trim().toLowerCase() ?? ''
+  return DEFINITELY_HOSTILE_MOBS.has(name) ? name : null
 }
 
 function positionCell(position: Position): string {
