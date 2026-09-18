@@ -146,12 +146,34 @@ test('loopback starts without a token and exposes bounded health/status', async 
 })
 
 
-test('status exposes only sanitized capability sync state and semantic ids', async () => {
+test('status exposes only sanitized capability sync state and semantic details', async () => {
   const current = await started({
     capabilityStatus: {
       snapshot: () => ({
         state: 'current',
-        ids: ['vein_mining', 'tree_felling', 'vein_mining']
+        ids: ['vein_mining', 'tree_felling', 'vein_mining'],
+        details: [
+          {
+            id: 'vein_mining',
+            trigger: 'sneak_and_break',
+            constraints: {
+              max_chain: 100,
+              correct_tool_required: true,
+              must_sneak: true,
+              same_block_only: false,
+              internal_plugin_path: '/secret/path',
+              nested: { should_not_leak: true }
+            }
+          },
+          {
+            id: 'tree_felling',
+            trigger: 'break',
+            constraints: {
+              max_chain: 4,
+              tool_kind: 'axe'
+            }
+          }
+        ]
       })
     }
   })
@@ -162,11 +184,32 @@ test('status exposes only sanitized capability sync state and semantic ids', asy
       server_capabilities?: {
         sync_state?: string
         ids?: string[]
+        details?: unknown[]
       }
     }
     assert.deepEqual(body.server_capabilities, {
       sync_state: 'current',
-      ids: ['tree_felling', 'vein_mining']
+      ids: ['tree_felling', 'vein_mining'],
+      details: [
+        {
+          id: 'tree_felling',
+          trigger: 'break',
+          constraints: {
+            max_chain: 4,
+            tool_kind: 'axe'
+          }
+        },
+        {
+          id: 'vein_mining',
+          trigger: 'sneak_and_break',
+          constraints: {
+            correct_tool_required: true,
+            max_chain: 100,
+            must_sneak: true,
+            same_block_only: false
+          }
+        }
+      ]
     })
   } finally {
     await current.server.close()
