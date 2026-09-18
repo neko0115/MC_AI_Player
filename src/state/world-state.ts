@@ -1,4 +1,5 @@
 import type {
+  HostileSnapshot,
   ItemStackSnapshot,
   PlayerSnapshot,
   Position,
@@ -13,6 +14,7 @@ export interface WorldStateSnapshot {
   dimension: string | null
   position: Position | null
   nearbyPlayers: ReadonlyArray<PlayerSnapshot>
+  nearbyHostiles?: ReadonlyArray<HostileSnapshot>
   inventory: ReadonlyArray<ItemStackSnapshot>
   recentEvents: ReadonlyArray<RuntimeEvent>
 }
