@@ -48,9 +48,16 @@ export interface ControlAiStatusPort {
   snapshot(): ControlAiStatusSnapshot
 }
 
+export interface ControlCapabilityStatusDetail {
+  readonly id: string
+  readonly trigger: string
+  readonly constraints: Readonly<Record<string, unknown>>
+}
+
 export interface ControlCapabilityStatusSnapshot {
   readonly state: 'current' | 'stale' | 'unavailable'
   readonly ids: readonly string[]
+  readonly details?: readonly ControlCapabilityStatusDetail[]
 }
 
 export interface ControlCapabilityStatusPort {
@@ -80,6 +87,15 @@ const DEFAULT_MAX_BODY_BYTES = 16 * 1024
 const MAX_STATUS_QUEUE = 64
 const MAX_STATUS_PLAYERS = 32
 const MAX_STATUS_INVENTORY = 128
+const MAX_STATUS_CAPABILITIES = 64
+const CAPABILITY_CONSTRAINT_ALLOWLIST = new Set([
+  'max_chain',
+  'correct_tool_required',
+  'must_sneak',
+  'same_block_only',
+  'tool_kind',
+  'merge_item_drops'
+])
 
 const StopRequestSchema = z
   .object({
@@ -337,12 +353,43 @@ function publicCapabilityStatus(snapshot: ControlCapabilityStatusSnapshot): unkn
       .filter(Boolean)
   )]
     .sort()
-    .slice(0, 64)
+    .slice(0, MAX_STATUS_CAPABILITIES)
+
+  const details = (snapshot.details ?? [])
+    .slice(0, MAX_STATUS_CAPABILITIES)
+    .map(detail => ({
+      id: boundedText(detail.id, 128),
+      trigger: boundedText(detail.trigger, 128),
+      constraints: publicCapabilityConstraints(detail.constraints)
+    }))
+    .filter(detail => detail.id.length > 0)
+    .sort((left, right) => left.id.localeCompare(right.id))
 
   return {
     sync_state: state,
-    ids
+    ids,
+    ...(details.length > 0 ? { details } : {})
   }
+}
+
+function publicCapabilityConstraints(
+  constraints: Readonly<Record<string, unknown>>
+): Readonly<Record<string, string | number | boolean | null>> {
+  const safe: Record<string, string | number | boolean | null> = {}
+  for (const key of [...CAPABILITY_CONSTRAINT_ALLOWLIST].sort()) {
+    const value = constraints[key]
+    if (
+      value === null ||
+      typeof value === 'boolean' ||
+      (typeof value === 'number' && Number.isFinite(value)) ||
+      typeof value === 'string'
+    ) {
+      safe[key] = typeof value === 'string'
+        ? boundedText(value, 128)
+        : value
+    }
+  }
+  return safe
 }
 
 function publicAiStatus(snapshot: ControlAiStatusSnapshot): unknown {
