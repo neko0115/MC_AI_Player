@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadMoxueBridgeConfig } from '../../src/config.js'
+import {
+  loadMoxueBridgeConfig,
+  loadTreeLeafCleanupSetting
+} from '../../src/config.js'
 
 test('MoxueBridge discovery is disabled when no base URL is configured', () => {
   assert.deepEqual(loadMoxueBridgeConfig({}), { enabled: false })
@@ -44,5 +47,31 @@ test('rejects credential-bearing or non-http MoxueBridge URLs', () => {
       MC_MOXUEBRIDGE_TOKEN: 'secret'
     }),
     /must not contain credentials/
+  )
+})
+
+
+test('tree leaf cleanup defaults to catalog policy and accepts explicit overrides', () => {
+  assert.equal(loadTreeLeafCleanupSetting({}), 'catalog')
+  assert.equal(
+    loadTreeLeafCleanupSetting({
+      MC_TREE_LEAF_CLEANUP_POLICY: 'remove_after_felling'
+    }),
+    'remove_after_felling'
+  )
+  assert.equal(
+    loadTreeLeafCleanupSetting({
+      MC_TREE_LEAF_CLEANUP_POLICY: 'preserve'
+    }),
+    'preserve'
+  )
+})
+
+test('rejects unknown tree leaf cleanup policy', () => {
+  assert.throws(
+    () => loadTreeLeafCleanupSetting({
+      MC_TREE_LEAF_CLEANUP_POLICY: 'delete_everything'
+    }),
+    /MC_TREE_LEAF_CLEANUP_POLICY/
   )
 })
