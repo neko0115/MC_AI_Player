@@ -13,6 +13,7 @@ interface FakeItem {
   name: string
   count: number
   type: number
+  enchants?: Array<{ name: string; lvl: number }>
 }
 
 class FakeBot extends EventEmitter {
@@ -219,11 +220,90 @@ test('semantic axe preparation equips an axe when vanilla block metadata has no 
   const result = await runtime.prepareResourceTool(
     oak,
     new AbortController().signal,
-    'axe'
+    { toolKind: 'axe' }
   )
 
   assert.deepEqual(result, { status: 'succeeded', code: 'correct_tool_equipped' })
   assert.equal(bot.equippedItem?.name, 'iron_axe')
+})
+
+test('tool preparation excludes forbidden Fortune and Silk Touch enchantments', async () => {
+  const bot = new FakeBot()
+  bot.harvestTools = { '257': true }
+  bot.inventoryItems.push(
+    {
+      name: 'iron_pickaxe',
+      count: 1,
+      type: 257,
+      enchants: [{ name: 'fortune', lvl: 3 }]
+    },
+    {
+      name: 'iron_pickaxe',
+      count: 1,
+      type: 257
+    }
+  )
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const result = await runtime.prepareResourceTool(
+    oak,
+    new AbortController().signal,
+    {
+      toolKind: 'pickaxe',
+      forbiddenEnchantments: ['silk_touch', 'fortune']
+    }
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'correct_tool_equipped' })
+  assert.deepEqual(bot.equippedItem?.enchants, undefined)
+})
+
+test('tool preparation fails closed when every valid pickaxe has Silk Touch', async () => {
+  const bot = new FakeBot()
+  bot.harvestTools = { '257': true }
+  bot.inventoryItems.push({
+    name: 'iron_pickaxe',
+    count: 1,
+    type: 257,
+    enchants: [{ name: 'minecraft:silk_touch', lvl: 1 }]
+  })
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const result = await runtime.prepareResourceTool(
+    oak,
+    new AbortController().signal,
+    {
+      toolKind: 'pickaxe',
+      forbiddenEnchantments: ['silk_touch']
+    }
+  )
+
+  assert.deepEqual(result, { status: 'failed', code: 'correct_tool_unavailable' })
+  assert.equal(bot.equippedItem, null)
+})
+
+test('harvest can confirm a resource-profile drop whose item name differs from the block', async () => {
+  const bot = new FakeBot()
+  bot.blockName = 'iron_ore'
+  bot.dig = async () => {
+    bot.digCount += 1
+    bot.inventoryItems.push({ name: 'raw_iron', count: 1, type: 1000 })
+  }
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+  const target: ResourceCandidate = {
+    blockName: 'iron_ore',
+    position: { x: 4, y: 64, z: 0 }
+  }
+
+  const result = await runtime.harvestResourceBlock(
+    target,
+    issuedPermit('iron_ore'),
+    new AbortController().signal,
+    { expectedItemNames: ['raw_iron'] }
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'collected' })
+  assert.equal(runtime.inventoryCount('raw_iron'), 1)
 })
 
 test('sneak harvest always releases the sneak control state after digging', async () => {
