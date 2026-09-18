@@ -38,6 +38,7 @@ export interface ResourceSearchRequest {
 export interface ResourceHarvestOptions {
   readonly sneak?: boolean
   readonly expectedItemNames?: readonly string[]
+  readonly requireCollection?: boolean
 }
 
 export interface ResourceToolPreparationOptions {
@@ -63,6 +64,13 @@ export interface ResourceGatheringAdapter {
     signal: AbortSignal,
     options?: ResourceHarvestOptions
   ): Promise<SkillResult>
+  findDecayingLeafBlocks?(
+    leafNames: readonly string[],
+    origin: Position,
+    radius: number,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<readonly ResourceCandidate[]>
   findDroppedResource?(
     itemName: string,
     origin: Position,
