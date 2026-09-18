@@ -182,3 +182,84 @@ test('fails closed on malformed capability payloads', async t => {
   assert.equal(capabilities.status().state, 'unavailable')
   assert.equal(capabilities.status().lastErrorCode, 'invalid_response')
 })
+
+
+test('accepts additive future fields but strips them from the capability snapshot', async t => {
+  const fixture = await createTestServer((_request, response) => {
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify([
+      {
+        id: 'vein_mining',
+        name: '連鎖挖礦',
+        description: '一次挖掘相連的礦物方塊',
+        available: true,
+        future_top_level: 'ignored',
+        source: {
+          plugin: 'VeinMiner',
+          version: '2.11.2',
+          provenance: 'integration',
+          future_source_field: 'ignored'
+        },
+        usage: {
+          trigger: 'sneak_and_break',
+          human: '蹲下並使用正確的十字鎬挖掘相連礦物',
+          future_usage_field: 'ignored'
+        },
+        constraints: {
+          max_chain: 100
+        }
+      }
+    ]))
+  })
+  t.after(() => fixture.close())
+
+  const capabilities = new MoxueBridgeCapabilities({
+    baseUrl: fixture.baseUrl,
+    bearerToken: 'secret-token',
+    timeoutMs: 1000
+  })
+
+  assert.equal(await capabilities.refresh(), true)
+  const [capability] = capabilities.snapshot()
+  assert.ok(capability)
+  assert.equal('future_top_level' in capability, false)
+  assert.equal('future_source_field' in capability.source, false)
+  assert.equal('future_usage_field' in capability.usage, false)
+})
+
+test('duplicate available capability ids fail closed instead of selecting an ambiguous definition', async t => {
+  const capability = {
+    id: 'vein_mining',
+    name: '連鎖挖礦',
+    description: '一次挖掘相連的礦物方塊',
+    available: true,
+    source: {
+      plugin: 'VeinMiner',
+      version: '2.11.2',
+      provenance: 'integration'
+    },
+    usage: {
+      trigger: 'sneak_and_break',
+      human: '蹲下並使用正確的十字鎬挖掘相連礦物'
+    },
+    constraints: {
+      max_chain: 100
+    }
+  }
+  const fixture = await createTestServer((_request, response) => {
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify([capability, capability]))
+  })
+  t.after(() => fixture.close())
+
+  const capabilities = new MoxueBridgeCapabilities({
+    baseUrl: fixture.baseUrl,
+    bearerToken: 'secret-token',
+    timeoutMs: 1000
+  })
+
+  assert.equal(await capabilities.refresh(), false)
+  assert.deepEqual(capabilities.snapshot(), [])
+  assert.equal(capabilities.status().lastErrorCode, 'invalid_response')
+})
+
