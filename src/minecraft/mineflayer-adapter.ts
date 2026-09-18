@@ -440,6 +440,7 @@ export class MineflayerAdapter implements MinecraftAdapter {
       this.attachInventoryListener(bot)
       this.lastPositionCell = positionCell(bot.entity.position)
       this.emit(this.bridge.spawned(bot))
+      this.emit(this.bridge.inventory(bot))
     })
 
     bot.on('move', () => {
