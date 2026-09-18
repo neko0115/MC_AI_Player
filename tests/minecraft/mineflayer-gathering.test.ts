@@ -25,6 +25,7 @@ class FakeBot extends EventEmitter {
   searchPositions = [new Vec3(4, 64, 0)]
   canDig = true
   harvestTools: Readonly<Record<string, boolean>> | undefined
+  blockProperties: Record<string, unknown> = {}
   equippedItem: FakeItem | null = null
   readonly controlStates: Array<{ state: string; enabled: boolean }> = []
 
@@ -48,7 +49,8 @@ class FakeBot extends EventEmitter {
     return {
       name: this.blockName,
       position: position.clone(),
-      ...(this.harvestTools ? { harvestTools: this.harvestTools } : {})
+      ...(this.harvestTools ? { harvestTools: this.harvestTools } : {}),
+      getProperties: () => ({ ...this.blockProperties })
     }
   }
 
@@ -123,6 +125,80 @@ test('bounded Mineflayer search returns semantic resource candidates', async () 
 
   assert.deepEqual(result, [oak])
   assert.deepEqual(runtime.currentPosition(), { x: 0, y: 64, z: 0 })
+})
+
+test('decaying leaf scan only returns natural unsupported leaves', async () => {
+  const bot = new FakeBot()
+  bot.blockName = 'oak_leaves'
+  bot.blockProperties = {
+    persistent: false,
+    distance: 7
+  }
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+
+  const decaying = await runtime.findDecayingLeafBlocks(
+    ['oak_leaves'],
+    { x: 0, y: 64, z: 0 },
+    8,
+    8,
+    new AbortController().signal
+  )
+  assert.equal(decaying.length, 1)
+  assert.equal(decaying[0]?.blockName, 'oak_leaves')
+
+  bot.blockProperties = {
+    persistent: true,
+    distance: 7
+  }
+  assert.deepEqual(
+    await runtime.findDecayingLeafBlocks(
+      ['oak_leaves'],
+      { x: 0, y: 64, z: 0 },
+      8,
+      8,
+      new AbortController().signal
+    ),
+    []
+  )
+
+  bot.blockProperties = {
+    persistent: false,
+    distance: 6
+  }
+  assert.deepEqual(
+    await runtime.findDecayingLeafBlocks(
+      ['oak_leaves'],
+      { x: 0, y: 64, z: 0 },
+      8,
+      8,
+      new AbortController().signal
+    ),
+    []
+  )
+})
+
+test('optional-collection removal succeeds even when a cleaned leaf drops nothing', async () => {
+  const bot = new FakeBot()
+  bot.blockName = 'oak_leaves'
+  bot.dig = async () => {
+    bot.digCount += 1
+  }
+  const runtime = new MineflayerGatheringRuntime(() => bot as unknown as Bot)
+  const leaf: ResourceCandidate = {
+    blockName: 'oak_leaves',
+    position: { x: 4, y: 64, z: 0 }
+  }
+
+  const result = await runtime.harvestResourceBlock(
+    leaf,
+    issuedPermit('oak_leaves'),
+    new AbortController().signal,
+    { requireCollection: false }
+  )
+
+  assert.deepEqual(result, { status: 'succeeded', code: 'removed' })
+  assert.equal(bot.digCount, 1)
+  assert.equal(runtime.inventoryCount('oak_leaves'), 0)
 })
 
 test('forged mutation permit cannot reach bot.dig', async () => {
