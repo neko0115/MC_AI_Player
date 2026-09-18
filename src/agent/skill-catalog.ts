@@ -9,7 +9,8 @@ const DECISION_SKILLS: ReadonlyArray<DecisionSkillDescription> = Object.freeze([
   { name: 'return_home', description: 'Return to the configured home location.' },
   { name: 'eat', description: 'Eat one approved ordinary food item.' },
   { name: 'equip', description: 'Equip one exact inventory item to an approved destination.' },
-  { name: 'gather_resource', description: 'Gather a bounded quantity of one resource; deterministic profiles map vanilla source blocks to their collected drops when needed.' },
+  { name: 'gather_resource', description: 'Gather at least a bounded requested quantity of one visible resource; safe over-collection is allowed.' },
+  { name: 'explore_resource', description: 'Explore reachable visible space without digging to look for a resource that is not currently visible.' },
   { name: 'deposit_item', description: 'Deposit an exact bounded quantity into one named storage target.' },
   { name: 'withdraw_item', description: 'Withdraw an exact bounded quantity from one named storage target.' }
 ])
