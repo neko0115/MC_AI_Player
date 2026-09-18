@@ -299,27 +299,35 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       )
       if (harvested.status === 'cancelled') return harvested
 
-      if (harvested.status === 'succeeded' && activeCapabilityStrategy) {
+      const capabilityDigCompleted =
+        activeCapabilityStrategy !== null &&
+        (
+          harvested.status === 'succeeded' ||
+          (harvested.status === 'failed' && harvested.code === 'item_not_collected')
+        )
+
+      if (capabilityDigCompleted && activeCapabilityStrategy) {
         safelyNotifyCapability(this.dependencies.onCapabilityUsed, {
           capability: activeCapabilityStrategy.capability.id,
           resource,
           maxChain: activeCapabilityStrategy.maxChain
         })
-      }
 
-      if (
-        harvested.status === 'succeeded' &&
-        activeCapabilityStrategy &&
-        this.dependencies.resources.inventoryCount(resource) < targetCount
-      ) {
-        const sweep = await this.collectAcceleratedDrops(
-          candidate,
-          resource,
-          targetCount,
-          activeCapabilityStrategy.maxChain,
-          signal
-        )
-        if (sweep) return sweep
+        if (this.dependencies.resources.inventoryCount(resource) < targetCount) {
+          const sweep = await this.collectAcceleratedDrops(
+            candidate,
+            resource,
+            targetCount,
+            activeCapabilityStrategy.maxChain,
+            signal
+          )
+          if (sweep) return sweep
+          if (this.dependencies.resources.inventoryCount(resource) >= targetCount) {
+            failures = 0
+            lastFailureCode = null
+            continue
+          }
+        }
       }
 
       if (harvested.status !== 'succeeded') {
