@@ -111,6 +111,8 @@ Only `current` capability snapshots may enter AI decision context or influence d
 
 Deterministic gathering may use capability hints such as correct-tool preparation and sneak-while-breaking, but `SafetyPolicy` and scoped `ResourceMutationPermit` remain authoritative. Multi-block acceleration fails closed unless the capability advertises both a finite `max_chain` that fits inside the remaining gather quantity and `same_block_only=true`. This prevents a mixed VeinMiner group from turning a single-resource goal into collateral block destruction.
 
+Resource Profiles separate source-block semantics from collected-item semantics. For example, `iron_ore` / `deepslate_iron_ore` are gathered as `raw_iron`; exact one-item-per-block ore profiles require a non-Silk-Touch, non-Fortune pickaxe before deterministic chain acceleration can activate. Variable-drop ores such as copper, redstone, lapis, and nether gold use correct drop accounting but remain in one-block mode. Unknown or non-`minecraft:` namespaced resources never inherit vanilla ore semantics by suffix.
+
 For the current same-host integration layout, avoid the historical port collision by using:
 
 ```text
