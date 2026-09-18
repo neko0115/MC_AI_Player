@@ -8,6 +8,7 @@ import type {
 import type { SkillName } from '../contracts/skills.js'
 import type { MinecraftMemory, MinecraftMemoryType } from '../memory/repository.js'
 import type { ServerCapability } from '../minecraft/moxuebridge-capabilities.js'
+import type { ServerResourceSummary } from '../minecraft/moxuebridge-resources.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
 export interface DecisionSkillDescription {
@@ -24,6 +25,21 @@ export interface DecisionServerCapability {
   readonly trigger: string
   readonly usage: string
   readonly constraints: Readonly<Record<string, DecisionCapabilityConstraint>>
+}
+
+
+export interface DecisionServerResource {
+  readonly id: string
+  readonly kind: string
+  readonly aliases: readonly string[]
+  readonly blocks: readonly string[]
+  readonly drops: readonly string[]
+  readonly minimumDropCount: number
+  readonly toolKind: string | null
+  readonly capabilityId: string | null
+  readonly relatedLeaves: readonly string[]
+  readonly cleanupPolicy: string | null
+  readonly confidence: 'authoritative' | 'inferred'
 }
 
 export interface DecisionTaskContext {
@@ -75,6 +91,7 @@ export interface DecisionContext {
   readonly memories: readonly DecisionMemorySummary[]
   readonly skills: readonly DecisionSkillDescription[]
   readonly serverCapabilities?: readonly DecisionServerCapability[]
+  readonly serverResources?: readonly DecisionServerResource[]
   readonly safetyConstraints: readonly string[]
 }
 
@@ -86,6 +103,7 @@ export interface ContextBuilderInput {
   readonly memories: readonly MinecraftMemory[]
   readonly skills: readonly DecisionSkillDescription[]
   readonly serverCapabilities?: readonly ServerCapability[]
+  readonly serverResources?: readonly ServerResourceSummary[]
   readonly safetyConstraints: readonly string[]
 }
 
@@ -102,6 +120,9 @@ export interface ContextBuilderOptions {
   readonly maxServerCapabilityDescriptionChars?: number
   readonly maxServerCapabilityUsageChars?: number
   readonly maxServerCapabilityConstraints?: number
+  readonly maxServerResources?: number
+  readonly maxServerResourceAliases?: number
+  readonly maxServerResourceIds?: number
   readonly maxSafetyConstraints?: number
   readonly maxSafetyConstraintChars?: number
   readonly maxTaskObjectiveChars?: number
@@ -121,6 +142,9 @@ interface NormalizedOptions {
   maxServerCapabilityDescriptionChars: number
   maxServerCapabilityUsageChars: number
   maxServerCapabilityConstraints: number
+  maxServerResources: number
+  maxServerResourceAliases: number
+  maxServerResourceIds: number
   maxSafetyConstraints: number
   maxSafetyConstraintChars: number
   maxTaskObjectiveChars: number
@@ -161,6 +185,9 @@ export class ContextBuilder {
       maxServerCapabilityDescriptionChars: options.maxServerCapabilityDescriptionChars ?? 300,
       maxServerCapabilityUsageChars: options.maxServerCapabilityUsageChars ?? 500,
       maxServerCapabilityConstraints: options.maxServerCapabilityConstraints ?? 16,
+      maxServerResources: options.maxServerResources ?? 32,
+      maxServerResourceAliases: options.maxServerResourceAliases ?? 8,
+      maxServerResourceIds: options.maxServerResourceIds ?? 8,
       maxSafetyConstraints: options.maxSafetyConstraints ?? 16,
       maxSafetyConstraintChars: options.maxSafetyConstraintChars ?? 300,
       maxTaskObjectiveChars: options.maxTaskObjectiveChars ?? 1000,
@@ -215,6 +242,12 @@ export class ContextBuilder {
         .filter(capability => capability.available)
         .slice(0, this.options.maxServerCapabilities)
         .map(capability => summarizeServerCapability(capability, this.options)),
+      serverResources: summarizeServerResources(
+        input.serverResources ?? [],
+        input.task?.objective ?? '',
+        input.state.inventory,
+        this.options
+      ),
       safetyConstraints: input.safetyConstraints
         .map(value => value.trim())
         .filter(Boolean)
@@ -224,6 +257,63 @@ export class ContextBuilder {
   }
 }
 
+
+function summarizeServerResources(
+  resources: readonly ServerResourceSummary[],
+  objective: string,
+  inventory: readonly ItemStackSnapshot[],
+  options: NormalizedOptions
+): DecisionServerResource[] {
+  const normalizedObjective = objective.toLowerCase()
+  const inventoryNames = new Set(inventory.map(item => item.name.toLowerCase()))
+
+  return resources
+    .map(resource => ({
+      resource,
+      score: resourceRelevance(resource, normalizedObjective, inventoryNames)
+    }))
+    .sort((left, right) =>
+      right.score - left.score ||
+      left.resource.id.localeCompare(right.resource.id)
+    )
+    .slice(0, options.maxServerResources)
+    .map(({ resource }) => ({
+      id: resource.id,
+      kind: resource.kind,
+      aliases: resource.aliases.slice(0, options.maxServerResourceAliases),
+      blocks: resource.blockIds.slice(0, options.maxServerResourceIds),
+      drops: resource.collectedItemIds.slice(0, options.maxServerResourceIds),
+      minimumDropCount: resource.minimumDropCount,
+      toolKind: resource.toolKind,
+      capabilityId: resource.capabilityId,
+      relatedLeaves: resource.relatedLeaves.slice(0, options.maxServerResourceIds),
+      cleanupPolicy: resource.cleanupPolicy,
+      confidence: resource.confidence
+    }))
+}
+
+function resourceRelevance(
+  resource: ServerResourceSummary,
+  objective: string,
+  inventoryNames: ReadonlySet<string>
+): number {
+  const identifiers = [
+    resource.id,
+    ...resource.aliases,
+    ...resource.blockIds,
+    ...resource.collectedItemIds
+  ].map(value => value.toLowerCase())
+
+  let score = 0
+  for (const identifier of identifiers) {
+    const path = identifier.includes(':')
+      ? identifier.slice(identifier.indexOf(':') + 1)
+      : identifier
+    if (objective.includes(identifier) || objective.includes(path)) score += 4
+    if (inventoryNames.has(identifier) || inventoryNames.has(path)) score += 3
+  }
+  return score
+}
 
 function summarizeServerCapability(
   capability: ServerCapability,
