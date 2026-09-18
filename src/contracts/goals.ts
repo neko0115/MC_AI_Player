@@ -40,6 +40,15 @@ export const GatherResourceArgsSchema = z
   })
   .strict()
 
+export const ExploreResourceArgsSchema = z
+  .object({
+    resource: IdentifierSchema,
+    radius: z.number().int().min(4).max(64).optional(),
+    maxSteps: z.number().int().min(1).max(16).optional()
+  })
+  .strict()
+
+
 export const DepositItemArgsSchema = z
   .object({
     item: IdentifierSchema,
@@ -64,6 +73,7 @@ export const GoalRequestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('eat'), args: EatArgsSchema }).strict(),
   z.object({ kind: z.literal('equip'), args: EquipArgsSchema }).strict(),
   z.object({ kind: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
+  z.object({ kind: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
   z.object({ kind: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
   z.object({ kind: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
 ])
