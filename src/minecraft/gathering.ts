@@ -35,6 +35,10 @@ export interface ResourceSearchRequest {
   readonly limit: number
 }
 
+export interface ResourceHarvestOptions {
+  readonly sneak?: boolean
+}
+
 export interface ResourceGatheringAdapter {
   currentPosition(): Position | null
   inventoryCount(item: string): number
@@ -42,10 +46,15 @@ export interface ResourceGatheringAdapter {
     request: ResourceSearchRequest,
     signal: AbortSignal
   ): Promise<readonly ResourceCandidate[]>
+  prepareResourceTool?(
+    target: ResourceCandidate,
+    signal: AbortSignal
+  ): Promise<SkillResult>
   harvestResourceBlock(
     target: ResourceCandidate,
     permit: ResourceMutationPermit,
-    signal: AbortSignal
+    signal: AbortSignal,
+    options?: ResourceHarvestOptions
   ): Promise<SkillResult>
   findDroppedResource?(
     itemName: string,
