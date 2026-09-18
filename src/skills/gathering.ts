@@ -11,6 +11,10 @@ import type {
   ServerCapability,
   ServerCapabilityStatusSource
 } from '../minecraft/moxuebridge-capabilities.js'
+import {
+  resolveResourceProfile,
+  type ResourceProfile
+} from '../minecraft/resource-profiles.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
@@ -90,6 +94,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
     if (signal.aborted) return cancelled(signal)
     const resource = normalizeResourceName(args.resource)
     if (!resource) return { status: 'failed', code: 'invalid_resource' }
+    const profile = resolveResourceProfile(resource)
 
     const radius = args.radius ?? this.maxSearchRadius
     if (!Number.isFinite(radius) || radius < 1 || radius > this.maxSearchRadius) {
@@ -100,7 +105,7 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
 
     const candidates = await this.resources.findResourceBlocks(
       {
-        blockNames: [resource],
+        blockNames: profile.blockNames,
         origin,
         radius,
         limit: this.maxCandidatesPerSearch
@@ -109,7 +114,13 @@ export class FindResourceSkill implements SkillDefinition<FindResourceArgs> {
     )
     if (signal.aborted) return cancelled(signal)
 
-    const candidate = selectCandidate(candidates, resource, origin, this.protection, new Set())
+    const candidate = selectCandidate(
+      candidates,
+      profile.blockNames,
+      origin,
+      this.protection,
+      new Set()
+    )
     if (!candidate) return { status: 'failed', code: 'resource_not_found' }
 
     return {
@@ -194,11 +205,15 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     if (signal.aborted) return cancelled(signal)
     const resource = normalizeResourceName(args.resource)
     if (!resource) return { status: 'failed', code: 'invalid_resource' }
+    const profile = resolveResourceProfile(resource)
     if (!Number.isInteger(args.quantity) || args.quantity < 1 || args.quantity > 2304) {
       return { status: 'failed', code: 'invalid_quantity' }
     }
 
-    const startingCount = this.dependencies.resources.inventoryCount(resource)
+    const startingCount = inventoryCountForProfile(
+      this.dependencies.resources,
+      profile
+    )
     const targetCount = startingCount + args.quantity
     const attempted = new Set<string>()
     let radius = this.options.initialSearchRadius
@@ -208,14 +223,14 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     let cooperativeNoticeSent = false
     let lastFailureCode: string | null = null
 
-    while (this.dependencies.resources.inventoryCount(resource) < targetCount) {
+    while (inventoryCountForProfile(this.dependencies.resources, profile) < targetCount) {
       if (signal.aborted) return cancelled(signal)
       const origin = this.dependencies.resources.currentPosition()
       if (!origin) return { status: 'failed', code: 'minecraft_not_ready' }
 
       const candidates = await this.dependencies.resources.findResourceBlocks(
         {
-          blockNames: [resource],
+          blockNames: profile.blockNames,
           origin,
           radius,
           limit: this.options.maxCandidatesPerSearch
@@ -226,7 +241,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
 
       const candidate = selectCandidate(
         candidates,
-        resource,
+        profile.blockNames,
         origin,
         this.dependencies.protection,
         attempted
@@ -259,7 +274,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
 
       const permitDecision = this.dependencies.safety.issueResourceMutationPermit(
         'gather_resource',
-        [resource],
+        profile.blockNames,
         { capabilities: ['break_blocks'] },
         this.dependencies.state()
       )
@@ -268,14 +283,27 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       }
 
       const collectionCursor = this.dependencies.resources.resourceCollectionCursor?.() ?? null
-      const beforeHarvest = this.dependencies.resources.inventoryCount(resource)
+      const beforeHarvest = inventoryCountForProfile(
+        this.dependencies.resources,
+        profile
+      )
       const remainingBeforeHarvest = targetCount - beforeHarvest
+
+      const profileTool = await prepareResourceProfileTool(
+        this.dependencies.resources,
+        candidate,
+        profile,
+        signal
+      )
+      if (profileTool?.status === 'cancelled') return profileTool
+      if (profileTool && profileTool.status !== 'succeeded') return profileTool
+
       const capabilityStrategy = selectHarvestCapability(
         this.dependencies.capabilities,
-        resource,
+        profile,
         remainingBeforeHarvest
       )
-      let harvestOptions: ResourceHarvestOptions | undefined
+      let harvestOptions = expectedDropOptions(profile, candidate)
       let activeCapabilityStrategy: CapabilityHarvestStrategy | null = null
       if (capabilityStrategy) {
         const prepared = await prepareCapabilityHarvest(
@@ -286,7 +314,10 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         )
         if (prepared.kind === 'cancelled') return prepared.result
         if (prepared.kind === 'ready') {
-          harvestOptions = capabilityStrategy.options
+          harvestOptions = mergeHarvestOptions(
+            harvestOptions,
+            capabilityStrategy.options
+          )
           activeCapabilityStrategy = capabilityStrategy
         }
       }
@@ -313,16 +344,16 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           maxChain: activeCapabilityStrategy.maxChain
         })
 
-        if (this.dependencies.resources.inventoryCount(resource) < targetCount) {
+        if (inventoryCountForProfile(this.dependencies.resources, profile) < targetCount) {
           const sweep = await this.collectAcceleratedDrops(
             candidate,
-            resource,
+            profile,
             targetCount,
             activeCapabilityStrategy.maxChain,
             signal
           )
           if (sweep) return sweep
-          if (this.dependencies.resources.inventoryCount(resource) >= targetCount) {
+          if (inventoryCountForProfile(this.dependencies.resources, profile) >= targetCount) {
             failures = 0
             lastFailureCode = null
             continue
@@ -334,7 +365,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         if (harvested.code === 'item_not_collected') {
           const recovery = await this.recoverDroppedResource(
             candidate,
-            resource,
+            profile,
             beforeHarvest,
             collectionCursor,
             signal
@@ -361,7 +392,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
               cooperativeNoticeSent = true
               const remaining = Math.max(
                 0,
-                targetCount - this.dependencies.resources.inventoryCount(resource)
+                targetCount - inventoryCountForProfile(this.dependencies.resources, profile)
               )
               safelyNotify(this.dependencies.onCooperativePickup, {
                 resource,
@@ -386,7 +417,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
         continue
       }
 
-      if (this.dependencies.resources.inventoryCount(resource) <= beforeHarvest) {
+      if (inventoryCountForProfile(this.dependencies.resources, profile) <= beforeHarvest) {
         uncollectedHarvests += 1
         failures = 0
         lastFailureCode = 'item_not_collected'
@@ -406,7 +437,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
 
   private async collectAcceleratedDrops(
     candidate: ResourceCandidate,
-    resource: string,
+    profile: ResourceProfile,
     targetCount: number,
     maxChain: number,
     signal: AbortSignal
@@ -416,15 +447,15 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     const attempts = Math.min(Math.max(1, maxChain), 64)
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (signal.aborted) return cancelled(signal)
-      if (this.dependencies.resources.inventoryCount(resource) >= targetCount) {
+      if (inventoryCountForProfile(this.dependencies.resources, profile) >= targetCount) {
         return null
       }
 
-      const before = this.dependencies.resources.inventoryCount(resource)
+      const before = inventoryCountForProfile(this.dependencies.resources, profile)
       const cursor = this.dependencies.resources.resourceCollectionCursor?.() ?? null
       const recovery = await this.recoverDroppedResource(
         candidate,
-        resource,
+        profile,
         before,
         cursor,
         signal
@@ -443,15 +474,16 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
 
   private async recoverDroppedResource(
     candidate: ResourceCandidate,
-    resource: string,
+    profile: ResourceProfile,
     beforeHarvest: number,
     collectionCursor: number | null,
     signal: AbortSignal
   ): Promise<DropRecoveryOutcome> {
     const resources = this.dependencies.resources
     if (resources.findDroppedResource && resources.droppedResourceStatus) {
-      let drop = await resources.findDroppedResource(
-        resource,
+      let drop = await findExpectedDroppedResource(
+        resources,
+        profile,
         candidate.position,
         DROP_SEARCH_RADIUS,
         signal
@@ -468,7 +500,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
           if (navigation.status === 'cancelled') {
             return { kind: 'terminal', result: navigation }
           }
-          if (this.dependencies.resources.inventoryCount(resource) > beforeHarvest) {
+          if (inventoryCountForProfile(resources, profile) > beforeHarvest) {
             return { kind: 'collected' }
           }
 
@@ -481,7 +513,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
             }
           }
           if (status.kind === 'collected_by_bot') {
-            return this.dependencies.resources.inventoryCount(resource) > beforeHarvest
+            return inventoryCountForProfile(resources, profile) > beforeHarvest
               ? { kind: 'collected' }
               : { kind: 'missed' }
           }
@@ -493,7 +525,7 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
 
     const fastPlayerCollection = this.findPlayerCollectionAfter(
       collectionCursor,
-      resource,
+      profile,
       candidate.position
     )
     if (fastPlayerCollection) return fastPlayerCollection
@@ -507,30 +539,37 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       if (recovery.status === 'cancelled') {
         return { kind: 'terminal', result: recovery }
       }
-      if (this.dependencies.resources.inventoryCount(resource) > beforeHarvest) {
+      if (inventoryCountForProfile(resources, profile) > beforeHarvest) {
         return { kind: 'collected' }
       }
     }
 
-    return this.findPlayerCollectionAfter(collectionCursor, resource, candidate.position) ?? {
+    return this.findPlayerCollectionAfter(collectionCursor, profile, candidate.position) ?? {
       kind: 'missed'
     }
   }
 
   private findPlayerCollectionAfter(
     cursor: number | null,
-    resource: string,
+    profile: ResourceProfile,
     origin: Position
   ): Extract<DropRecoveryOutcome, { kind: 'collected_by_player' }> | null {
-    if (cursor === null || !this.dependencies.resources.findPlayerResourceCollectionAfter) {
-      return null
-    }
-    const collection = this.dependencies.resources.findPlayerResourceCollectionAfter(
-      cursor,
-      resource,
-      origin,
-      DROP_SEARCH_RADIUS
-    )
+    const finder = this.dependencies.resources.findPlayerResourceCollectionAfter
+    if (cursor === null || !finder) return null
+
+    const matches = profile.collectedItemNames
+      .map(itemName => finder(
+        cursor,
+        itemName,
+        origin,
+        DROP_SEARCH_RADIUS
+      ))
+      .filter((collection): collection is NonNullable<typeof collection> =>
+        collection !== null
+      )
+      .sort((left, right) => left.sequence - right.sequence)
+
+    const collection = matches[0]
     if (!collection) return null
     return {
       kind: 'collected_by_player',
@@ -547,6 +586,7 @@ interface CapabilityHarvestStrategy {
   readonly correctToolRequired: boolean
   readonly maxChain: number
   readonly toolKind: 'axe' | 'pickaxe' | null
+  readonly forbiddenToolEnchantments: readonly string[]
 }
 
 type CapabilityPreparation =
@@ -566,7 +606,10 @@ async function prepareCapabilityHarvest(
   const prepared = await resources.prepareResourceTool(
     candidate,
     signal,
-    strategy.toolKind ?? undefined
+    {
+      ...(strategy.toolKind ? { toolKind: strategy.toolKind } : {}),
+      forbiddenEnchantments: strategy.forbiddenToolEnchantments
+    }
   )
   if (prepared.status === 'cancelled') {
     return { kind: 'cancelled', result: prepared }
@@ -578,19 +621,14 @@ async function prepareCapabilityHarvest(
 
 function selectHarvestCapability(
   source: ServerCapabilityStatusSource | undefined,
-  resource: string,
+  profile: ResourceProfile,
   remaining: number
 ): CapabilityHarvestStrategy | null {
   if (!source || remaining < 1) return null
   if (source.status().state !== 'current') return null
+  if (!profile.capabilityId || !profile.exactOnePerBlock) return null
 
-  const capabilityId = resourceCapabilityId(resource)
-  if (!capabilityId) return null
-  // Ore block names frequently differ from their dropped item names.
-  // Keep vein mining discoverable in context/status, but do not actuate it
-  // until a resource-profile layer can prove block -> item accounting.
-  if (capabilityId === 'vein_mining') return null
-  const capability = source.get(capabilityId)
+  const capability = source.get(profile.capabilityId)
   if (!capability?.available) return null
 
   const maxChain = positiveIntegerConstraint(capability, 'max_chain')
@@ -613,27 +651,100 @@ function selectHarvestCapability(
     booleanConstraint(capability, 'correct_tool_required') === true
   const toolKind = toolKindConstraint(capability)
   if (correctToolRequired && toolKind === null) return null
+  if (profile.toolKind && toolKind !== profile.toolKind) return null
 
   return {
     capability,
     options: mustSneak ? { sneak: true } : {},
     correctToolRequired,
     maxChain,
-    toolKind
+    toolKind,
+    forbiddenToolEnchantments:
+      profile.acceleratorForbiddenToolEnchantments
   }
 }
 
-function resourceCapabilityId(resource: string): 'vein_mining' | 'tree_felling' | null {
-  const path = resource.includes(':') ? resource.slice(resource.indexOf(':') + 1) : resource
-  if (path.endsWith('_ore') || path === 'ancient_debris') return 'vein_mining'
-  if (
-    path.endsWith('_log') ||
-    path.endsWith('_stem') ||
-    path.endsWith('_hyphae')
-  ) {
-    return 'tree_felling'
+async function prepareResourceProfileTool(
+  resources: ResourceGatheringAdapter,
+  candidate: ResourceCandidate,
+  profile: ResourceProfile,
+  signal: AbortSignal
+): Promise<SkillResult | null> {
+  if (!profile.toolKind) return null
+  if (!resources.prepareResourceTool) {
+    return { status: 'failed', code: 'correct_tool_unavailable' }
   }
-  return null
+  return resources.prepareResourceTool(candidate, signal, {
+    toolKind: profile.toolKind,
+    forbiddenEnchantments: profile.forbiddenToolEnchantments
+  })
+}
+
+function expectedDropOptions(
+  profile: ResourceProfile,
+  candidate: ResourceCandidate
+): ResourceHarvestOptions | undefined {
+  if (
+    profile.collectedItemNames.length === 1 &&
+    profile.collectedItemNames[0] === candidate.blockName
+  ) {
+    return undefined
+  }
+  return {
+    expectedItemNames: [...profile.collectedItemNames]
+  }
+}
+
+function mergeHarvestOptions(
+  base: ResourceHarvestOptions | undefined,
+  extra: ResourceHarvestOptions
+): ResourceHarvestOptions {
+  return {
+    ...(base ?? {}),
+    ...extra,
+    ...(base?.expectedItemNames
+      ? { expectedItemNames: [...base.expectedItemNames] }
+      : {})
+  }
+}
+
+function inventoryCountForProfile(
+  resources: ResourceGatheringAdapter,
+  profile: ResourceProfile
+): number {
+  return profile.collectedItemNames.reduce(
+    (sum, itemName) => sum + resources.inventoryCount(itemName),
+    0
+  )
+}
+
+async function findExpectedDroppedResource(
+  resources: ResourceGatheringAdapter,
+  profile: ResourceProfile,
+  origin: Position,
+  radius: number,
+  signal: AbortSignal
+) {
+  if (!resources.findDroppedResource) return null
+  const matches = []
+  for (const itemName of profile.collectedItemNames) {
+    const drop = await resources.findDroppedResource(
+      itemName,
+      origin,
+      radius,
+      signal
+    )
+    if (drop) matches.push(drop)
+  }
+  matches.sort((left, right) => {
+    const distanceDelta =
+      squaredDistance(left.position, origin) -
+      squaredDistance(right.position, origin)
+    return distanceDelta !== 0
+      ? distanceDelta
+      : left.entityId - right.entityId
+  })
+  return matches[0] ?? null
 }
 
 function positiveIntegerConstraint(
@@ -666,13 +777,13 @@ function booleanConstraint(
 
 function selectCandidate(
   candidates: readonly ResourceCandidate[],
-  resource: string,
+  allowedBlockNames: readonly string[],
   origin: Position,
   protection: ResourceProtectionPolicy,
   attempted: ReadonlySet<string>
 ): ResourceCandidate | null {
   const eligible = candidates
-    .filter(candidate => candidate.blockName === resource)
+    .filter(candidate => allowedBlockNames.includes(candidate.blockName))
     .filter(candidate => !protection.isProtected(candidate.position))
     .filter(candidate => !attempted.has(candidateKey(candidate)))
     .map(candidate => ({
