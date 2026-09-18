@@ -58,6 +58,31 @@ test('player info without a spawned entity is not treated as a positioned player
   )
 })
 
+test('hostile observations expose only bounded semantic identity and position', () => {
+  assert.deepEqual(
+    bridge.hostileSeen({
+      id: 42,
+      name: 'creeper',
+      position: { x: 4, y: 64, z: -2 }
+    }),
+    {
+      type: 'hostile_seen',
+      at: 1234,
+      hostile: {
+        entityId: 42,
+        kind: 'creeper',
+        position: { x: 4, y: 64, z: -2 }
+      }
+    }
+  )
+
+  assert.deepEqual(bridge.hostileLeft(42), {
+    type: 'hostile_left',
+    at: 1234,
+    entityId: 42
+  })
+})
+
 test('chat carries current-session identity evidence and player-left invalidates it', () => {
   assert.deepEqual(bridge.chat('Boss', '跟我來', 'player-uuid'), {
     type: 'player_chat',
