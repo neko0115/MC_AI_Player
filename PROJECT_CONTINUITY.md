@@ -5,7 +5,7 @@
 > Before ending a coding session, update the relevant progress section in this file so the next session can continue without reconstructing context from chat history.
 
 **Last continuity update:** 2026-09-20  
-**Current canonical development branch for this copy:** `feature/modular-extension-core`  
+**Current canonical development branch for this copy:** `feature/skill-production`  
 **Current accepted modularization code baseline:** `49f3a57` (`refactor: close parallelization extension hotspots`).
 
 ---
@@ -339,6 +339,25 @@ The extensibility rules in this continuity document are a program-wide requireme
 ---
 
 ## 9. Current Workstreams
+
+### WS-PRODUCTION — active / isolated
+
+**Branch:** `feature/skill-production`  
+**Proposed worktree:** `D:\MC_AI_player-worktrees\production`  
+**Base:** `b75cb48` (M7 SAFE PARALLELIZATION POINT)
+
+**Goal:** generic production/supply behavior: missing-tool dependency resolution, crafting, smelting/processing, workstation use, and versioned knowledge/supply planning.
+
+**Startup action:** audit the existing Phase 3 knowledge/supply design before writing code, then define the smallest independent Production module and typed runtime ports required.
+
+**Do not:**
+
+- add per-item/per-mod recipe if forests;
+- duplicate Resource module logic;
+- edit Hostile Combat or Workspace module internals;
+- bypass trusted catalog or SafetyPolicy.
+
+---
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
