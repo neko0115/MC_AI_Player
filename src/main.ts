@@ -61,6 +61,7 @@ import { DecisionCoordinator } from './runtime/decision-coordinator.js'
 import { ThreatSupervisor } from './runtime/threat-supervisor.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
+import { AcquireResourceSkill } from './skills/acquisition.js'
 import { ExcavateResourceSkill } from './skills/excavation.js'
 import {
   ExploreResourceSkill,
@@ -292,6 +293,8 @@ export function createApplication(
     safety,
     state,
     events,
+    memory,
+    minecraftConfig,
     serverCapabilities ?? undefined,
     resourceProfiles ?? undefined,
     treeLeafCleanupSetting
@@ -562,6 +565,8 @@ function registerProductionSkills(
   safety: SafetyPolicy,
   state: WorldStateCache,
   events: RuntimeEventBus,
+  memory: MinecraftMemoryRepository,
+  minecraftConfig: MinecraftConfig,
   serverCapabilities?: ServerCapabilityStatusSource,
   resourceProfiles?: ResourceProfileSource,
   treeLeafCleanupSetting: ReturnType<typeof loadTreeLeafCleanupSetting> = 'catalog'
@@ -584,21 +589,22 @@ function registerProductionSkills(
     protection,
     resourceProfiles ? { resourceProfiles } : {}
   ))
-  registry.register(new ExploreResourceSkill(
+
+  const exploreResource = new ExploreResourceSkill(
     runtime.gathering,
     runtime.adapter,
     protection,
     resourceProfiles ? { resourceProfiles } : {}
-  ))
-  registry.register(new ExcavateResourceSkill({
+  )
+  const excavateResource = new ExcavateResourceSkill({
     resources: runtime.gathering,
     navigation: runtime.adapter,
     safety,
     state: () => state.snapshot(),
     protection,
     ...(resourceProfiles ? { resourceProfiles } : {})
-  }))
-  registry.register(new GatherResourceSkill({
+  })
+  const gatherResource = new GatherResourceSkill({
     resources: runtime.gathering,
     navigation: runtime.adapter,
     safety,
@@ -636,6 +642,24 @@ function registerProductionSkills(
         // Cooperative telemetry is advisory and must never stop gameplay.
       })
     }
+  })
+
+  registry.register(exploreResource)
+  registry.register(excavateResource)
+  registry.register(gatherResource)
+  registry.register(new AcquireResourceSkill({
+    resources: runtime.gathering,
+    navigation: runtime.adapter,
+    memory,
+    worldKey: `${minecraftConfig.host}:${minecraftConfig.port}`,
+    state: () => ({
+      dimension: state.snapshot().dimension
+    }),
+    gather: gatherResource,
+    explore: exploreResource,
+    excavate: excavateResource,
+    ...(resourceProfiles ? { resourceProfiles } : {}),
+    events
   }))
 }
 
