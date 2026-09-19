@@ -165,7 +165,7 @@ test('ordinary resource scan refuses loaded but hidden blocks', async () => {
 })
 
 test('exploration waypoint uses visible standing space instead of requiring visible floor support', async () => {
-  const target = new Vec3(4, 64, 0)
+  const supportTarget = new Vec3(4, 63, 0)
   const bot = {
     entity: { position: new Vec3(0, 64, 0) },
     inventory: { items: () => [] },
@@ -176,8 +176,8 @@ test('exploration waypoint uses visible standing space instead of requiring visi
       matching: (block: { name: string; boundingBox: string }) => boolean
       count?: number
     }) {
-      const air = { name: 'air', boundingBox: 'empty' }
-      return options.matching(air) ? [target.clone()] : []
+      const stone = { name: 'stone', boundingBox: 'block' }
+      return options.matching(stone) ? [supportTarget.clone()] : []
     },
     blockAt(position: Vec3) {
       if (position.y === 63) {
@@ -217,7 +217,7 @@ test('exploration waypoint uses visible standing space instead of requiring visi
 })
 
 test('exploration waypoint rejects standing space hidden behind a solid raycast hit', async () => {
-  const target = new Vec3(4, 64, 0)
+  const supportTarget = new Vec3(4, 63, 0)
   const bot = {
     entity: { position: new Vec3(0, 64, 0) },
     inventory: { items: () => [] },
@@ -228,8 +228,8 @@ test('exploration waypoint rejects standing space hidden behind a solid raycast 
       matching: (block: { name: string; boundingBox: string }) => boolean
       count?: number
     }) {
-      const air = { name: 'air', boundingBox: 'empty' }
-      return options.matching(air) ? [target.clone()] : []
+      const stone = { name: 'stone', boundingBox: 'block' }
+      return options.matching(stone) ? [supportTarget.clone()] : []
     },
     blockAt(position: Vec3) {
       if (position.y === 63) {
