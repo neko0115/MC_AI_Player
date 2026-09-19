@@ -479,16 +479,20 @@ Current M6 scope:
 - `builtin-skills.ts` now composes the resource module instead of containing its internal wiring;
 - tests assert the complete resource skill set, AI exposure of only `acquire_resource`, and fail-closed behavior when a required runtime port is missing.
 
-**Verification status:** first M6 focused run exposed a test-fixture-only regression: `tests/modules/resource-module.test.ts` constructed `WorldStateCache` without required `{ maxRecentEvents }`, so both new module tests failed before reaching module logic. Fixed in `4dc0935` with `new WorldStateCache({ maxRecentEvents: 10 })`. Production Resource module code was not changed. M6 verification must be rerun.
+**Verification status:** M6 automated verification PASS — 418 tests, 414 passed, 0 failed, 4 skipped; focused Resource module tests, typecheck, and full suite PASS; working tree clean. Live resource-memory regression remains required before M6 is FULL PASS.
 
 **Next exact action:**
 
-1. fast-forward the modular worktree;
-2. run `npm test -- tests/modules/resource-module.test.ts tests/modules/skill-module.test.ts tests/skills/acquisition.test.ts tests/skills/gathering.test.ts tests/skills/excavation.test.ts tests/minecraft/runtime-ports.test.ts`;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. if automated tests are green, run the controlled `acquire_resource` live memory-recall regression on the modular branch or an equivalent deployed commit;
-6. if live behavior remains correct, mark M6 PASS and proceed to M7 Safe Parallelization acceptance.
+1. deploy/run the modular branch in the Minecraft test environment;
+2. rerun the controlled `acquire_resource` memory-recall regression:
+   - remembered resource A already consumed;
+   - backup resource B remains nearby but is not ore-connected to A;
+   - start the bot away from the remembered area;
+   - expect `visible -> memory`, close navigation to remembered anchor, normal visible/LOS rescan, gather B;
+   - require target inventory delta for this run >= requested quantity;
+   - require `skill_completed` and `goal_completed`;
+3. verify B was actually consumed and no hidden-block/X-ray lookup was used;
+4. if live regression passes, mark M6 FULL PASS and run M7 Safe Parallelization acceptance.
 
 **Do not:**
 
