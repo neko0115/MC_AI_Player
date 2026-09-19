@@ -815,9 +815,11 @@ function hasClearStandingSpaceLineOfSight(
   bot: Bot,
   target: Position
 ): boolean {
+  const eyeHeight =
+    (bot.entity as { eyeHeight?: number }).eyeHeight ?? 1.62
   const eye = bot.entity.position.offset(
     0,
-    bot.entity.eyeHeight ?? 1.62,
+    eyeHeight,
     0
   )
   const targetPoint = bot.entity.position.clone()
