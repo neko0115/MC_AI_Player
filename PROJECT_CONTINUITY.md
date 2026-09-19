@@ -5,7 +5,7 @@
 > Before ending a coding session, update the relevant progress section in this file so the next session can continue without reconstructing context from chat history.
 
 **Last continuity update:** 2026-09-20  
-**Current canonical development branch for this copy:** `feature/modular-extension-core`  
+**Current canonical development branch for this copy:** `feature/skill-hostile-combat`  
 **Current accepted modularization code baseline:** `49f3a57` (`refactor: close parallelization extension hotspots`).
 
 ---
@@ -339,6 +339,34 @@ The extensibility rules in this continuity document are a program-wide requireme
 ---
 
 ## 9. Current Workstreams
+
+### WS-HOSTILE-COMBAT — active / isolated
+
+**Branch:** `feature/skill-hostile-combat`  
+**Proposed worktree:** `D:\MC_AI_player-worktrees\hostile-combat`  
+**Base:** `b75cb48` (M7 SAFE PARALLELIZATION POINT)
+
+**Goal:** deterministic hostile-mob engagement capability layered on the existing validated observe/suspend/retreat/resume behavior.
+
+Required direction:
+
+- hostile mobs only;
+- PvP stays disabled;
+- generic weapon/equipment descriptors, including future mod guns;
+- bounded engage/retreat/reposition/use/reload loops;
+- health/death/retry hard limits;
+- resume the interrupted higher-level goal when safe.
+
+**Startup action:** audit existing ThreatSupervisor and Phase 4 combat roadmap, reproduce current retreat-only behavior, then design the smallest Combat module + typed runtime port contract.
+
+**Do not:**
+
+- add one branch per mob or gun mod;
+- weaken PvP denial;
+- edit Resource/Production/Workspace module internals;
+- expose raw Mineflayer Bot to planning code.
+
+---
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
