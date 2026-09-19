@@ -464,7 +464,7 @@ Current M5 scope:
 
 **Verification status:** M5 local FULL automated verification PASS — 416 tests, 412 passed, 0 failed, 4 skipped; working tree clean.
 
-#### M6 isolated Resource module proof — implementation in progress
+#### M6 isolated Resource module proof — FULL PASS
 
 Commit:
 
@@ -479,20 +479,55 @@ Current M6 scope:
 - `builtin-skills.ts` now composes the resource module instead of containing its internal wiring;
 - tests assert the complete resource skill set, AI exposure of only `acquire_resource`, and fail-closed behavior when a required runtime port is missing.
 
-**Verification status:** M6 automated verification PASS — 418 tests, 414 passed, 0 failed, 4 skipped; focused Resource module tests, typecheck, and full suite PASS; working tree clean. Live resource-memory regression remains required before M6 is FULL PASS.
+**Verification status:** M6 FULL PASS.
+
+Automated evidence:
+
+- 418 tests total;
+- 414 passed;
+- 0 failed;
+- 4 skipped;
+- focused Resource module tests PASS;
+- typecheck PASS;
+- working tree clean.
+
+Controlled Minecraft live memory-recall regression PASS:
+
+- first run created a fresh resource memory after acquiring iron;
+- Paper confirmed remembered source A at `-261 84 313` was consumed;
+- backup B was then placed at `-258 84 313` and was not ore-connected to A;
+- bot was moved away to about `(-247.5, 84, 317.5)`;
+- second run emitted `visible -> memory`;
+- memory navigation moved the bot back toward the remembered area, ending near `(-260.55, 84, 314.91)`;
+- normal post-arrival visible/LOS rescan rediscovered nearby B;
+- second run proceeded directly to `gather` without `explore` or `excavate`;
+- inventory `raw_iron` increased 3 -> 4;
+- `skill_completed` and `goal_completed` emitted;
+- Paper confirmed A remained consumed and B was consumed;
+- no hidden-block server lookup/X-ray path was introduced.
+
+#### M7 Safe Parallelization Gate — acceptance in progress
+
+Acceptance criteria:
+
+- module installer/composition seam is live in production wiring;
+- trusted skill/action metadata is centralized;
+- Goal/Decision action schemas are catalog-derived;
+- Safety authority is catalog-owned and fail-closed;
+- typed runtime extension ports exist without exposing raw Mineflayer Bot to skills;
+- Resource gameplay family is isolated as an independent module using typed runtime ports;
+- Resource module automated and controlled live regression evidence are PASS;
+- adding a new generic behavior module no longer requires editing existing Resource/Survival/Navigation module internals;
+- new modded resource content using an existing mechanic is data/profile driven rather than a new high-level skill;
+- PROJECT_CONTINUITY documents branch/worktree ownership and no-cross-worktree reset/rebase rules.
 
 **Next exact action:**
 
-1. deploy/run the modular branch in the Minecraft test environment;
-2. rerun the controlled `acquire_resource` memory-recall regression:
-   - remembered resource A already consumed;
-   - backup resource B remains nearby but is not ore-connected to A;
-   - start the bot away from the remembered area;
-   - expect `visible -> memory`, close navigation to remembered anchor, normal visible/LOS rescan, gather B;
-   - require target inventory delta for this run >= requested quantity;
-   - require `skill_completed` and `goal_completed`;
-3. verify B was actually consumed and no hidden-block/X-ray lookup was used;
-4. if live regression passes, mark M6 FULL PASS and run M7 Safe Parallelization acceptance.
+1. perform M7 architecture acceptance review against the criteria above;
+2. add a regression test proving a representative independent module can register its own typed runtime port + skill without editing existing module internals;
+3. run focused modularization tests, typecheck, and full suite;
+4. update the modularization design with the final extension recipe for future Production / Combat / Construction workstreams;
+5. if green, mark **SAFE PARALLELIZATION POINT** and define the recommended parallel branch/worktree split.
 
 **Do not:**
 
