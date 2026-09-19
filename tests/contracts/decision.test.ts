@@ -94,3 +94,35 @@ test('DecisionOutcomeV2 rejects free-text blocked reasons and reasoning fields',
     reasoning: 'hidden reasoning'
   }).success, false)
 })
+
+
+test('DecisionOutcomeV2 accepts bounded explore and excavation actions', () => {
+  const explore = DecisionOutcomeV2Schema.parse({
+    version: 2,
+    outcome: 'action',
+    action: {
+      intent: 'explore_resource',
+      args: {
+        resource: 'diamond_ore',
+        radius: 8,
+        maxSteps: 4
+      }
+    }
+  })
+  assert.equal(explore.outcome, 'action')
+
+  const excavate = DecisionOutcomeV2Schema.parse({
+    version: 2,
+    outcome: 'action',
+    action: {
+      intent: 'excavate_resource',
+      args: {
+        resource: 'diamond_ore',
+        direction: 'east',
+        maxLength: 8,
+        radius: 6
+      }
+    }
+  })
+  assert.equal(excavate.outcome, 'action')
+})
