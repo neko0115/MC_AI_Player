@@ -61,6 +61,7 @@ import { DecisionCoordinator } from './runtime/decision-coordinator.js'
 import { ThreatSupervisor } from './runtime/threat-supervisor.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
+import { ExcavateResourceSkill } from './skills/excavation.js'
 import {
   ExploreResourceSkill,
   GatherResourceSkill,
@@ -87,6 +88,7 @@ const DENY_ALL_MANUAL_ACCESS = Object.freeze({
 const DECISION_SAFETY_CONSTRAINTS = Object.freeze([
   'PvP is disabled.',
   'Generic navigation cannot dig or build.',
+  'Only scoped gather/excavation skills may mutate blocks.',
   'Only registered high-level skills may reach deterministic gameplay execution.',
   'SafetyPolicy remains authoritative after every model decision.'
 ])
@@ -588,6 +590,14 @@ function registerProductionSkills(
     protection,
     resourceProfiles ? { resourceProfiles } : {}
   ))
+  registry.register(new ExcavateResourceSkill({
+    resources: runtime.gathering,
+    navigation: runtime.adapter,
+    safety,
+    state: () => state.snapshot(),
+    protection,
+    ...(resourceProfiles ? { resourceProfiles } : {})
+  }))
   registry.register(new GatherResourceSkill({
     resources: runtime.gathering,
     navigation: runtime.adapter,
