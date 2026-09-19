@@ -1,48 +1,46 @@
 import { z } from 'zod'
 import {
-  AcquireResourceArgsSchema,
-  DepositItemArgsSchema,
-  EatArgsSchema,
-  EquipArgsSchema,
-  ExcavateResourceArgsSchema,
-  ExploreResourceArgsSchema,
-  FollowPlayerArgsSchema,
-  GatherResourceArgsSchema,
-  GoToArgsSchema,
-  ReturnHomeArgsSchema,
-  StayArgsSchema,
-  WithdrawItemArgsSchema
-} from './goals.js'
+  decisionSkillContracts,
+  type DecisionActionFromCatalog,
+  type DecisionV1FromCatalog
+} from './skill-catalog.js'
 
-export const DecisionV1Schema = z.discriminatedUnion('intent', [
-  z.object({ version: z.literal(1), intent: z.literal('follow_player'), args: FollowPlayerArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('stay'), args: StayArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('go_to'), args: GoToArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('return_home'), args: ReturnHomeArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('eat'), args: EatArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('equip'), args: EquipArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('acquire_resource'), args: AcquireResourceArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
-  z.object({ version: z.literal(1), intent: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
-])
+const decisionContracts = decisionSkillContracts()
 
-const DecisionActionSchema = z.discriminatedUnion('intent', [
-  z.object({ intent: z.literal('follow_player'), args: FollowPlayerArgsSchema }).strict(),
-  z.object({ intent: z.literal('stay'), args: StayArgsSchema }).strict(),
-  z.object({ intent: z.literal('go_to'), args: GoToArgsSchema }).strict(),
-  z.object({ intent: z.literal('return_home'), args: ReturnHomeArgsSchema }).strict(),
-  z.object({ intent: z.literal('eat'), args: EatArgsSchema }).strict(),
-  z.object({ intent: z.literal('equip'), args: EquipArgsSchema }).strict(),
-  z.object({ intent: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
-  z.object({ intent: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
-  z.object({ intent: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
-  z.object({ intent: z.literal('acquire_resource'), args: AcquireResourceArgsSchema }).strict(),
-  z.object({ intent: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
-  z.object({ intent: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
-])
+const DecisionActionSchema: z.ZodType<DecisionActionFromCatalog> =
+  schemaUnion<DecisionActionFromCatalog>(
+    decisionContracts.map(entry => {
+      if (entry.argsSchema === null) {
+        throw new Error(
+          `decision skill is missing args schema: ${entry.name}`
+        )
+      }
+      return z
+        .object({
+          intent: z.literal(entry.name),
+          args: entry.argsSchema
+        })
+        .strict()
+    })
+  )
+
+export const DecisionV1Schema: z.ZodType<DecisionV1FromCatalog> =
+  schemaUnion<DecisionV1FromCatalog>(
+    decisionContracts.map(entry => {
+      if (entry.argsSchema === null) {
+        throw new Error(
+          `decision skill is missing args schema: ${entry.name}`
+        )
+      }
+      return z
+        .object({
+          version: z.literal(1),
+          intent: z.literal(entry.name),
+          args: entry.argsSchema
+        })
+        .strict()
+    })
+  )
 
 export const DecisionBlockedReasonSchema = z.enum([
   'no_safe_action',
@@ -73,8 +71,19 @@ export const DecisionOutcomeV2Schema = z.discriminatedUnion('outcome', [
     .strict()
 ])
 
-export type DecisionV1 = z.infer<typeof DecisionV1Schema>
+export type DecisionV1 = DecisionV1FromCatalog
 export type DecisionIntent = DecisionV1['intent']
 export type DecisionOutcomeV2 = z.infer<typeof DecisionOutcomeV2Schema>
-export type DecisionAction = z.infer<typeof DecisionActionSchema>
+export type DecisionAction = DecisionActionFromCatalog
 export type DecisionBlockedReason = z.infer<typeof DecisionBlockedReasonSchema>
+
+function schemaUnion<T>(
+  schemas: readonly z.ZodType[]
+): z.ZodType<T> {
+  if (schemas.length < 2) {
+    throw new Error('decision action catalog must contain at least two entries')
+  }
+  return z.union(
+    schemas as [z.ZodType, z.ZodType, ...z.ZodType[]]
+  ) as z.ZodType<T>
+}

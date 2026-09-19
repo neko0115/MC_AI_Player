@@ -1,18 +1,8 @@
 import { z } from 'zod'
 import {
-  AcquireResourceArgsSchema,
-  DepositItemArgsSchema,
-  EatArgsSchema,
-  EquipArgsSchema,
-  ExcavateResourceArgsSchema,
-  ExploreResourceArgsSchema,
-  FollowPlayerArgsSchema,
-  GatherResourceArgsSchema,
-  GoToArgsSchema,
-  ReturnHomeArgsSchema,
-  StayArgsSchema,
-  WithdrawItemArgsSchema
-} from './action-args.js'
+  goalSkillContracts,
+  type GoalRequestFromCatalog
+} from './skill-catalog.js'
 
 export {
   AcquireResourceArgsSchema,
@@ -29,23 +19,23 @@ export {
   WithdrawItemArgsSchema
 } from './action-args.js'
 
-export const GoalRequestSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('follow_player'), args: FollowPlayerArgsSchema }).strict(),
-  z.object({ kind: z.literal('stay'), args: StayArgsSchema }).strict(),
-  z.object({ kind: z.literal('go_to'), args: GoToArgsSchema }).strict(),
-  z.object({ kind: z.literal('return_home'), args: ReturnHomeArgsSchema }).strict(),
-  z.object({ kind: z.literal('eat'), args: EatArgsSchema }).strict(),
-  z.object({ kind: z.literal('equip'), args: EquipArgsSchema }).strict(),
-  z.object({ kind: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
-  z.object({ kind: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
-  z.object({ kind: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
-  z.object({ kind: z.literal('acquire_resource'), args: AcquireResourceArgsSchema }).strict(),
-  z.object({ kind: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
-  z.object({ kind: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
-])
-
-export type GoalRequest = z.infer<typeof GoalRequestSchema>
+export type GoalRequest = GoalRequestFromCatalog
 export type GoalKind = GoalRequest['kind']
+
+const goalVariants = goalSkillContracts().map(entry => {
+  if (entry.argsSchema === null) {
+    throw new Error(`goal skill is missing args schema: ${entry.name}`)
+  }
+  return z
+    .object({
+      kind: z.literal(entry.name),
+      args: entry.argsSchema
+    })
+    .strict()
+})
+
+export const GoalRequestSchema: z.ZodType<GoalRequest> =
+  schemaUnion<GoalRequest>(goalVariants)
 
 export type GoalStatus =
   | 'queued'
@@ -63,4 +53,15 @@ export interface GoalRecord {
   source: GoalSource
   createdAt: number
   updatedAt: number
+}
+
+function schemaUnion<T>(
+  schemas: readonly z.ZodType[]
+): z.ZodType<T> {
+  if (schemas.length < 2) {
+    throw new Error('goal action catalog must contain at least two entries')
+  }
+  return z.union(
+    schemas as [z.ZodType, z.ZodType, ...z.ZodType[]]
+  ) as z.ZodType<T>
 }

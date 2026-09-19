@@ -151,32 +151,10 @@ export class DecisionGate {
 }
 
 function actionToGoal(action: DecisionAction): GoalRequest {
-  switch (action.intent) {
-    case 'follow_player':
-      return { kind: 'follow_player', args: { ...action.args } }
-    case 'stay':
-      return { kind: 'stay', args: {} }
-    case 'go_to':
-      return { kind: 'go_to', args: { ...action.args } }
-    case 'return_home':
-      return { kind: 'return_home', args: {} }
-    case 'eat':
-      return { kind: 'eat', args: {} }
-    case 'equip':
-      return { kind: 'equip', args: { ...action.args } }
-    case 'gather_resource':
-      return { kind: 'gather_resource', args: { ...action.args } }
-    case 'explore_resource':
-      return { kind: 'explore_resource', args: { ...action.args } }
-    case 'excavate_resource':
-      return { kind: 'excavate_resource', args: { ...action.args } }
-    case 'acquire_resource':
-      return { kind: 'acquire_resource', args: { ...action.args } }
-    case 'deposit_item':
-      return { kind: 'deposit_item', args: { ...action.args } }
-    case 'withdraw_item':
-      return { kind: 'withdraw_item', args: { ...action.args } }
-  }
+  return {
+    kind: action.intent,
+    args: structuredClone(action.args)
+  } as GoalRequest
 }
 
 function providerFromUnknown(value: unknown): string {
