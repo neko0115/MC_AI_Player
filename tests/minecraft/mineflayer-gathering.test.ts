@@ -164,6 +164,52 @@ test('ordinary resource scan refuses loaded but hidden blocks', async () => {
   assert.equal(loaded[0]?.blockName, 'iron_ore')
 })
 
+test('exploration waypoint uses visible standing space instead of requiring visible floor support', async () => {
+  const target = new Vec3(4, 64, 0)
+  const bot = {
+    entity: { position: new Vec3(0, 64, 0) },
+    findBlocks(options: {
+      matching: (block: { name: string; boundingBox: string }) => boolean
+      count?: number
+    }) {
+      const air = { name: 'air', boundingBox: 'empty' }
+      return options.matching(air) ? [target.clone()] : []
+    },
+    blockAt(position: Vec3) {
+      if (position.y === 63) {
+        return {
+          name: 'stone',
+          boundingBox: 'block',
+          position: position.clone()
+        }
+      }
+      return {
+        name: 'air',
+        boundingBox: 'empty',
+        position: position.clone()
+      }
+    },
+    canSeeBlock(block: { name: string }) {
+      // A flat floor can occlude the center of a farther support block even
+      // though the standing air cell itself is directly visible down the
+      // corridor.
+      return block.name === 'air'
+    }
+  } as unknown as Bot
+
+  const runtime = new MineflayerGatheringRuntime(() => bot)
+  const waypoints = await runtime.findExplorationWaypoints(
+    {
+      origin: { x: 0, y: 64, z: 0 },
+      radius: 6,
+      limit: 4
+    },
+    new AbortController().signal
+  )
+
+  assert.deepEqual(waypoints, [{ x: 4, y: 64, z: 0 }])
+})
+
 test('decaying leaf scan only returns natural unsupported leaves', async () => {
   const bot = new FakeBot()
   bot.blockName = 'oak_leaves'
