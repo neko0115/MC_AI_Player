@@ -281,7 +281,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (!feet || !head || !support) continue
       if (!isPassableSpace(feet) || !isPassableSpace(head)) continue
       if (!isSafeSupport(support)) continue
-      if (!bot.canSeeBlock(feet)) continue
+      if (!hasClearStandingSpaceLineOfSight(bot, target)) continue
 
       unique.set(
         `${target.x},${target.y},${target.z}`,
@@ -809,6 +809,34 @@ function findSafePostHarvestPickupPosition(bot: Bot, target: Position): Position
   if (!support || !head) return null
   if (!isSafeSupport(support) || !isPassableSpace(head)) return null
   return { ...target }
+}
+
+function hasClearStandingSpaceLineOfSight(
+  bot: Bot,
+  target: Position
+): boolean {
+  const eye = bot.entity.position.offset(
+    0,
+    bot.entity.eyeHeight ?? 1.62,
+    0
+  )
+  const targetPoint = bot.entity.position.clone()
+  targetPoint.set(
+    target.x + 0.5,
+    target.y + 1,
+    target.z + 0.5
+  )
+
+  const delta = targetPoint.minus(eye)
+  const distance = eye.distanceTo(targetPoint)
+  if (!Number.isFinite(distance) || distance <= 0) return false
+
+  const hit = bot.world.raycast(
+    eye,
+    delta.normalize(),
+    distance
+  )
+  return hit === null
 }
 
 function blockAtPosition(bot: Bot, position: Position): ReturnType<Bot['blockAt']> {
