@@ -385,7 +385,7 @@ Safety/behavior constraints preserved:
 
 **Verification status:** M1 local FULL automated verification PASS — 404 tests, 400 passed, 0 failed, 4 skipped; working tree clean.
 
-#### M2 trusted skill/action metadata catalog — implementation in progress
+#### M2 trusted skill/action metadata catalog — PASS
 
 Commits:
 
@@ -401,15 +401,35 @@ Current M2 scope:
 - Goal/Decision schemas remain unchanged in M2;
 - SafetyPolicy remains unchanged in M2.
 
-**Verification status:** local verification pending for M2.
+**Verification status:** M2 local FULL automated verification PASS — 407 tests, 403 passed, 0 failed, 4 skipped; focused catalog/decision tests and typecheck PASS.
+
+#### M3 catalog-derived Goal/Decision actions — implementation in progress
+
+Commits:
+
+- `ef9cfdd` — `refactor: extract shared action argument schemas`
+- `ad3f357` — `refactor: derive action schemas from trusted catalog`
+
+Current M3 scope:
+
+- moved shared bounded action argument schemas to `src/contracts/action-args.ts`;
+- `src/contracts/goals.ts` still re-exports the old schema names for compatibility;
+- trusted catalog now marks whether each skill is a direct Goal action and/or provider Decision action;
+- `GoalRequestSchema`, `DecisionV1Schema`, and V2 action validation are generated from the trusted catalog;
+- `DecisionGate` no longer contains a per-skill action-to-goal switch;
+- internal-only `stop` and `find_resource` remain excluded from Goal/Decision actions;
+- strict unknown-field rejection and existing bounded argument schemas are preserved;
+- SafetyPolicy is intentionally unchanged until M4.
+
+**Verification status:** local verification pending for M3.
 
 **Next exact action:**
 
 1. fast-forward the modular worktree to the latest remote branch;
-2. run `tests/contracts/skill-catalog.test.ts`, `tests/skills/registry.test.ts`, and relevant agent catalog/decision tests;
+2. run focused catalog/goal/decision/decision-gate tests;
 3. run `npm run typecheck`;
 4. run full `npm test`;
-5. if green, mark M2 PASS and start M3 duplicated Goal/Decision action-list migration.
+5. if green, mark M3 PASS and start M4 Safety authority migration from trusted catalog metadata.
 
 **Do not:**
 
