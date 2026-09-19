@@ -12,7 +12,7 @@ import {
   ReturnHomeArgsSchema,
   StayArgsSchema,
   WithdrawItemArgsSchema
-} from './goals.js'
+} from './action-args.js'
 import {
   SkillNameSchema,
   type SkillName
