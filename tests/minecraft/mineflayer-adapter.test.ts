@@ -317,6 +317,51 @@ test('definitely hostile mobs are observed by block cell while neutral mobs are 
   ])
 })
 
+test('modern hostile entity classification emits hostile observations', async () => {
+  const bot = new FakeBot()
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: () => bot as unknown as Bot,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 10
+    }
+  )
+  const seen: Array<Record<string, unknown>> = []
+  adapter.onEvent(event => {
+    if (event.type === 'hostile_seen') {
+      seen.push(structuredClone(event) as unknown as Record<string, unknown>)
+    }
+  })
+
+  await adapter.connect()
+  bot.emit('login')
+  bot.emit('spawn')
+
+  bot.emit('entitySpawn', {
+    id: 9,
+    type: 'hostile',
+    name: 'zombie',
+    position: { x: 3, y: 64, z: 0 }
+  })
+
+  assert.deepEqual(seen, [{
+    type: 'hostile_seen',
+    at: 10,
+    hostile: {
+      entityId: 9,
+      kind: 'zombie',
+      position: { x: 3, y: 64, z: 0 }
+    }
+  }])
+})
+
 test('player info without entity waits for player entitySpawn before emitting player_seen', async () => {
   const bot = new FakeBot()
   const adapter = new MineflayerAdapter(
