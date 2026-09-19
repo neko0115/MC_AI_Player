@@ -350,7 +350,7 @@ implements SkillDefinition<AcquireArgs> {
 
       const navigation = await this.dependencies.navigation.goTo(
         memory.position,
-        { range: 4, canDig: false },
+        { range: 1, canDig: false },
         signal
       )
       if (navigation.status === 'cancelled') return navigation

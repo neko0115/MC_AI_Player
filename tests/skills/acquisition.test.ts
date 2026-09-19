@@ -126,6 +126,46 @@ implements ResourceGatheringAdapter, ResourceNavigationAdapter {
   }
 }
 
+class RangeSensitiveResourceWorld extends FakeResourceWorld {
+  readonly navigationRanges: number[] = []
+
+  override async goTo(
+    position: Position,
+    options: { readonly range: number; readonly canDig: false },
+    signal: AbortSignal
+  ): Promise<SkillResult> {
+    if (signal.aborted) {
+      return { status: 'cancelled', code: 'cancelled' }
+    }
+
+    this.navigation.push({ ...position })
+    this.navigationRanges.push(options.range)
+
+    const start = { ...this.position }
+    const dx = position.x - start.x
+    const dy = position.y - start.y
+    const dz = position.z - start.z
+    const totalDistance = Math.hypot(dx, dy, dz)
+
+    if (totalDistance <= options.range) {
+      this.position = { ...position }
+    } else {
+      const travelDistance = totalDistance - options.range
+      const ratio = travelDistance / totalDistance
+      this.position = {
+        x: start.x + dx * ratio,
+        y: start.y + dy * ratio,
+        z: start.z + dz * ratio
+      }
+    }
+
+    this.targetVisible =
+      distance(this.position, this.target.position) <= 4
+
+    return { status: 'succeeded', code: 'reached' }
+  }
+}
+
 class FakeGather {
   readonly calls: Array<{ resource: string; quantity: number }> = []
   constructor(
@@ -262,6 +302,51 @@ test('acquire_resource uses known resource memory before exploration or excavati
   assert.deepEqual(current.excavate.directions, [])
   assert.deepEqual(current.gather.calls, [
     { resource: 'diamond_ore', quantity: 3 }
+  ])
+})
+
+test('acquire_resource approaches remembered resource area closely enough to rescan nearby resources', async () => {
+  const world = new RangeSensitiveResourceWorld()
+  world.target = {
+    blockName: 'diamond_ore',
+    position: { x: 21, y: 64, z: 0 }
+  }
+
+  const memory = new FakeMemory()
+  memory.records.push({
+    id: 'stale-diamond-anchor',
+    worldKey: 'world:test',
+    type: 'resource',
+    content: 'Known resource diamond_ore',
+    dimension: 'overworld',
+    position: { x: 18, y: 64, z: 0 },
+    tags: ['resource', 'diamond_ore', 'diamond'],
+    importance: 0.8,
+    observedAt: 1000,
+    createdAt: 1000,
+    updatedAt: 1000,
+    reinforcementCount: 0
+  })
+
+  const current = createSkill({ world, memory })
+  const result = await current.skill.execute(
+    { signal: new AbortController().signal },
+    {
+      resource: 'diamond_ore',
+      quantity: 1,
+      exploreSteps: 1,
+      excavateLength: 1
+    }
+  )
+
+  assert.deepEqual(result, {
+    status: 'succeeded',
+    code: 'acquired'
+  })
+  assert.equal(world.navigationRanges[0], 1)
+  assert.equal(current.explore.calls, 0)
+  assert.deepEqual(current.gather.calls, [
+    { resource: 'diamond_ore', quantity: 1 }
   ])
 })
 
