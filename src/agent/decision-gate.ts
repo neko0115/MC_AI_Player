@@ -170,6 +170,8 @@ function actionToGoal(action: DecisionAction): GoalRequest {
       return { kind: 'explore_resource', args: { ...action.args } }
     case 'excavate_resource':
       return { kind: 'excavate_resource', args: { ...action.args } }
+    case 'acquire_resource':
+      return { kind: 'acquire_resource', args: { ...action.args } }
     case 'deposit_item':
       return { kind: 'deposit_item', args: { ...action.args } }
     case 'withdraw_item':
