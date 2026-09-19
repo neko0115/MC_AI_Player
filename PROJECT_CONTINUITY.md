@@ -352,7 +352,7 @@ Design:
 - `docs/superpowers/specs/2026-09-20-workspace-area-planner-design.md`
 - `docs/superpowers/plans/2026-09-20-workspace-area-planner.md`
 
-#### W0 contracts/geometry — implementation pending verification
+#### W0 contracts/geometry — PASS
 
 Commit:
 
@@ -376,14 +376,37 @@ Important integration boundary:
 - visible wand name should be `墨雪設定棍`, with an internal persistent marker/version preferred as authoritative identity;
 - selection observation never grants world-mutation authority.
 
+**W0 verification:** full suite PASS — 426 tests total, 422 passed, 0 failed, 4 skipped; working tree clean.
+
+#### W1 durable SQLite workspace repository — implementation in progress
+
+Commit:
+
+- `98aec83` — `feat: persist durable workspace regions`
+
+Current W1 scope:
+
+- added `WorkspaceRegionInputSchema` and bounded workspace search query contract;
+- added `WorkspaceRepository` interface;
+- added `SqliteWorkspaceRepository`;
+- workspace geometry is persisted as indexed min/max coordinates rather than opaque JSON;
+- tags use a separate normalized table;
+- query supports world, dimension, purpose, tags, owner and region intersection;
+- create/update/get/search/delete are bounded and deterministic;
+- provenance via `ownerPrincipal` and `sourceSelectionId` persists;
+- repository uses foreign keys, busy timeout, NORMAL synchronous mode, WAL for file databases and a schema version;
+- tests cover exact round-trip, update semantics, world/dimension isolation, spatial intersection, deletion cascade, restart persistence and strict rejection of transient/raw fields.
+
+**W1 verification status:** local verification pending.
+
 **Next exact action:**
 
-1. create/check out the dedicated workspace worktree;
-2. run `npm test -- tests/workspace/geometry.test.ts`;
+1. fast-forward the workspace worktree;
+2. run `npm test -- tests/workspace/geometry.test.ts tests/workspace/sqlite-repository.test.ts`;
 3. run `npm run typecheck`;
 4. run full `npm test`;
-5. if green, begin W1 durable SQLite workspace repository;
-6. after W1, define the Paper selection observation contract before implementing wand integration.
+5. confirm working tree clean;
+6. if green, mark W1 PASS and begin W2 setting-wand selection observation contract.
 
 **Do not:**
 
