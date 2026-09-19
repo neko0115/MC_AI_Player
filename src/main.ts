@@ -52,25 +52,16 @@ import {
   MoxueBridgeResourceCatalog,
   type ServerResourceCatalogSource
 } from './minecraft/moxuebridge-resources.js'
-import type { ResourceProfileSource } from './minecraft/resource-profiles.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
+import { createBuiltinSkillModules } from './modules/builtin-skills.js'
+import { installSkillModules } from './modules/skill-module.js'
 import { DecisionCoordinator } from './runtime/decision-coordinator.js'
 import { ThreatSupervisor } from './runtime/threat-supervisor.js'
 import { wireGoalExecution } from './runtime/goal-execution-loop.js'
 import { SafetyPolicy } from './safety/policy.js'
-import { AcquireResourceSkill } from './skills/acquisition.js'
-import { ExcavateResourceSkill } from './skills/excavation.js'
-import {
-  ExploreResourceSkill,
-  GatherResourceSkill,
-  FindResourceSkill,
-  RegionProtectionPolicy
-} from './skills/gathering.js'
-import { createNavigationSkills } from './skills/navigation.js'
-import { EatSkill, EquipSkill } from './skills/survival.js'
 import { SkillExecutor } from './skills/executor.js'
 import { SkillRegistry } from './skills/registry.js'
 import { WorldStateCache } from './state/world-state-cache.js'
@@ -93,30 +84,6 @@ const DECISION_SAFETY_CONSTRAINTS = Object.freeze([
   'Only registered high-level skills may reach deterministic gameplay execution.',
   'SafetyPolicy remains authoritative after every model decision.'
 ])
-
-const PREFERRED_FOOD = [
-  'bread',
-  'cooked_beef',
-  'cooked_porkchop',
-  'baked_potato',
-  'cooked_chicken',
-  'cooked_mutton',
-  'cooked_cod',
-  'cooked_salmon',
-  'carrot',
-  'apple'
-] as const
-
-const EXCLUDED_FOOD = [
-  'enchanted_golden_apple',
-  'golden_apple',
-  'chorus_fruit',
-  'pufferfish',
-  'spider_eye',
-  'poisonous_potato',
-  'rotten_flesh',
-  'suspicious_stew'
-] as const
 
 export interface FakeDecisionStackOptions {
   readonly provider: DecisionProvider<DecisionContext>
@@ -287,17 +254,19 @@ export function createApplication(
     : null
 
   const registry = new SkillRegistry()
-  registerProductionSkills(
+  installSkillModules(
     registry,
-    runtime,
-    safety,
-    state,
-    events,
-    memory,
-    minecraftConfig,
-    serverCapabilities ?? undefined,
-    resourceProfiles ?? undefined,
-    treeLeafCleanupSetting
+    createBuiltinSkillModules({
+      runtime,
+      safety,
+      state,
+      events,
+      memory,
+      minecraftConfig,
+      ...(serverCapabilities ? { serverCapabilities } : {}),
+      ...(resourceProfiles ? { resourceProfiles } : {}),
+      treeLeafCleanupSetting
+    })
   )
   const executor = new SkillExecutor(registry, { events })
   const goals = new GoalManager({ skillController: executor, events })
@@ -557,110 +526,6 @@ function calculateFlashAutoUsedPct(
     maximum = Math.max(maximum, requestRatio, tokenRatio)
   }
   return Math.max(0, Math.min(100, Math.round(maximum * 100)))
-}
-
-function registerProductionSkills(
-  registry: SkillRegistry,
-  runtime: MineflayerRuntimeBundle,
-  safety: SafetyPolicy,
-  state: WorldStateCache,
-  events: RuntimeEventBus,
-  memory: MinecraftMemoryRepository,
-  minecraftConfig: MinecraftConfig,
-  serverCapabilities?: ServerCapabilityStatusSource,
-  resourceProfiles?: ResourceProfileSource,
-  treeLeafCleanupSetting: ReturnType<typeof loadTreeLeafCleanupSetting> = 'catalog'
-): void {
-  const navigation = createNavigationSkills(runtime.adapter)
-  registry.register(navigation.goTo)
-  registry.register(navigation.followPlayer)
-  registry.register(navigation.stay)
-  registry.register(navigation.stop)
-
-  registry.register(new EatSkill(runtime.inventory, {
-    preferredFood: PREFERRED_FOOD,
-    excludedItems: EXCLUDED_FOOD
-  }))
-  registry.register(new EquipSkill(runtime.inventory))
-
-  const protection = new RegionProtectionPolicy([])
-  registry.register(new FindResourceSkill(
-    runtime.gathering,
-    protection,
-    resourceProfiles ? { resourceProfiles } : {}
-  ))
-
-  const exploreResource = new ExploreResourceSkill(
-    runtime.gathering,
-    runtime.adapter,
-    protection,
-    resourceProfiles ? { resourceProfiles } : {}
-  )
-  const excavateResource = new ExcavateResourceSkill({
-    resources: runtime.gathering,
-    navigation: runtime.adapter,
-    safety,
-    state: () => state.snapshot(),
-    protection,
-    ...(resourceProfiles ? { resourceProfiles } : {})
-  })
-  const gatherResource = new GatherResourceSkill({
-    resources: runtime.gathering,
-    navigation: runtime.adapter,
-    safety,
-    state: () => state.snapshot(),
-    protection,
-    ...(serverCapabilities ? { capabilities: serverCapabilities } : {}),
-    ...(resourceProfiles ? { resourceProfiles } : {}),
-    ...(treeLeafCleanupSetting === 'catalog'
-      ? {}
-      : {
-          options: {
-            leafCleanupPolicyOverride: treeLeafCleanupSetting
-          }
-        }),
-    onCapabilityUsed: notice => {
-      void events.publish({
-        type: 'server_capability_used',
-        at: Date.now(),
-        capability: notice.capability,
-        resource: notice.resource,
-        maxChain: notice.maxChain
-      }).catch(() => {
-        // Capability telemetry is advisory and must never stop gameplay.
-      })
-    },
-    onCooperativePickup: notice => {
-      void events.publish({
-        type: 'cooperative_pickup',
-        at: Date.now(),
-        resource: notice.resource,
-        player: notice.player,
-        interceptedCount: notice.interceptedCount,
-        remaining: notice.remaining
-      }).catch(() => {
-        // Cooperative telemetry is advisory and must never stop gameplay.
-      })
-    }
-  })
-
-  registry.register(exploreResource)
-  registry.register(excavateResource)
-  registry.register(gatherResource)
-  registry.register(new AcquireResourceSkill({
-    resources: runtime.gathering,
-    navigation: runtime.adapter,
-    memory,
-    worldKey: `${minecraftConfig.host}:${minecraftConfig.port}`,
-    state: () => ({
-      dimension: state.snapshot().dimension
-    }),
-    gather: gatherResource,
-    explore: exploreResource,
-    excavate: excavateResource,
-    ...(resourceProfiles ? { resourceProfiles } : {}),
-    events
-  }))
 }
 
 
