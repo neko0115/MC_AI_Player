@@ -11,6 +11,7 @@ export const SkillNameSchema = z.enum([
   'find_resource',
   'gather_resource',
   'explore_resource',
+  'excavate_resource',
   'deposit_item',
   'withdraw_item'
 ])
