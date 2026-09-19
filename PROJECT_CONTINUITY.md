@@ -339,6 +339,69 @@ The extensibility rules in this continuity document are a program-wide requireme
 
 ## 9. Current Workstreams
 
+### WS-MODULAR-EXTENSION-CORE — active / primary gate
+
+**Branch:** `feature/modular-extension-core`  
+**Base:** `c61d389` from `feature/moxuebridge-capabilities`  
+**Goal:** establish a fail-closed modular extension architecture before opening parallel Production / Combat / Construction coding workstreams.
+
+#### M0 design — PASS
+
+Created:
+
+- `docs/superpowers/specs/2026-09-20-modular-extension-core-design.md`
+- `docs/superpowers/plans/2026-09-20-modular-extension-core.md`
+
+Locked principles:
+
+- no per-mod control-flow forests for content using existing mechanics;
+- content extension is data/capability driven;
+- genuinely new mechanics receive generic capability/runtime contracts;
+- behavior modules remain deterministic below high-level planning;
+- do not open parallel gameplay coding workstreams until the Modularization Gate passes.
+
+#### M1 skill composition seam — implementation in progress
+
+Commit:
+
+- `0eb0236` — `refactor: introduce skill module composition seam`
+
+Changed:
+
+- added `src/modules/skill-module.ts`;
+- added `src/modules/builtin-skills.ts`;
+- added `tests/modules/skill-module.test.ts`;
+- removed direct navigation/survival/resource skill construction from `src/main.ts`;
+- application composition now installs declared skill modules through `installSkillModules()`.
+
+Safety/behavior constraints preserved:
+
+- no skill name/schema change;
+- no Goal/Decision contract change;
+- no SafetyPolicy change;
+- no gameplay algorithm change;
+- duplicate module IDs fail before any module installs;
+- existing `SkillRegistry` duplicate-skill rejection remains authoritative.
+
+**Verification status:** GitHub CI/local verification pending for `0eb0236`.
+
+**Next exact action:**
+
+1. create/check out a local worktree for `feature/modular-extension-core`;
+2. run focused module/main tests + typecheck;
+3. run full `npm test`;
+4. fix only wiring/type regressions, if any;
+5. after M1 is green, begin M2 trusted skill/action metadata catalog.
+
+**Do not:**
+
+- start Combat/Production/Construction implementation yet;
+- relax Skill/Goal/Decision schemas yet;
+- change SafetyPolicy authority in M1;
+- merge/reset the existing project-autonomy worktree.
+
+---
+
 ### WS-RESOURCE-ACQUISITION — active
 
 **Branch:** `feature/moxuebridge-capabilities`  
