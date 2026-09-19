@@ -12,6 +12,7 @@ const DECISION_SKILLS: ReadonlyArray<DecisionSkillDescription> = Object.freeze([
   { name: 'gather_resource', description: 'Gather at least a bounded requested quantity of one visible resource; safe over-collection is allowed.' },
   { name: 'explore_resource', description: 'Explore reachable visible space without digging to look for a resource that is not currently visible.' },
   { name: 'excavate_resource', description: 'Excavate a bounded horizontal 1x2 tunnel through allowlisted natural rock to look for one resource, stopping on hazards or unknown blocks.' },
+  { name: 'acquire_resource', description: 'Acquire at least a bounded quantity of one resource using visible search, known resource memory, no-dig exploration, bounded excavation, and deterministic gathering.' },
   { name: 'deposit_item', description: 'Deposit an exact bounded quantity into one named storage target.' },
   { name: 'withdraw_item', description: 'Withdraw an exact bounded quantity from one named storage target.' }
 ])
