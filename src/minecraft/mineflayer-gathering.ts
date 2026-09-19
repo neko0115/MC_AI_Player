@@ -823,29 +823,59 @@ function hasDirectResourceLineOfSight(
     eyeHeight,
     0
   )
-  const targetPoint = block.position.offset(
-    0.5,
-    0.5,
-    0.5
-  )
 
-  const delta = targetPoint.minus(eye)
-  const distance = eye.distanceTo(targetPoint)
-  if (!Number.isFinite(distance) || distance <= 0) return false
+  for (const targetPoint of resourceVisibilitySamplePoints(block)) {
+    const delta = targetPoint.minus(eye)
+    const distance = eye.distanceTo(targetPoint)
+    if (!Number.isFinite(distance) || distance <= 0) continue
 
-  const hit = bot.world.raycast(
-    eye,
-    delta.normalize(),
-    distance + 0.05
-  )
+    const hit = bot.world.raycast(
+      eye,
+      delta.normalize(),
+      distance + 0.05
+    )
 
-  if (hit === null) {
-    return block.boundingBox === 'empty'
+    if (hit === null) {
+      if (block.boundingBox === 'empty') return true
+      continue
+    }
+
+    const hitCell = raycastHitCell(hit)
+    if (
+      hitCell !== null &&
+      sameBlockCell(hitCell, block.position)
+    ) {
+      return true
+    }
   }
 
-  const hitCell = raycastHitCell(hit)
-  return hitCell !== null &&
-    sameBlockCell(hitCell, block.position)
+  return false
+}
+
+function resourceVisibilitySamplePoints(
+  block: NonNullable<ReturnType<Bot['blockAt']>>
+) {
+  const offsets = [
+    [0.5, 0.5, 0.5],
+    [0.1, 0.1, 0.1],
+    [0.1, 0.1, 0.9],
+    [0.1, 0.9, 0.1],
+    [0.1, 0.9, 0.9],
+    [0.9, 0.1, 0.1],
+    [0.9, 0.1, 0.9],
+    [0.9, 0.9, 0.1],
+    [0.9, 0.9, 0.9],
+    [0.1, 0.5, 0.5],
+    [0.9, 0.5, 0.5],
+    [0.5, 0.1, 0.5],
+    [0.5, 0.9, 0.5],
+    [0.5, 0.5, 0.1],
+    [0.5, 0.5, 0.9]
+  ] as const
+
+  return offsets.map(([x, y, z]) =>
+    block.position.offset(x, y, z)
+  )
 }
 
 function raycastHitCell(
