@@ -168,6 +168,10 @@ test('exploration waypoint uses visible standing space instead of requiring visi
   const target = new Vec3(4, 64, 0)
   const bot = {
     entity: { position: new Vec3(0, 64, 0) },
+    inventory: { items: () => [] },
+    username: 'Moxue_Test',
+    on() {},
+    off() {},
     findBlocks(options: {
       matching: (block: { name: string; boundingBox: string }) => boolean
       count?: number
@@ -216,6 +220,10 @@ test('exploration waypoint rejects standing space hidden behind a solid raycast 
   const target = new Vec3(4, 64, 0)
   const bot = {
     entity: { position: new Vec3(0, 64, 0) },
+    inventory: { items: () => [] },
+    username: 'Moxue_Test',
+    on() {},
+    off() {},
     findBlocks(options: {
       matching: (block: { name: string; boundingBox: string }) => boolean
       count?: number
