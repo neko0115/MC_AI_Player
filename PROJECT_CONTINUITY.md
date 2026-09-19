@@ -424,19 +424,59 @@ Current W2 scope:
 
 **W2 verification status:** full automated verification PASS — 442 tests total, 438 passed, 0 failed, 4 skipped; working tree clean.
 
-#### W3 Paper selection bridge + MC_AI transport — next
+#### W3 Paper selection bridge + MC_AI transport — implementation in progress
 
-W2 is complete. Do not invent a client-only endpoint.
+W2 is complete.
+
+Cross-repository implementation:
+
+**MoxueBridge**
+
+- repository: `neko0115/MoxueBridge`;
+- branch: `feature/workspace-selection-observation`;
+- base: `e99db18` from `feature/veinminer-capability-scope`;
+- `ae249ca` — `feat: observe workspace wand selections`;
+- `4e91fc5` — `feat: expose workspace selections over bridge api`.
+
+Paper-side behavior:
+
+- exact main-hand `minecraft:stick` display name `墨雪設定棍`;
+- optional `moxuebridge:workspace_wand=v1` persistent marker is accepted/validated;
+- left-click block sets A;
+- right-click block sets B;
+- wand interaction is cancelled to avoid using the clicked block;
+- crossing world/dimension resets pending corners;
+- completed selection generation is monotonic per player;
+- authenticated read-only `GET /api/v1/workspace-selections`;
+- endpoint uses snake_case semantic JSON only;
+- no raw PlayerInteractEvent/NBT and no mutation authority.
+
+**MC_AI_Player**
+
+- `5a766f9` — `feat: consume bridge workspace selections`;
+- `c7d72e0` — `feat: manage workspace selection source lifecycle`.
+
+Client behavior:
+
+- validates Bridge v1 wire schema;
+- injects MC_AI_Player's actual connection `worldKey`;
+- feeds the existing fail-closed `WorkspaceSelectionTracker`;
+- authenticated polling uses existing MoxueBridge config;
+- malformed/HTTP failure becomes stale/unavailable;
+- selection source participates in application start/stop;
+- selection data is intentionally NOT in AI context yet.
+
+**W3 verification status:** pending local verification in both repositories.
 
 **Next exact action:**
 
-1. inspect the MoxueBridge repository/server plugin API surface;
-2. add the read-only setting-wand selection endpoint/event there using the documented v1 semantic snapshot contract;
-3. keep wand observation separate from any world-mutation permission;
-4. add the corresponding MC_AI_Player MoxueBridge selection client adapter;
-5. wire it into application lifecycle as an optional source;
-6. add focused contract/lifecycle/stale-source tests;
-7. only after that begin chat/context binding for “這裡 / 剛才那區 / <workspace name>”.
+1. run MoxueBridge Gradle tests/build on `feature/workspace-selection-observation`;
+2. run MC_AI focused workspace/bridge/main tests;
+3. run MC_AI `npm run typecheck` and full suite;
+4. if both repos are green, deploy the Bridge JAR to the test Paper server;
+5. live-test `墨雪設定棍` A/B selection and authenticated endpoint output;
+6. verify MC_AI source becomes `current` and resolves the same selection;
+7. only then begin W4 chat/context binding for “這裡 / 剛才那區 / <workspace name>”.
 
 **Do not:**
 
