@@ -399,7 +399,7 @@ Current W1 scope:
 
 **W1 verification status:** full automated verification PASS — 432 tests total, 428 passed, 0 failed, 4 skipped; typecheck PASS; working tree clean.
 
-#### W2 setting-wand selection observation contract — implementation in progress
+#### W2 setting-wand selection observation contract — PASS
 
 Commits:
 
@@ -422,17 +422,21 @@ Current W2 scope:
 - transport endpoint/path is intentionally not fixed yet;
 - setting-wand observation remains read-only and does not grant mutation authority.
 
-**W2 verification status:** local verification pending.
+**W2 verification status:** full automated verification PASS — 442 tests total, 438 passed, 0 failed, 4 skipped; working tree clean.
+
+#### W3 Paper selection bridge + MC_AI transport — next
+
+W2 is complete. Do not invent a client-only endpoint.
 
 **Next exact action:**
 
-1. fast-forward the workspace worktree;
-2. run `npm test -- tests/workspace/geometry.test.ts tests/workspace/sqlite-repository.test.ts tests/workspace/selection-source.test.ts`;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. confirm working tree clean;
-6. if green, mark W2 PASS;
-7. then coordinate the Paper-side MoxueBridge setting-wand endpoint against the documented semantic contract before adding the MC_AI_Player transport adapter.
+1. inspect the MoxueBridge repository/server plugin API surface;
+2. add the read-only setting-wand selection endpoint/event there using the documented v1 semantic snapshot contract;
+3. keep wand observation separate from any world-mutation permission;
+4. add the corresponding MC_AI_Player MoxueBridge selection client adapter;
+5. wire it into application lifecycle as an optional source;
+6. add focused contract/lifecycle/stale-source tests;
+7. only after that begin chat/context binding for “這裡 / 剛才那區 / <workspace name>”.
 
 **Do not:**
 
