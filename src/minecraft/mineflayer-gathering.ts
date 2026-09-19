@@ -241,7 +241,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     try {
       positions = bot.findBlocks({
         point,
-        matching: block => isPassableSpace(block),
+        matching: block => isSafeSupport(block),
         maxDistance: request.radius,
         count: Math.min(
           this.options.maxCandidatesPerSearch,
@@ -257,7 +257,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (signal.aborted) return []
       const target = {
         x: position.x,
-        y: position.y,
+        y: position.y + 1,
         z: position.z
       }
       if (
@@ -266,21 +266,17 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
         continue
       }
 
+      const support = bot.blockAt(position)
       const feet = blockAtPosition(bot, target)
       const head = blockAtPosition(bot, {
         x: target.x,
         y: target.y + 1,
         z: target.z
       })
-      const support = blockAtPosition(bot, {
-        x: target.x,
-        y: target.y - 1,
-        z: target.z
-      })
 
-      if (!feet || !head || !support) continue
-      if (!isPassableSpace(feet) || !isPassableSpace(head)) continue
+      if (!support || !feet || !head) continue
       if (!isSafeSupport(support)) continue
+      if (!isPassableSpace(feet) || !isPassableSpace(head)) continue
       if (!hasClearStandingSpaceLineOfSight(bot, target)) continue
 
       unique.set(
