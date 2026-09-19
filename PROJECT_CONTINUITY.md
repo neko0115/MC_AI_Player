@@ -423,7 +423,7 @@ Current M3 scope:
 
 **Verification status:** M3 local FULL automated verification PASS — 409 tests, 405 passed, 0 failed, 4 skipped; working tree clean.
 
-#### M4 catalog-owned Safety authority — implementation in progress
+#### M4 catalog-owned Safety authority — PASS
 
 Commits:
 
@@ -441,15 +441,36 @@ Current M4 scope:
 - scoped mutation permits remain WeakSet-authenticated and bounded by allowed block names;
 - tests were updated to prove catalog authority and fail-closed behavior.
 
-**Verification status:** M4 focused safety/resource tests PASS, but first full verification exposed one stale test fixture in `tests/minecraft/mineflayer-gathering.test.ts`: its `issuedPermit()` helper still called the old four-argument `issueResourceMutationPermit(..., metadata, state)` API. This caused typecheck TS2554 and seven runtime test failures because JavaScript treated the old metadata object as the new state argument. Fixed in `fd40a30` by removing caller-owned capability metadata from that helper. Full M4 verification must be rerun after pulling that commit.
+**Verification status:** M4 local FULL automated verification PASS — 410 tests, 406 passed, 0 failed, 4 skipped; working tree clean. The stale Mineflayer gathering permit helper regression was fixed in `fd40a30`.
+
+#### M5 typed runtime extension seam — implementation in progress
+
+Commits:
+
+- `90474a3` — `refactor: add typed runtime extension ports`
+- `7dcf85f` — `fix: preserve legacy runtime bundle injection`
+- `fb4b460` — `test: preserve legacy runtime port injection`
+
+Current M5 scope:
+
+- added `RuntimePort<T>` tokens and `RuntimePortRegistry`;
+- added built-in typed ports for adapter, survival inventory, and resource gathering;
+- added a low-level `MineflayerRuntimeExtension` installer with duplicate-ID fail-closed behavior;
+- default Mineflayer runtime registers typed semantic ports and keeps raw `Bot` hidden;
+- port registry is stored on a Symbol property, so existing enumerable bundle keys remain exactly `adapter / inventory / gathering`;
+- legacy/custom runtime bundles without the Symbol registry are adapted from their existing semantic ports for backward compatibility;
+- survival skill wiring now consumes the inventory runtime through the typed port seam;
+- tests cover typed lookup, duplicate port IDs, missing ports, invalid IDs, runtime extension registration, duplicate extension IDs, and legacy bundle adaptation.
+
+**Verification status:** local verification pending for M5.
 
 **Next exact action:**
 
-1. fast-forward the modular worktree to include `fd40a30`;
-2. run `npm run typecheck`;
-3. run `npm test -- tests/minecraft/mineflayer-gathering.test.ts tests/safety/policy.test.ts tests/safety/resource-permit.test.ts`;
+1. fast-forward the modular worktree;
+2. run `npm test -- tests/minecraft/runtime-ports.test.ts tests/minecraft/gameplay-capabilities.test.ts tests/main.test.ts tests/modules/skill-module.test.ts`;
+3. run `npm run typecheck`;
 4. run full `npm test`;
-5. if all are green and worktree is clean, mark M4 PASS and begin M5 typed runtime extension seam.
+5. if green, mark M5 PASS and begin M6 resource-module proof/migration.
 
 **Do not:**
 
