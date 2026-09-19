@@ -189,11 +189,13 @@ test('exploration waypoint uses visible standing space instead of requiring visi
         position: position.clone()
       }
     },
-    canSeeBlock(block: { name: string }) {
-      // A flat floor can occlude the center of a farther support block even
-      // though the standing air cell itself is directly visible down the
-      // corridor.
-      return block.name === 'air'
+    canSeeBlock() {
+      return false
+    },
+    world: {
+      raycast() {
+        return null
+      }
     }
   } as unknown as Bot
 
@@ -208,6 +210,58 @@ test('exploration waypoint uses visible standing space instead of requiring visi
   )
 
   assert.deepEqual(waypoints, [{ x: 4, y: 64, z: 0 }])
+})
+
+test('exploration waypoint rejects standing space hidden behind a solid raycast hit', async () => {
+  const target = new Vec3(4, 64, 0)
+  const bot = {
+    entity: { position: new Vec3(0, 64, 0) },
+    findBlocks(options: {
+      matching: (block: { name: string; boundingBox: string }) => boolean
+      count?: number
+    }) {
+      const air = { name: 'air', boundingBox: 'empty' }
+      return options.matching(air) ? [target.clone()] : []
+    },
+    blockAt(position: Vec3) {
+      if (position.y === 63) {
+        return {
+          name: 'stone',
+          boundingBox: 'block',
+          position: position.clone()
+        }
+      }
+      return {
+        name: 'air',
+        boundingBox: 'empty',
+        position: position.clone()
+      }
+    },
+    canSeeBlock() {
+      return true
+    },
+    world: {
+      raycast() {
+        return {
+          name: 'stone',
+          boundingBox: 'block',
+          position: new Vec3(2, 65, 0)
+        }
+      }
+    }
+  } as unknown as Bot
+
+  const runtime = new MineflayerGatheringRuntime(() => bot)
+  const waypoints = await runtime.findExplorationWaypoints(
+    {
+      origin: { x: 0, y: 64, z: 0 },
+      radius: 6,
+      limit: 4
+    },
+    new AbortController().signal
+  )
+
+  assert.deepEqual(waypoints, [])
 })
 
 test('decaying leaf scan only returns natural unsupported leaves', async () => {
