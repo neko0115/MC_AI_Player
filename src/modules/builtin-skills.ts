@@ -10,15 +10,8 @@ import {
   SURVIVAL_INVENTORY_PORT,
   runtimePortRegistry
 } from '../minecraft/runtime-ports.js'
+import { createResourceSkillModule } from './resource-module.js'
 import type { SafetyPolicy } from '../safety/policy.js'
-import { AcquireResourceSkill } from '../skills/acquisition.js'
-import { ExcavateResourceSkill } from '../skills/excavation.js'
-import {
-  ExploreResourceSkill,
-  FindResourceSkill,
-  GatherResourceSkill,
-  RegionProtectionPolicy
-} from '../skills/gathering.js'
 import { createNavigationSkills } from '../skills/navigation.js'
 import { EatSkill, EquipSkill } from '../skills/survival.js'
 import type { WorldStateCache } from '../state/world-state-cache.js'
@@ -67,7 +60,22 @@ export function createBuiltinSkillModules(
   return [
     createNavigationModule(dependencies),
     createSurvivalModule(dependencies),
-    createResourceModule(dependencies)
+    createResourceSkillModule({
+      runtimePorts: runtimePortRegistry(dependencies.runtime),
+      safety: dependencies.safety,
+      state: dependencies.state,
+      events: dependencies.events,
+      memory: dependencies.memory,
+      worldKey:
+        `${dependencies.minecraftConfig.host}:${dependencies.minecraftConfig.port}`,
+      ...(dependencies.serverCapabilities
+        ? { serverCapabilities: dependencies.serverCapabilities }
+        : {}),
+      ...(dependencies.resourceProfiles
+        ? { resourceProfiles: dependencies.resourceProfiles }
+        : {}),
+      treeLeafCleanupSetting: dependencies.treeLeafCleanupSetting
+    })
   ]
 }
 
@@ -101,100 +109,6 @@ function createSurvivalModule(
         excludedItems: EXCLUDED_FOOD
       }))
       registry.register(new EquipSkill(inventory))
-    }
-  }
-}
-
-function createResourceModule(
-  dependencies: BuiltinSkillModuleDependencies
-): SkillModule {
-  return {
-    id: 'resources',
-    install(registry) {
-      const protection = new RegionProtectionPolicy([])
-      const resourceProfiles = dependencies.resourceProfiles
-
-      registry.register(new FindResourceSkill(
-        dependencies.runtime.gathering,
-        protection,
-        resourceProfiles ? { resourceProfiles } : {}
-      ))
-
-      const exploreResource = new ExploreResourceSkill(
-        dependencies.runtime.gathering,
-        dependencies.runtime.adapter,
-        protection,
-        resourceProfiles ? { resourceProfiles } : {}
-      )
-      const excavateResource = new ExcavateResourceSkill({
-        resources: dependencies.runtime.gathering,
-        navigation: dependencies.runtime.adapter,
-        safety: dependencies.safety,
-        state: () => dependencies.state.snapshot(),
-        protection,
-        ...(resourceProfiles ? { resourceProfiles } : {})
-      })
-      const gatherResource = new GatherResourceSkill({
-        resources: dependencies.runtime.gathering,
-        navigation: dependencies.runtime.adapter,
-        safety: dependencies.safety,
-        state: () => dependencies.state.snapshot(),
-        protection,
-        ...(dependencies.serverCapabilities
-          ? { capabilities: dependencies.serverCapabilities }
-          : {}),
-        ...(resourceProfiles ? { resourceProfiles } : {}),
-        ...(dependencies.treeLeafCleanupSetting === 'catalog'
-          ? {}
-          : {
-              options: {
-                leafCleanupPolicyOverride:
-                  dependencies.treeLeafCleanupSetting
-              }
-            }),
-        onCapabilityUsed: notice => {
-          void dependencies.events.publish({
-            type: 'server_capability_used',
-            at: Date.now(),
-            capability: notice.capability,
-            resource: notice.resource,
-            maxChain: notice.maxChain
-          }).catch(() => {
-            // Capability telemetry is advisory and must never stop gameplay.
-          })
-        },
-        onCooperativePickup: notice => {
-          void dependencies.events.publish({
-            type: 'cooperative_pickup',
-            at: Date.now(),
-            resource: notice.resource,
-            player: notice.player,
-            interceptedCount: notice.interceptedCount,
-            remaining: notice.remaining
-          }).catch(() => {
-            // Cooperative telemetry is advisory and must never stop gameplay.
-          })
-        }
-      })
-
-      registry.register(exploreResource)
-      registry.register(excavateResource)
-      registry.register(gatherResource)
-      registry.register(new AcquireResourceSkill({
-        resources: dependencies.runtime.gathering,
-        navigation: dependencies.runtime.adapter,
-        memory: dependencies.memory,
-        worldKey:
-          `${dependencies.minecraftConfig.host}:${dependencies.minecraftConfig.port}`,
-        state: () => ({
-          dimension: dependencies.state.snapshot().dimension
-        }),
-        gather: gatherResource,
-        explore: exploreResource,
-        excavate: excavateResource,
-        ...(resourceProfiles ? { resourceProfiles } : {}),
-        events: dependencies.events
-      }))
     }
   }
 }
