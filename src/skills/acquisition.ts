@@ -346,7 +346,6 @@ implements SkillDefinition<AcquireArgs> {
 
     for (const memory of matching) {
       if (signal.aborted) return cancelled(signal)
-      progress.visitedMemoryIds.add(memory.id)
       if (!memory.position) continue
 
       const navigation = await this.dependencies.navigation.goTo(
@@ -355,6 +354,8 @@ implements SkillDefinition<AcquireArgs> {
         signal
       )
       if (navigation.status === 'cancelled') return navigation
+
+      progress.visitedMemoryIds.add(memory.id)
       if (navigation.status !== 'succeeded') continue
 
       const visible = await this.visibleCandidate(
