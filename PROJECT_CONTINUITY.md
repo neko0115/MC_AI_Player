@@ -378,7 +378,7 @@ Important integration boundary:
 
 **W0 verification:** full suite PASS — 426 tests total, 422 passed, 0 failed, 4 skipped; working tree clean.
 
-#### W1 durable SQLite workspace repository — implementation in progress
+#### W1 durable SQLite workspace repository — PASS
 
 Commit:
 
@@ -397,16 +397,42 @@ Current W1 scope:
 - repository uses foreign keys, busy timeout, NORMAL synchronous mode, WAL for file databases and a schema version;
 - tests cover exact round-trip, update semantics, world/dimension isolation, spatial intersection, deletion cascade, restart persistence and strict rejection of transient/raw fields.
 
-**W1 verification status:** local verification pending.
+**W1 verification status:** full automated verification PASS — 432 tests total, 428 passed, 0 failed, 4 skipped; typecheck PASS; working tree clean.
+
+#### W2 setting-wand selection observation contract — implementation in progress
+
+Commits:
+
+- `8c3b893` — `feat: define workspace selection observation contract`
+- `d27c660` — `fix: reject stale workspace selection snapshots`
+
+Current W2 scope:
+
+- added versioned `WorkspaceSelectionSnapshotSchema`;
+- added strict query contract scoped by world + dimension + player identity;
+- added `WorkspaceSelectionSource` and `WorkspaceSelectionTracker`;
+- source states are `current | stale | unavailable`;
+- last-known-good data is hidden from new workspace actions while source is stale;
+- selection age is bounded and expired selections fail closed;
+- selection identity is isolated by world, dimension and authoritative player id;
+- malformed snapshots, duplicate identities, out-of-order whole snapshots, out-of-order selections and same-generation conflicting geometry fail closed;
+- successful empty snapshot explicitly clears prior selections;
+- old empty snapshots cannot erase newer selections;
+- Paper/MoxueBridge semantic contract is documented in `docs/superpowers/specs/2026-09-20-moxuebridge-workspace-selection-contract.md`;
+- transport endpoint/path is intentionally not fixed yet;
+- setting-wand observation remains read-only and does not grant mutation authority.
+
+**W2 verification status:** local verification pending.
 
 **Next exact action:**
 
 1. fast-forward the workspace worktree;
-2. run `npm test -- tests/workspace/geometry.test.ts tests/workspace/sqlite-repository.test.ts`;
+2. run `npm test -- tests/workspace/geometry.test.ts tests/workspace/sqlite-repository.test.ts tests/workspace/selection-source.test.ts`;
 3. run `npm run typecheck`;
 4. run full `npm test`;
 5. confirm working tree clean;
-6. if green, mark W1 PASS and begin W2 setting-wand selection observation contract.
+6. if green, mark W2 PASS;
+7. then coordinate the Paper-side MoxueBridge setting-wand endpoint against the documented semantic contract before adding the MC_AI_Player transport adapter.
 
 **Do not:**
 
