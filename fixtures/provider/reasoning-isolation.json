@@ -46,11 +46,14 @@
       "mode": "function_call",
       "reasoning": "PRIVATE_REASONING_SENTINEL_DO_NOT_LEAK",
       "value": {
-        "version": 1,
-        "intent": "gather_resource",
-        "args": {
-          "resource": "oak_log",
-          "quantity": 16
+        "version": 2,
+        "outcome": "action",
+        "action": {
+          "intent": "gather_resource",
+          "args": {
+            "resource": "oak_log",
+            "quantity": 16
+          }
         }
       }
     },

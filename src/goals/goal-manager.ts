@@ -80,8 +80,50 @@ export class GoalManager {
 
   async preemptActive(reason: string): Promise<boolean> {
     const active = this.activeRecord()
-    if (!active || active.status !== 'running') return false
+    if (!active || (active.status !== 'running' && active.status !== 'suspended')) {
+      return false
+    }
     await this.cancelActiveGoal(reason)
+    return true
+  }
+
+  async suspendActive(reason = 'threat_suspended'): Promise<boolean> {
+    const active = this.activeRecord()
+    if (!active || active.status !== 'running') return false
+
+    const safeReason = sanitizeCode(reason, 'suspended')
+    this.transition(active, 'suspended')
+
+    await this.dependencies.skillController.cancelActive(safeReason)
+
+    const suspended = this.activeRecord()
+    if (
+      this.activeGoalId !== active.goalId ||
+      suspended?.goalId !== active.goalId ||
+      suspended.status !== 'suspended'
+    ) {
+      return false
+    }
+
+    await this.events?.publish({
+      type: 'goal_suspended',
+      at: this.now(),
+      goalId: active.goalId,
+      code: safeReason
+    })
+    return true
+  }
+
+  async resumeSuspended(): Promise<boolean> {
+    const active = this.activeRecord()
+    if (!active || active.status !== 'suspended') return false
+
+    this.transition(active, 'running')
+    await this.events?.publish({
+      type: 'goal_resumed',
+      at: this.now(),
+      goalId: active.goalId
+    })
     return true
   }
 
@@ -98,13 +140,21 @@ export class GoalManager {
         at: this.now(),
         goalId: record.goalId
       })
+    } else if (result.status === 'cancelled') {
+      this.transition(record, 'cancelled')
+      await this.events?.publish({
+        type: 'goal_cancelled',
+        at: this.now(),
+        goalId: record.goalId,
+        code: sanitizeCode(result.code, 'cancelled')
+      })
     } else {
-      this.transition(record, result.status === 'cancelled' ? 'cancelled' : 'failed')
+      this.transition(record, 'failed')
       await this.events?.publish({
         type: 'goal_failed',
         at: this.now(),
         goalId: record.goalId,
-        code: sanitizeCode(result.code, result.status)
+        code: sanitizeCode(result.code, 'failed')
       })
     }
 
@@ -123,10 +173,10 @@ export class GoalManager {
     await this.dependencies.skillController.cancelActive(safeReason)
 
     const active = this.activeRecord()
-    if (active?.status === 'running') {
+    if (active?.status === 'running' || active?.status === 'suspended') {
       this.transition(active, 'cancelled')
       await this.events?.publish({
-        type: 'goal_failed',
+        type: 'goal_cancelled',
         at: this.now(),
         goalId: active.goalId,
         code: safeReason
@@ -146,19 +196,30 @@ export class GoalManager {
 
   private async cancelActiveGoal(reason: string): Promise<void> {
     const active = this.activeRecord()
-    if (!active || active.status !== 'running') return
+    if (
+      !active ||
+      (active.status !== 'running' && active.status !== 'suspended')
+    ) {
+      return
+    }
 
     const safeReason = sanitizeCode(reason, 'cancelled')
-    await this.dependencies.skillController.cancelActive(safeReason)
+    const wasRunning = active.status === 'running'
+    if (wasRunning) {
+      await this.dependencies.skillController.cancelActive(safeReason)
+    }
 
-    if (this.activeGoalId !== active.goalId || active.status !== 'running') {
+    if (
+      this.activeGoalId !== active.goalId ||
+      (active.status !== 'running' && active.status !== 'suspended')
+    ) {
       return
     }
 
     this.transition(active, 'cancelled')
     this.activeGoalId = null
     await this.events?.publish({
-      type: 'goal_failed',
+      type: 'goal_cancelled',
       at: this.now(),
       goalId: active.goalId,
       code: safeReason

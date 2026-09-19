@@ -21,7 +21,7 @@ function readyState(overrides: Partial<WorldStateSnapshot> = {}): WorldStateSnap
   }
 }
 
-test('only gather_resource may receive a scoped block-mutation permit', () => {
+test('only scoped mutation skills may receive a block-mutation permit', () => {
   const policy = new SafetyPolicy()
 
   const allowed = policy.issueResourceMutationPermit(
@@ -34,6 +34,20 @@ test('only gather_resource may receive a scoped block-mutation permit', () => {
   if (allowed.kind !== 'allow') return
   assert.deepEqual(allowed.permit.allowedBlockNames, ['oak_log'])
   assert.equal(isResourceMutationPermit(allowed.permit), true)
+
+  const excavation = policy.issueResourceMutationPermit(
+    'excavate_resource',
+    ['stone', 'deepslate'],
+    { capabilities: ['break_blocks'] },
+    readyState()
+  )
+  assert.equal(excavation.kind, 'allow')
+  if (excavation.kind === 'allow') {
+    assert.deepEqual(
+      excavation.permit.allowedBlockNames,
+      ['stone', 'deepslate']
+    )
+  }
 
   const denied = policy.issueResourceMutationPermit(
     'go_to',

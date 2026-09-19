@@ -4,7 +4,6 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import type { DecisionProvider } from '../src/agent/provider.js'
 import type { ControlServerOptions } from '../src/api/control-server.js'
 import type { MinecraftAdapter } from '../src/minecraft/adapter.js'
 import type { MineflayerRuntimeBundle } from '../src/minecraft/runtime-bundle.js'
@@ -49,15 +48,6 @@ function fakeRuntime(): MineflayerRuntimeBundle {
   }
 }
 
-function safeProvider(): DecisionProvider {
-  return {
-    capabilities: { structuredFinal: true, reasoningSeparated: true },
-    async decide() {
-      return { kind: 'timeout', provider: 'fake-test' }
-    }
-  }
-}
-
 test('default persistence bootstraps its data directory in a fresh working directory', async () => {
   const previousCwd = process.cwd()
   const directory = await mkdtemp(join(tmpdir(), 'mc-ai-player-fresh-'))
@@ -69,7 +59,11 @@ test('default persistence bootstraps its data directory in a fresh working direc
 
     application = createApplication(environment(), {
       createRuntime: () => fakeRuntime(),
-      createDecisionProvider: () => safeProvider(),
+      createLogicalDecisionExecutor: () => ({
+        async execute() {
+          return { kind: 'cancelled' as const }
+        }
+      }),
       createControlServer: (_options: ControlServerOptions) => ({
         async start() {
           return { host: '127.0.0.1', port: 8766, baseUrl: 'http://127.0.0.1:8766' }

@@ -60,6 +60,42 @@ test('nearby players replace by identity instead of growing forever', () => {
   assert.deepEqual(players[0]?.position, { x: 5, y: 64, z: 5 })
 })
 
+test('hostile observations replace by entity id and disappear when the entity leaves', () => {
+  const cache = new WorldStateCache({ maxRecentEvents: 10 })
+
+  cache.apply({
+    type: 'hostile_seen',
+    at: 1,
+    hostile: {
+      entityId: 7,
+      kind: 'creeper',
+      position: { x: 8, y: 64, z: 0 }
+    }
+  })
+  cache.apply({
+    type: 'hostile_seen',
+    at: 2,
+    hostile: {
+      entityId: 7,
+      kind: 'creeper',
+      position: { x: 6, y: 64, z: 0 }
+    }
+  })
+
+  assert.deepEqual(cache.snapshot().nearbyHostiles, [{
+    entityId: 7,
+    kind: 'creeper',
+    position: { x: 6, y: 64, z: 0 }
+  }])
+
+  cache.apply({
+    type: 'hostile_left',
+    at: 3,
+    entityId: 7
+  })
+  assert.deepEqual(cache.snapshot().nearbyHostiles, [])
+})
+
 test('inventory is a current snapshot rather than an append-only history', () => {
   const cache = new WorldStateCache({ maxRecentEvents: 10 })
 

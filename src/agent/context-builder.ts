@@ -7,11 +7,48 @@ import type {
 } from '../contracts/events.js'
 import type { SkillName } from '../contracts/skills.js'
 import type { MinecraftMemory, MinecraftMemoryType } from '../memory/repository.js'
+import type { ServerCapability } from '../minecraft/moxuebridge-capabilities.js'
+import type { ServerResourceSummary } from '../minecraft/moxuebridge-resources.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
 export interface DecisionSkillDescription {
   readonly name: SkillName
   readonly description: string
+}
+
+export type DecisionCapabilityConstraint = string | number | boolean | null
+
+export interface DecisionServerCapability {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly trigger: string
+  readonly usage: string
+  readonly constraints: Readonly<Record<string, DecisionCapabilityConstraint>>
+}
+
+
+export interface DecisionServerResource {
+  readonly id: string
+  readonly kind: string
+  readonly aliases: readonly string[]
+  readonly blocks: readonly string[]
+  readonly drops: readonly string[]
+  readonly minimumDropCount: number
+  readonly toolKind: string | null
+  readonly capabilityId: string | null
+  readonly relatedLeaves: readonly string[]
+  readonly cleanupPolicy: string | null
+  readonly confidence: 'authoritative' | 'inferred'
+}
+
+export interface DecisionTaskContext {
+  readonly taskId: string
+  readonly objective: string
+  readonly phase: 'active'
+  readonly consecutiveReplans: number
+  readonly previousAction: GoalRequest['kind'] | null
+  readonly ephemeralDirective?: string
 }
 
 export interface DecisionMemorySummary {
@@ -45,6 +82,7 @@ export interface DecisionSelfState {
 
 export interface DecisionContext {
   readonly worldKey: string
+  readonly task?: DecisionTaskContext
   readonly currentGoal: DecisionGoalSummary | null
   readonly self: DecisionSelfState
   readonly nearbyPlayers: readonly PlayerSnapshot[]
@@ -52,15 +90,20 @@ export interface DecisionContext {
   readonly recentEvents: readonly RuntimeEvent[]
   readonly memories: readonly DecisionMemorySummary[]
   readonly skills: readonly DecisionSkillDescription[]
+  readonly serverCapabilities?: readonly DecisionServerCapability[]
+  readonly serverResources?: readonly DecisionServerResource[]
   readonly safetyConstraints: readonly string[]
 }
 
 export interface ContextBuilderInput {
   readonly worldKey: string
+  readonly task?: DecisionTaskContext
   readonly state: WorldStateSnapshot
   readonly currentGoal: GoalRecord | null
   readonly memories: readonly MinecraftMemory[]
   readonly skills: readonly DecisionSkillDescription[]
+  readonly serverCapabilities?: readonly ServerCapability[]
+  readonly serverResources?: readonly ServerResourceSummary[]
   readonly safetyConstraints: readonly string[]
 }
 
@@ -73,8 +116,17 @@ export interface ContextBuilderOptions {
   readonly maxMemoryTags?: number
   readonly maxSkills?: number
   readonly maxSkillDescriptionChars?: number
+  readonly maxServerCapabilities?: number
+  readonly maxServerCapabilityDescriptionChars?: number
+  readonly maxServerCapabilityUsageChars?: number
+  readonly maxServerCapabilityConstraints?: number
+  readonly maxServerResources?: number
+  readonly maxServerResourceAliases?: number
+  readonly maxServerResourceIds?: number
   readonly maxSafetyConstraints?: number
   readonly maxSafetyConstraintChars?: number
+  readonly maxTaskObjectiveChars?: number
+  readonly maxTaskDirectiveChars?: number
 }
 
 interface NormalizedOptions {
@@ -86,8 +138,17 @@ interface NormalizedOptions {
   maxMemoryTags: number
   maxSkills: number
   maxSkillDescriptionChars: number
+  maxServerCapabilities: number
+  maxServerCapabilityDescriptionChars: number
+  maxServerCapabilityUsageChars: number
+  maxServerCapabilityConstraints: number
+  maxServerResources: number
+  maxServerResourceAliases: number
+  maxServerResourceIds: number
   maxSafetyConstraints: number
   maxSafetyConstraintChars: number
+  maxTaskObjectiveChars: number
+  maxTaskDirectiveChars: number
 }
 
 const IMPORTANT_EVENT_TYPES = new Set<RuntimeEvent['type']>([
@@ -96,7 +157,9 @@ const IMPORTANT_EVENT_TYPES = new Set<RuntimeEvent['type']>([
   'player_chat',
   'health_changed',
   'goal_completed',
+  'goal_cancelled',
   'goal_failed',
+  'skill_cancelled',
   'skill_failed',
   'emergency_stop',
   'decision_accepted',
@@ -118,8 +181,17 @@ export class ContextBuilder {
       maxMemoryTags: options.maxMemoryTags ?? 8,
       maxSkills: options.maxSkills ?? 32,
       maxSkillDescriptionChars: options.maxSkillDescriptionChars ?? 300,
+      maxServerCapabilities: options.maxServerCapabilities ?? 16,
+      maxServerCapabilityDescriptionChars: options.maxServerCapabilityDescriptionChars ?? 300,
+      maxServerCapabilityUsageChars: options.maxServerCapabilityUsageChars ?? 500,
+      maxServerCapabilityConstraints: options.maxServerCapabilityConstraints ?? 16,
+      maxServerResources: options.maxServerResources ?? 32,
+      maxServerResourceAliases: options.maxServerResourceAliases ?? 8,
+      maxServerResourceIds: options.maxServerResourceIds ?? 8,
       maxSafetyConstraints: options.maxSafetyConstraints ?? 16,
-      maxSafetyConstraintChars: options.maxSafetyConstraintChars ?? 300
+      maxSafetyConstraintChars: options.maxSafetyConstraintChars ?? 300,
+      maxTaskObjectiveChars: options.maxTaskObjectiveChars ?? 1000,
+      maxTaskDirectiveChars: options.maxTaskDirectiveChars ?? 1000
     }
     for (const [name, value] of Object.entries(this.options)) {
       validatePositiveInteger(value, name)
@@ -129,9 +201,11 @@ export class ContextBuilder {
   build(input: ContextBuilderInput): DecisionContext {
     const worldKey = normalizeWorldKey(input.worldKey)
     const selfPosition = clonePosition(input.state.position)
+    const task = input.task ? summarizeTask(input.task, this.options) : undefined
 
     return {
       worldKey,
+      ...(task ? { task } : {}),
       currentGoal: summarizeGoal(input.currentGoal),
       self: {
         connected: input.state.connected,
@@ -164,12 +238,135 @@ export class ContextBuilder {
           name: skill.name,
           description: truncate(skill.description.trim(), this.options.maxSkillDescriptionChars)
         })),
+      serverCapabilities: (input.serverCapabilities ?? [])
+        .filter(capability => capability.available)
+        .slice(0, this.options.maxServerCapabilities)
+        .map(capability => summarizeServerCapability(capability, this.options)),
+      ...(input.serverResources
+        ? {
+            serverResources: summarizeServerResources(
+              input.serverResources,
+              input.task?.objective ?? '',
+              input.state.inventory,
+              this.options
+            )
+          }
+        : {}),
       safetyConstraints: input.safetyConstraints
         .map(value => value.trim())
         .filter(Boolean)
         .slice(0, this.options.maxSafetyConstraints)
         .map(value => truncate(value, this.options.maxSafetyConstraintChars))
     }
+  }
+}
+
+
+function summarizeServerResources(
+  resources: readonly ServerResourceSummary[],
+  objective: string,
+  inventory: readonly ItemStackSnapshot[],
+  options: NormalizedOptions
+): DecisionServerResource[] {
+  const normalizedObjective = objective.toLowerCase()
+  const inventoryNames = new Set(inventory.map(item => item.name.toLowerCase()))
+
+  return resources
+    .map(resource => ({
+      resource,
+      score: resourceRelevance(resource, normalizedObjective, inventoryNames)
+    }))
+    .sort((left, right) =>
+      right.score - left.score ||
+      left.resource.id.localeCompare(right.resource.id)
+    )
+    .slice(0, options.maxServerResources)
+    .map(({ resource }) => ({
+      id: resource.id,
+      kind: resource.kind,
+      aliases: resource.aliases.slice(0, options.maxServerResourceAliases),
+      blocks: resource.blockIds.slice(0, options.maxServerResourceIds),
+      drops: resource.collectedItemIds.slice(0, options.maxServerResourceIds),
+      minimumDropCount: resource.minimumDropCount,
+      toolKind: resource.toolKind,
+      capabilityId: resource.capabilityId,
+      relatedLeaves: resource.relatedLeaves.slice(0, options.maxServerResourceIds),
+      cleanupPolicy: resource.cleanupPolicy,
+      confidence: resource.confidence
+    }))
+}
+
+function resourceRelevance(
+  resource: ServerResourceSummary,
+  objective: string,
+  inventoryNames: ReadonlySet<string>
+): number {
+  const identifiers = [
+    resource.id,
+    ...resource.aliases,
+    ...resource.blockIds,
+    ...resource.collectedItemIds
+  ].map(value => value.toLowerCase())
+
+  let score = 0
+  for (const identifier of identifiers) {
+    const path = identifier.includes(':')
+      ? identifier.slice(identifier.indexOf(':') + 1)
+      : identifier
+    if (objective.includes(identifier) || objective.includes(path)) score += 4
+    if (inventoryNames.has(identifier) || inventoryNames.has(path)) score += 3
+  }
+  return score
+}
+
+function summarizeServerCapability(
+  capability: ServerCapability,
+  options: NormalizedOptions
+): DecisionServerCapability {
+  const constraints: Record<string, DecisionCapabilityConstraint> = {}
+  for (const [key, value] of Object.entries(capability.constraints)
+    .slice(0, options.maxServerCapabilityConstraints)) {
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      constraints[key] = value
+    }
+  }
+
+  return {
+    id: capability.id,
+    name: capability.name,
+    description: truncate(
+      capability.description.trim(),
+      options.maxServerCapabilityDescriptionChars
+    ),
+    trigger: capability.usage.trigger,
+    usage: truncate(
+      capability.usage.human.trim(),
+      options.maxServerCapabilityUsageChars
+    ),
+    constraints
+  }
+}
+
+function summarizeTask(
+  task: DecisionTaskContext,
+  options: NormalizedOptions
+): DecisionTaskContext {
+  const objective = truncate(task.objective.trim(), options.maxTaskObjectiveChars)
+  const directive = task.ephemeralDirective?.trim()
+  return {
+    taskId: task.taskId,
+    objective,
+    phase: 'active',
+    consecutiveReplans: task.consecutiveReplans,
+    previousAction: task.previousAction,
+    ...(directive
+      ? { ephemeralDirective: truncate(directive, options.maxTaskDirectiveChars) }
+      : {})
   }
 }
 

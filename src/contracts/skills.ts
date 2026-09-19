@@ -10,6 +10,9 @@ export const SkillNameSchema = z.enum([
   'equip',
   'find_resource',
   'gather_resource',
+  'explore_resource',
+  'excavate_resource',
+  'acquire_resource',
   'deposit_item',
   'withdraw_item'
 ])
@@ -25,6 +28,7 @@ export interface SkillResult {
 
 export interface SkillContext {
   signal: AbortSignal
+  executionId?: string
 }
 
 export interface SkillDefinition<A> {
