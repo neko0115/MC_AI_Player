@@ -10,6 +10,7 @@ import type { WorldStateSnapshot } from '../../src/state/world-state.js'
 import type {
   DroppedResource,
   DroppedResourceStatus,
+  ExplorationSearchRequest,
   ResourceCandidate,
   ResourceGatheringAdapter,
   ResourceHarvestOptions,
@@ -18,6 +19,7 @@ import type {
   ResourceToolPreparationOptions
 } from '../../src/minecraft/gathering.js'
 import {
+  ExploreResourceSkill,
   FindResourceSkill,
   GatherResourceSkill,
   RegionProtectionPolicy
@@ -71,6 +73,29 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
       .filter(block => distance(block.position, request.origin) <= request.radius)
       .slice(0, request.limit)
       .map(block => ({ blockName: block.blockName, position: { ...block.position } }))
+  }
+
+  async findExplorationWaypoints(
+    request: ExplorationSearchRequest,
+    signal: AbortSignal
+  ): Promise<readonly Position[]> {
+    if (signal.aborted) return []
+    const candidates: Position[] = [
+      { x: 4, y: 64, z: 0 },
+      { x: -4, y: 64, z: 0 },
+      { x: -2, y: 64, z: 0 },
+      { x: 8, y: 64, z: 0 }
+    ]
+    return candidates
+      .filter(candidate => distance(candidate, request.origin) >= 3)
+      .filter(candidate => distance(candidate, request.origin) <= request.radius)
+      .sort(
+        (left, right) =>
+          distance(right, request.origin) -
+          distance(left, request.origin)
+      )
+      .slice(0, request.limit)
+      .map(candidate => ({ ...candidate }))
   }
 
   async prepareResourceTool(
@@ -295,6 +320,39 @@ test('find_resource performs one bounded search and does not mutate blocks', asy
   assert.equal(world.searchRequests[0]?.radius, 12)
   assert.equal(world.searchRequests[0]?.limit, 8)
   assert.deepEqual(world.harvestAttempts, [])
+})
+
+test('explore_resource prefers novel frontier waypoints instead of backtracking', async () => {
+  const world = new FakeGatheringWorld([
+    { blockName: 'diamond_ore', position: { x: 10, y: 64, z: 0 } }
+  ])
+  const skill = new ExploreResourceSkill(
+    world,
+    world,
+    new RegionProtectionPolicy([]),
+    {
+      defaultRadius: 4,
+      defaultMaxSteps: 4,
+      maxCandidatesPerStep: 8
+    }
+  )
+
+  const result = await skill.execute(
+    { signal: new AbortController().signal },
+    {
+      resource: 'diamond_ore',
+      radius: 4,
+      maxSteps: 4
+    }
+  )
+
+  assert.equal(result.status, 'succeeded')
+  assert.equal(result.code, 'resource_found')
+  assert.deepEqual(
+    world.navigationAttempts.map(position => position.x),
+    [4, 8]
+  )
+  assert.deepEqual(world.navigationCanDig, [false, false])
 })
 
 test('gather_resource resumes the original minimum target after threat suspension', async () => {
