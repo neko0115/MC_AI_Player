@@ -272,6 +272,12 @@ export function skillContract(
   return entry
 }
 
+export function skillContractByName(
+  name: string
+): SkillContractEntry | null {
+  return CONTRACTS_BY_NAME.get(name as SkillName) ?? null
+}
+
 export function goalSkillContracts(): readonly GoalSkillContract[] {
   return SKILL_CONTRACTS.filter(
     entry => entry.goal

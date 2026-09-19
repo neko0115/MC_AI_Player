@@ -1,12 +1,8 @@
 import type { GoalRequest } from '../contracts/goals.js'
 import {
-  skillContract,
+  skillContractByName,
   type SkillSafetyCapability
 } from '../contracts/skill-catalog.js'
-import {
-  SkillNameSchema,
-  type SkillName
-} from '../contracts/skills.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
 export type SafetyCapability = SkillSafetyCapability
@@ -84,7 +80,7 @@ export class SafetyPolicy {
   }
 
   authorizeSkill(skillName: string, state: WorldStateSnapshot): SkillAuthorizationDecision {
-    if (!SkillNameSchema.safeParse(skillName).success) {
+    if (!skillContractByName(skillName)) {
       return { kind: 'deny', code: 'unknown_skill' }
     }
     if (!state.connected || !state.spawned) {
@@ -107,8 +103,11 @@ export class SafetyPolicy {
       return { kind: 'deny', code: 'pvp_disabled' }
     }
 
-    const contract = skillContract(skillName as SkillName)
-    if (!contract.safety.capabilities.includes(capability)) {
+    const contract = skillContractByName(skillName)
+    if (!contract) {
+      return { kind: 'deny', code: 'unknown_skill' }
+    }
+    if (!hasCapability(contract.safety.capabilities, capability)) {
       return { kind: 'deny', code: 'capability_not_declared' }
     }
 
@@ -125,11 +124,14 @@ export class SafetyPolicy {
       return skillDecision
     }
 
-    const contract = skillContract(skillName as SkillName)
+    const contract = skillContractByName(skillName)
+    if (!contract) {
+      return { kind: 'deny', code: 'unknown_skill' }
+    }
     if (contract.safety.mutationAuthority !== 'resource_break') {
       return { kind: 'deny', code: 'mutation_skill_not_allowed' }
     }
-    if (!contract.safety.capabilities.includes('break_blocks')) {
+    if (!hasCapability(contract.safety.capabilities, 'break_blocks')) {
       return { kind: 'deny', code: 'capability_not_declared' }
     }
 
@@ -169,6 +171,13 @@ export class SafetyPolicy {
   emergencyStop(_state: WorldStateSnapshot): SafetyDecision {
     return { kind: 'preempt', code: 'emergency_stop' }
   }
+}
+
+function hasCapability(
+  capabilities: readonly SafetyCapability[],
+  capability: SafetyCapability
+): boolean {
+  return capabilities.includes(capability)
 }
 
 function normalizeMutationScope(names: readonly string[]): string[] | null {
