@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   RuntimePortRegistry,
-  defineRuntimePort
+  SURVIVAL_INVENTORY_PORT,
+  defineRuntimePort,
+  runtimePortRegistry
 } from '../../src/minecraft/runtime-ports.js'
 
 test('runtime port registry preserves token type and rejects duplicate ids', () => {
@@ -37,5 +39,28 @@ test('runtime port ids are bounded semantic identifiers', () => {
   assert.throws(
     () => defineRuntimePort('Bad Port'),
     /invalid runtime port id/
+  )
+})
+
+
+test('legacy semantic runtime bundles are adapted into typed ports', () => {
+  const inventory = {
+    inventoryItems: () => [],
+    async consumeInventoryItem() {
+      return { status: 'failed' as const, code: 'not_available' }
+    },
+    async equipInventoryItem() {
+      return { status: 'failed' as const, code: 'not_available' }
+    },
+    async transferContainerItem() {
+      return { status: 'failed' as const, code: 'not_available' }
+    }
+  }
+
+  const registry = runtimePortRegistry({ inventory })
+
+  assert.equal(
+    registry.require(SURVIVAL_INVENTORY_PORT),
+    inventory
   )
 })
