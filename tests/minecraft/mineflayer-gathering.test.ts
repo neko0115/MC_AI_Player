@@ -116,7 +116,6 @@ function issuedPermit(blockName = 'oak_log') {
   const result = new SafetyPolicy().issueResourceMutationPermit(
     'gather_resource',
     [blockName],
-    { capabilities: ['break_blocks'] },
     readyState()
   )
   assert.equal(result.kind, 'allow')
