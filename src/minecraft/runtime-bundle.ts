@@ -67,6 +67,7 @@ export function createMineflayerRuntimeBundle(
   const gathering: ResourceGatheringAdapter = {
     currentPosition: () => gatheringRuntime.currentPosition(),
     inventoryCount: item => gatheringRuntime.inventoryCount(item),
+    inspectBlock: position => gatheringRuntime.inspectBlock(position),
     findResourceBlocks: (request, signal) =>
       gatheringRuntime.findResourceBlocks(request, signal),
     findExplorationWaypoints: (request, signal) =>
