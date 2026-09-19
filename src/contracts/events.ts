@@ -178,6 +178,23 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
+      type: z.literal('resource_search_phase'),
+      at: AtSchema,
+      resource: z.string().trim().min(1).max(128),
+      phase: z.enum([
+        'visible',
+        'memory',
+        'explore',
+        'excavate',
+        'gather'
+      ]),
+      direction: z
+        .enum(['north', 'south', 'east', 'west'])
+        .optional()
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('cooperative_pickup'),
       at: AtSchema,
       resource: z.string().trim().min(1).max(128),
