@@ -132,6 +132,58 @@ test('bounded Mineflayer search returns semantic resource candidates', async () 
   assert.deepEqual(runtime.currentPosition(), { x: 0, y: 64, z: 0 })
 })
 
+test('visible resource scan accepts a target when raycast hits the target even if canSeeBlock is false', async () => {
+  const target = new Vec3(2, 64, 1)
+  const bot = {
+    entity: { position: new Vec3(0.5, 64, 0.5) },
+    inventory: { items: () => [] },
+    username: 'Moxue_Test',
+    on() {},
+    off() {},
+    findBlocks(options: {
+      matching: (block: { name: string }) => boolean
+      count?: number
+    }) {
+      return options.matching({ name: 'diamond_ore' })
+        ? [target.clone()]
+        : []
+    },
+    blockAt(position: Vec3) {
+      return {
+        name: 'diamond_ore',
+        position: position.clone()
+      }
+    },
+    canSeeBlock() {
+      return false
+    },
+    world: {
+      raycast() {
+        return {
+          name: 'diamond_ore',
+          position: target.clone()
+        }
+      }
+    }
+  } as unknown as Bot
+
+  const runtime = new MineflayerGatheringRuntime(() => bot)
+  const visible = await runtime.findResourceBlocks(
+    {
+      blockNames: ['diamond_ore'],
+      origin: { x: 0.5, y: 64, z: 0.5 },
+      radius: 6,
+      limit: 4,
+      visibility: 'visible'
+    },
+    new AbortController().signal
+  )
+
+  assert.equal(visible.length, 1)
+  assert.equal(visible[0]?.blockName, 'diamond_ore')
+  assert.deepEqual(visible[0]?.position, { x: 2, y: 64, z: 1 })
+})
+
 test('ordinary resource scan refuses loaded but hidden blocks', async () => {
   const bot = new FakeBot()
   bot.blockName = 'iron_ore'
