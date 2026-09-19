@@ -58,7 +58,7 @@ class FakeMemory implements MinecraftMemoryRepository {
 }
 
 function readyState(): WorldStateCache {
-  const state = new WorldStateCache()
+  const state = new WorldStateCache({ maxRecentEvents: 10 })
   state.apply({ type: 'connected', at: 1 })
   state.apply({
     type: 'spawned',
