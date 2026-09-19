@@ -521,13 +521,34 @@ Acceptance criteria:
 - new modded resource content using an existing mechanic is data/profile driven rather than a new high-level skill;
 - PROJECT_CONTINUITY documents branch/worktree ownership and no-cross-worktree reset/rebase rules.
 
+M7 hardening commit:
+
+- `49f3a57` — `refactor: close parallelization extension hotspots`
+
+M7 implementation status:
+
+- `SkillName` and `SkillNameSchema` now derive from the trusted skill catalog; the separate central enum is removed;
+- Goal/Decision/AI/Safety/name authority now converge on the catalog;
+- added `tests/modules/parallelization-acceptance.test.ts`;
+- acceptance test creates an independent typed runtime port, installs it through the runtime-extension seam, installs a separate skill module, and executes it through `SkillRegistry -> SkillExecutor` without importing or modifying builtin gameplay modules;
+- modularization design now documents the final extension recipe for future parallel workstreams;
+- Resource M6 live proof is already FULL PASS.
+
+**Verification status:** M7 local verification pending.
+
 **Next exact action:**
 
-1. perform M7 architecture acceptance review against the criteria above;
-2. add a regression test proving a representative independent module can register its own typed runtime port + skill without editing existing module internals;
-3. run focused modularization tests, typecheck, and full suite;
-4. update the modularization design with the final extension recipe for future Production / Combat / Construction workstreams;
-5. if green, mark **SAFE PARALLELIZATION POINT** and define the recommended parallel branch/worktree split.
+1. fast-forward the modular worktree;
+2. run focused M7 tests:
+   - `tests/modules/parallelization-acceptance.test.ts`;
+   - `tests/contracts/skill-catalog.test.ts`;
+   - `tests/contracts/catalog-derived-actions.test.ts`;
+   - `tests/modules/resource-module.test.ts`;
+   - `tests/minecraft/runtime-ports.test.ts`;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree is clean;
+6. if all green, mark **SAFE PARALLELIZATION POINT** and create the recommended Production / Combat / Construction branch+worktree split.
 
 **Do not:**
 
