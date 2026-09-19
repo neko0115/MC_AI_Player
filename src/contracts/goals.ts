@@ -48,6 +48,15 @@ export const ExploreResourceArgsSchema = z
   })
   .strict()
 
+export const ExcavateResourceArgsSchema = z
+  .object({
+    resource: IdentifierSchema,
+    direction: z.enum(['north', 'south', 'east', 'west']),
+    maxLength: z.number().int().min(1).max(16).optional(),
+    radius: z.number().int().min(2).max(8).optional()
+  })
+  .strict()
+
 
 export const DepositItemArgsSchema = z
   .object({
@@ -74,6 +83,7 @@ export const GoalRequestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('equip'), args: EquipArgsSchema }).strict(),
   z.object({ kind: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
   z.object({ kind: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
+  z.object({ kind: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
   z.object({ kind: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
   z.object({ kind: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
 ])
