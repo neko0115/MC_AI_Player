@@ -69,6 +69,13 @@ function renderStarted(outcome: Extract<ChatOutcome, { kind: 'goal_started' }>):
         ? `好，我會安全地挖一段通道找 ${resource}。`
         : '好，我會安全地挖一段通道找資源。'
     }
+    case 'acquire_resource': {
+      const resource = safeIdentifier(outcome.target)
+      const quantity = safeQuantity(outcome.quantity)
+      return resource && quantity !== null
+        ? `好，我會自己找並收集至少 ${quantity} 個 ${resource}。`
+        : '好，我會自己搜尋並收集需要的資源。'
+    }
     case 'follow_player': {
       const player = safePlayerName(outcome.target)
       return player ? `好，我跟著 ${player}。` : '好，我開始跟隨。'
