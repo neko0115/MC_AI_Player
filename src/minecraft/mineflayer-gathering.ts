@@ -181,7 +181,12 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (signal.aborted) return []
       const block = bot.blockAt(position)
       if (!block || !blockNames.includes(block.name)) continue
-      if (visibility === 'visible' && !bot.canSeeBlock(block)) continue
+      if (
+        visibility === 'visible' &&
+        !hasDirectResourceLineOfSight(bot, block)
+      ) {
+        continue
+      }
 
       const targetPosition = {
         x: block.position.x,
@@ -805,6 +810,51 @@ function findSafePostHarvestPickupPosition(bot: Bot, target: Position): Position
   if (!support || !head) return null
   if (!isSafeSupport(support) || !isPassableSpace(head)) return null
   return { ...target }
+}
+
+function hasDirectResourceLineOfSight(
+  bot: Bot,
+  block: NonNullable<ReturnType<Bot['blockAt']>>
+): boolean {
+  const eyeHeight =
+    (bot.entity as { eyeHeight?: number }).eyeHeight ?? 1.62
+  const eye = bot.entity.position.offset(
+    0,
+    eyeHeight,
+    0
+  )
+  const targetPoint = block.position.offset(
+    0.5,
+    0.5,
+    0.5
+  )
+
+  const delta = targetPoint.minus(eye)
+  const distance = eye.distanceTo(targetPoint)
+  if (!Number.isFinite(distance) || distance <= 0) return false
+
+  const hit = bot.world.raycast(
+    eye,
+    delta.normalize(),
+    distance + 0.05
+  )
+
+  if (hit === null) {
+    return block.boundingBox === 'empty'
+  }
+
+  return sameBlockCell(hit.position, block.position)
+}
+
+function sameBlockCell(
+  left: { x: number; y: number; z: number },
+  right: { x: number; y: number; z: number }
+): boolean {
+  return (
+    Math.floor(left.x) === Math.floor(right.x) &&
+    Math.floor(left.y) === Math.floor(right.y) &&
+    Math.floor(left.z) === Math.floor(right.z)
+  )
 }
 
 function hasClearStandingSpaceLineOfSight(
