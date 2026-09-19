@@ -53,6 +53,13 @@ import {
   type ServerResourceCatalogSource
 } from './minecraft/moxuebridge-resources.js'
 import {
+  createWorkspaceSelectionsFromConfig,
+  type MoxueBridgeWorkspaceSelections
+} from './minecraft/moxuebridge-workspace-selections.js'
+import type {
+  WorkspaceSelectionSource
+} from './workspace/selection-source.js'
+import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
@@ -191,6 +198,11 @@ export interface ApplicationResourceProfilesPort extends ServerResourceCatalogSo
   stop(): void
 }
 
+export interface ApplicationWorkspaceSelectionsPort extends WorkspaceSelectionSource {
+  start(): Promise<void>
+  stop(): void
+}
+
 export interface ApplicationGeminiDecisionStackPort {
   readonly executor: LogicalDecisionExecutor
   readonly configManager: Pick<RoutingConfigManager, 'snapshot' | 'reload'>
@@ -206,6 +218,10 @@ export interface ApplicationDependencies {
   readonly createResourceProfiles?: (
     config: Extract<MoxueBridgeConfig, { enabled: true }>
   ) => ApplicationResourceProfilesPort
+  readonly createWorkspaceSelections?: (
+    config: Extract<MoxueBridgeConfig, { enabled: true }>,
+    worldKey: string
+  ) => ApplicationWorkspaceSelectionsPort
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
   readonly createLogicalDecisionExecutor?: (
@@ -251,6 +267,17 @@ export function createApplication(
     dependencies.createResourceProfiles ?? createDefaultResourceProfiles
   const resourceProfiles = moxueBridgeConfig.enabled
     ? createResourceProfiles(moxueBridgeConfig)
+    : null
+  const worldKey =
+    `${minecraftConfig.host}:${minecraftConfig.port}`
+  const createWorkspaceSelections =
+    dependencies.createWorkspaceSelections ??
+    createDefaultWorkspaceSelections
+  const workspaceSelections = moxueBridgeConfig.enabled
+    ? createWorkspaceSelections(
+        moxueBridgeConfig,
+        worldKey
+      )
     : null
 
   const registry = new SkillRegistry()
@@ -327,7 +354,7 @@ export function createApplication(
     identity,
     identityMode,
     manualAccess,
-    worldKey: `${minecraftConfig.host}:${minecraftConfig.port}`,
+    worldKey,
     botUsername: minecraftConfig.username,
     logicalExecutor,
     decisionGate: new DecisionGate({ safety, events }),
@@ -405,6 +432,7 @@ export function createApplication(
 
       await serverCapabilities?.start()
       await resourceProfiles?.start()
+      await workspaceSelections?.start()
       try {
         await runtime.adapter.connect()
         const address = await controlServer.start()
@@ -419,6 +447,7 @@ export function createApplication(
       } catch (error) {
         await safeDisconnect(runtime)
         await adapterEventTail
+        workspaceSelections?.stop()
         resourceProfiles?.stop()
         serverCapabilities?.stop()
         throw error
@@ -430,6 +459,7 @@ export function createApplication(
       closed = true
 
       threatSupervisor.dispose()
+      workspaceSelections?.stop()
       resourceProfiles?.stop()
       serverCapabilities?.stop()
       if (adminServer) await contain(() => adminServer.close())
@@ -549,6 +579,16 @@ function createDefaultResourceProfiles(
     timeoutMs: config.timeoutMs,
     refreshIntervalMs: config.refreshIntervalMs
   })
+}
+
+function createDefaultWorkspaceSelections(
+  config: Extract<MoxueBridgeConfig, { enabled: true }>,
+  worldKey: string
+): MoxueBridgeWorkspaceSelections {
+  return createWorkspaceSelectionsFromConfig(
+    config,
+    worldKey
+  )
 }
 
 function createDefaultMemory(filename: string): MinecraftMemoryRepository {

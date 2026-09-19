@@ -17,7 +17,8 @@ import {
   createApplication,
   createFakeDecisionStack,
   type ApplicationResourceProfilesPort,
-  type ApplicationServerCapabilitiesPort
+  type ApplicationServerCapabilitiesPort,
+  type ApplicationWorkspaceSelectionsPort
 } from '../src/main.js'
 
 class FakeAdapter implements MinecraftAdapter {
@@ -161,6 +162,30 @@ class FakeResourceProfiles implements ApplicationResourceProfilesPort {
       cleanupPolicy: null,
       confidence: 'authoritative' as const
     }]
+  }
+}
+
+class FakeWorkspaceSelections implements ApplicationWorkspaceSelectionsPort {
+  constructor(private readonly calls: string[]) {}
+
+  async start(): Promise<void> {
+    this.calls.push('workspace-selections.start')
+  }
+
+  stop(): void {
+    this.calls.push('workspace-selections.stop')
+  }
+
+  latest() {
+    return null
+  }
+
+  status() {
+    return {
+      state: 'current' as const,
+      lastSuccessAt: 1234,
+      lastErrorCode: null
+    }
   }
 }
 
@@ -337,6 +362,7 @@ function harness(options: {
   readonly env?: NodeJS.ProcessEnv
   readonly serverCapabilities?: ApplicationServerCapabilitiesPort
   readonly resourceProfiles?: ApplicationResourceProfilesPort
+  readonly workspaceSelections?: ApplicationWorkspaceSelectionsPort
 } = {}) {
   const calls: string[] = []
   const adapter = new FakeAdapter(calls)
@@ -369,6 +395,12 @@ function harness(options: {
       : {}),
     ...(options.resourceProfiles
       ? { createResourceProfiles: () => options.resourceProfiles as ApplicationResourceProfilesPort }
+      : {}),
+    ...(options.workspaceSelections
+      ? {
+          createWorkspaceSelections: () =>
+            options.workspaceSelections as ApplicationWorkspaceSelectionsPort
+        }
       : {}),
     createControlServer: options => {
       control = new FakeControlServer(calls, options)
@@ -428,6 +460,8 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
   const calls: string[] = []
   const capabilities = new FakeServerCapabilities(calls)
   const resources = new FakeResourceProfiles(calls)
+  const workspaceSelections =
+    new FakeWorkspaceSelections(calls)
   const current = harness({
     env: {
       ...environment(),
@@ -435,7 +469,8 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
       MC_MOXUEBRIDGE_TOKEN: 'test-token'
     },
     serverCapabilities: capabilities,
-    resourceProfiles: resources
+    resourceProfiles: resources,
+    workspaceSelections
   })
 
   // Use the harness-owned call log for application lifecycle order.
@@ -444,7 +479,8 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
   try {
     assert.deepEqual(calls, [
       'capabilities.start',
-      'resources.start'
+      'resources.start',
+      'workspace-selections.start'
     ])
 
     current.adapter.emit({ type: 'connected', at: 1 })
@@ -500,6 +536,8 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
   assert.deepEqual(calls, [
     'capabilities.start',
     'resources.start',
+    'workspace-selections.start',
+    'workspace-selections.stop',
     'resources.stop',
     'capabilities.stop'
   ])
