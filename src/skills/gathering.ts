@@ -211,7 +211,14 @@ export class ExploreResourceSkill implements SkillDefinition<ExploreArgs> {
       return { status: 'failed', code: 'exploration_unavailable' }
     }
 
+    const initialOrigin = this.resources.currentPosition()
+    if (!initialOrigin) {
+      return { status: 'failed', code: 'minecraft_not_ready' }
+    }
+
     const visited = new Set<string>()
+    const exploredAnchors: Position[] = [{ ...initialOrigin }]
+
     for (let step = 0; step < maxSteps; step += 1) {
       if (signal.aborted) return cancelled(signal)
       const origin = this.resources.currentPosition()
@@ -227,8 +234,14 @@ export class ExploreResourceSkill implements SkillDefinition<ExploreArgs> {
       )
       if (signal.aborted) return cancelled(signal)
 
+      const orderedWaypoints = orderNovelExplorationWaypoints(
+        waypoints,
+        exploredAnchors,
+        origin
+      )
+
       let moved = false
-      for (const waypoint of waypoints) {
+      for (const waypoint of orderedWaypoints) {
         const key = positionKeyForSkill(waypoint)
         if (visited.has(key) || this.protection.isProtected(waypoint)) continue
         visited.add(key)
@@ -242,6 +255,8 @@ export class ExploreResourceSkill implements SkillDefinition<ExploreArgs> {
         if (navigation.status !== 'succeeded') continue
 
         moved = true
+        exploredAnchors.push({ ...waypoint })
+
         const visible = await this.visibleCandidate(
           profile,
           radius,
@@ -289,6 +304,47 @@ export class ExploreResourceSkill implements SkillDefinition<ExploreArgs> {
       new Set()
     )
   }
+}
+
+const EXPLORATION_NOVELTY_DISTANCE = 3
+
+function orderNovelExplorationWaypoints(
+  waypoints: readonly Position[],
+  exploredAnchors: readonly Position[],
+  origin: Position
+): Position[] {
+  const minimumNoveltySquared =
+    EXPLORATION_NOVELTY_DISTANCE * EXPLORATION_NOVELTY_DISTANCE
+
+  return waypoints
+    .map(waypoint => {
+      const noveltySquared = exploredAnchors.reduce(
+        (minimum, anchor) => Math.min(
+          minimum,
+          squaredDistance(waypoint, anchor)
+        ),
+        Number.POSITIVE_INFINITY
+      )
+      return {
+        waypoint: { ...waypoint },
+        noveltySquared,
+        currentDistanceSquared: squaredDistance(waypoint, origin)
+      }
+    })
+    .filter(candidate => candidate.noveltySquared >= minimumNoveltySquared)
+    .sort((left, right) => {
+      const noveltyDelta =
+        right.noveltySquared - left.noveltySquared
+      if (noveltyDelta !== 0) return noveltyDelta
+
+      const currentDistanceDelta =
+        right.currentDistanceSquared - left.currentDistanceSquared
+      if (currentDistanceDelta !== 0) return currentDistanceDelta
+
+      return positionKeyForSkill(left.waypoint)
+        .localeCompare(positionKeyForSkill(right.waypoint))
+    })
+    .map(candidate => candidate.waypoint)
 }
 
 function resourceFoundResult(
