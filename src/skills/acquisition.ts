@@ -588,8 +588,13 @@ function memoryMatchesProfile(
   const tags = new Set(
     memory.tags.map(tag => tag.toLowerCase())
   )
+  const content = memory.content.toLowerCase()
   return resourceKeys(profile)
-    .some(key => tags.has(key))
+    .some(
+      key =>
+        tags.has(key) ||
+        content.includes(key)
+    )
 }
 
 function resourceKeys(
