@@ -103,6 +103,11 @@ Run existing resource live validations that are affected by wiring.
 
 ## M7 — Parallelization acceptance
 
+Additional hardening:
+
+- derive `SkillName` / `SkillNameSchema` from the trusted catalog so the catalog is the single canonical skill-name authority;
+- add an acceptance test proving an independent module can register its own typed runtime port and execute through SkillRegistry/SkillExecutor without touching builtin module internals.
+
 PASS requires:
 
 - full tests/typecheck green;

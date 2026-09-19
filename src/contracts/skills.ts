@@ -1,23 +1,8 @@
-import { z } from 'zod'
+import type { SkillName } from './skill-catalog.js'
 
-export const SkillNameSchema = z.enum([
-  'follow_player',
-  'stay',
-  'stop',
-  'go_to',
-  'return_home',
-  'eat',
-  'equip',
-  'find_resource',
-  'gather_resource',
-  'explore_resource',
-  'excavate_resource',
-  'acquire_resource',
-  'deposit_item',
-  'withdraw_item'
-])
+export { SkillNameSchema } from './skill-catalog.js'
+export type { SkillName } from './skill-catalog.js'
 
-export type SkillName = z.infer<typeof SkillNameSchema>
 export type SkillStatus = 'succeeded' | 'failed' | 'cancelled'
 
 export interface SkillResult {

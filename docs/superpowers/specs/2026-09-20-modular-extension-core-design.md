@@ -230,6 +230,23 @@ Do not open multiple coding conversations for Production/Combat/Construction unt
 
 At that point `PROJECT_CONTINUITY.md` may mark **SAFE PARALLELIZATION POINT**.
 
+## 11.1 Final extension recipe
+
+For a new parallel gameplay workstream:
+
+1. create a dedicated branch + worktree from the agreed modularization integration base;
+2. define any new narrow semantic runtime interface beside that workstream;
+3. create a typed `RuntimePort<T>` token;
+4. if Mineflayer-specific mechanics are required, add one narrow `MineflayerRuntimeExtension` that registers the port; only this low-level adapter may see `readyBot()`;
+5. implement the behavior as its own `SkillModule`, consuming only the typed ports and explicit domain dependencies it needs;
+6. add the skill/action contract once to the trusted catalog if the behavior introduces a new canonical action; SkillName, Goal/Decision schemas, AI exposure, and Safety authority derive from that catalog;
+7. add only the minimal composition entry needed to enable the module;
+8. keep mod/content IDs in knowledge/capability/profile data when the mechanic already exists;
+9. do not edit another gameplay module's internals to add the new workstream;
+10. preserve fail-closed SafetyPolicy permits and do not expose raw Mineflayer Bot to skills.
+
+Parallel branches may each add isolated module/runtime files. Integration may require a small manifest/composition edit, but should not require cross-editing Resource, Survival, Navigation, or other feature-module internals.
+
 ## 12. Relationship to existing project-autonomy roadmap
 
 This design does not replace:

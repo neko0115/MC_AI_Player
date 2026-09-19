@@ -13,11 +13,6 @@ import {
   StayArgsSchema,
   WithdrawItemArgsSchema
 } from './action-args.js'
-import {
-  SkillNameSchema,
-  type SkillName
-} from './skills.js'
-
 export type SkillSafetyCapability =
   | 'break_blocks'
   | 'place_blocks'
@@ -38,7 +33,7 @@ export interface SkillSafetyContract {
 }
 
 export interface SkillContract {
-  readonly name: SkillName
+  readonly name: string
   readonly argsSchema: z.ZodType | null
   readonly goal: boolean
   readonly decision: boolean
@@ -209,18 +204,23 @@ export const SKILL_CONTRACTS = [
   })
 ] as const satisfies readonly SkillContract[]
 
+export type SkillContractEntry = typeof SKILL_CONTRACTS[number]
+export type SkillName = SkillContractEntry['name']
+
+const SKILL_NAMES = SKILL_CONTRACTS.map(
+  entry => entry.name
+) as [SkillName, ...SkillName[]]
+
+export const SkillNameSchema = z.enum(SKILL_NAMES)
+
 const CONTRACTS_BY_NAME = new Map(
   SKILL_CONTRACTS.map(entry => [entry.name, entry] as const)
 )
 
-if (
-  CONTRACTS_BY_NAME.size !== SKILL_CONTRACTS.length ||
-  SkillNameSchema.options.some(name => !CONTRACTS_BY_NAME.has(name))
-) {
-  throw new Error('skill contract catalog is incomplete or contains duplicates')
+if (CONTRACTS_BY_NAME.size !== SKILL_CONTRACTS.length) {
+  throw new Error('skill contract catalog contains duplicate names')
 }
 
-export type SkillContractEntry = typeof SKILL_CONTRACTS[number]
 export type GoalSkillContract =
   Extract<SkillContractEntry, { readonly goal: true }>
 export type DecisionSkillContract =
