@@ -105,6 +105,25 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       .reduce((sum, item) => sum + item.count, 0)
   }
 
+  inspectBlock(position: Position) {
+    const bot = this.readyBot()
+    if (!bot || !isFinitePosition(position)) return null
+    const block = blockAtPosition(bot, position)
+    if (!block) return null
+    return {
+      name: block.name,
+      position: {
+        x: block.position.x,
+        y: block.position.y,
+        z: block.position.z
+      },
+      boundingBox:
+        typeof block.boundingBox === 'string'
+          ? block.boundingBox
+          : 'unknown'
+    }
+  }
+
   resourceCollectionCursor(): number {
     this.readyBot()
     return this.collectionSequence
