@@ -178,3 +178,26 @@ export const WorkspaceSearchQuerySchema = z
 
 export type WorkspaceSearchQuery =
   z.input<typeof WorkspaceSearchQuerySchema>
+
+
+export const WorkspaceSelectionSnapshotSchema = z
+  .object({
+    version: z.literal(1),
+    generatedAt: z.number().int().nonnegative(),
+    selections: z.array(WorkspaceSelectionSchema).max(256)
+  })
+  .strict()
+
+export type WorkspaceSelectionSnapshot =
+  z.infer<typeof WorkspaceSelectionSnapshotSchema>
+
+export const WorkspaceSelectionQuerySchema = z
+  .object({
+    worldKey: z.string().trim().min(1).max(256),
+    dimension: z.string().trim().min(1).max(128),
+    playerId: z.string().trim().min(1).max(128)
+  })
+  .strict()
+
+export type WorkspaceSelectionQuery =
+  z.input<typeof WorkspaceSelectionQuerySchema>
