@@ -122,7 +122,10 @@ export class SafetyPolicy {
     if (skillDecision.kind !== 'allow') {
       return skillDecision
     }
-    if (skillName !== 'gather_resource') {
+    if (
+      skillName !== 'gather_resource' &&
+      skillName !== 'excavate_resource'
+    ) {
       return { kind: 'deny', code: 'mutation_skill_not_allowed' }
     }
     if (!metadata.capabilities?.includes('break_blocks')) {
