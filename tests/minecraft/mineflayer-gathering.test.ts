@@ -30,6 +30,21 @@ class FakeBot extends EventEmitter {
   equippedItem: FakeItem | null = null
   readonly controlStates: Array<{ state: string; enabled: boolean }> = []
 
+  readonly world = {
+    raycast: () => {
+      if (this.visible) {
+        return {
+          name: this.blockName,
+          position: (this.searchPositions[0] ?? new Vec3(4, 64, 0)).clone()
+        }
+      }
+      return {
+        name: 'stone',
+        position: new Vec3(1, 64, 0)
+      }
+    }
+  }
+
   inventory = {
     items: () => this.inventoryItems
   }
