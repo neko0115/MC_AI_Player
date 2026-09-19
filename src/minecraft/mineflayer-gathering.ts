@@ -843,7 +843,61 @@ function hasDirectResourceLineOfSight(
     return block.boundingBox === 'empty'
   }
 
-  return sameBlockCell(hit.position, block.position)
+  const hitCell = raycastHitCell(hit)
+  return hitCell !== null &&
+    sameBlockCell(hitCell, block.position)
+}
+
+function raycastHitCell(
+  hit: unknown
+): { x: number; y: number; z: number } | null {
+  if (!hit || typeof hit !== 'object') return null
+
+  const direct = hit as {
+    x?: unknown
+    y?: unknown
+    z?: unknown
+  }
+  if (
+    typeof direct.x === 'number' &&
+    typeof direct.y === 'number' &&
+    typeof direct.z === 'number' &&
+    Number.isFinite(direct.x) &&
+    Number.isFinite(direct.y) &&
+    Number.isFinite(direct.z)
+  ) {
+    return {
+      x: direct.x,
+      y: direct.y,
+      z: direct.z
+    }
+  }
+
+  const positioned = hit as {
+    position?: {
+      x?: unknown
+      y?: unknown
+      z?: unknown
+    }
+  }
+  const position = positioned.position
+  if (
+    position &&
+    typeof position.x === 'number' &&
+    typeof position.y === 'number' &&
+    typeof position.z === 'number' &&
+    Number.isFinite(position.x) &&
+    Number.isFinite(position.y) &&
+    Number.isFinite(position.z)
+  ) {
+    return {
+      x: position.x,
+      y: position.y,
+      z: position.z
+    }
+  }
+
+  return null
 }
 
 function sameBlockCell(
