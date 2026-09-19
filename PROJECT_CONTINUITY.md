@@ -479,7 +479,7 @@ Current M6 scope:
 - `builtin-skills.ts` now composes the resource module instead of containing its internal wiring;
 - tests assert the complete resource skill set, AI exposure of only `acquire_resource`, and fail-closed behavior when a required runtime port is missing.
 
-**Verification status:** local verification pending for M6.
+**Verification status:** first M6 focused run exposed a test-fixture-only regression: `tests/modules/resource-module.test.ts` constructed `WorldStateCache` without required `{ maxRecentEvents }`, so both new module tests failed before reaching module logic. Fixed in `4dc0935` with `new WorldStateCache({ maxRecentEvents: 10 })`. Production Resource module code was not changed. M6 verification must be rerun.
 
 **Next exact action:**
 
