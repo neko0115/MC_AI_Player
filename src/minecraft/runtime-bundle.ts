@@ -12,8 +12,20 @@ import {
 } from './mineflayer-adapter.js'
 import { MineflayerGatheringRuntime } from './mineflayer-gathering.js'
 import { MineflayerInventoryRuntime } from './mineflayer-inventory.js'
+import {
+  installMineflayerRuntimeExtensions,
+  type MineflayerRuntimeExtension
+} from './runtime-extension.js'
+import {
+  MINECRAFT_ADAPTER_PORT,
+  RESOURCE_GATHERING_PORT,
+  RUNTIME_PORT_REGISTRY,
+  RuntimePortRegistry,
+  SURVIVAL_INVENTORY_PORT,
+  type RuntimePortContainer
+} from './runtime-ports.js'
 
-export interface MineflayerRuntimeBundle {
+export interface MineflayerRuntimeBundle extends RuntimePortContainer {
   readonly adapter: MinecraftAdapter
   readonly inventory: SurvivalInventoryAdapter & ContainerTransactionAdapter
   readonly gathering: ResourceGatheringAdapter
@@ -21,6 +33,7 @@ export interface MineflayerRuntimeBundle {
 
 export interface MineflayerRuntimeBundleDependencies {
   readonly createBot?: MineflayerBotFactory
+  readonly extensions?: readonly MineflayerRuntimeExtension[]
 }
 
 export function createMineflayerRuntimeBundle(
@@ -89,9 +102,20 @@ export function createMineflayerRuntimeBundle(
   }
   Object.freeze(gathering)
 
+  const ports = new RuntimePortRegistry()
+  ports.register(MINECRAFT_ADAPTER_PORT, adapter)
+  ports.register(SURVIVAL_INVENTORY_PORT, inventory)
+  ports.register(RESOURCE_GATHERING_PORT, gathering)
+
+  installMineflayerRuntimeExtensions(
+    { readyBot, ports },
+    dependencies.extensions ?? []
+  )
+
   return Object.freeze({
     adapter,
     inventory,
-    gathering
+    gathering,
+    [RUNTIME_PORT_REGISTRY]: ports
   })
 }

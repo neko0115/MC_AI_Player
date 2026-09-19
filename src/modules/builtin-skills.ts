@@ -6,6 +6,10 @@ import type { MinecraftMemoryRepository } from '../memory/repository.js'
 import type { ServerCapabilityStatusSource } from '../minecraft/moxuebridge-capabilities.js'
 import type { ResourceProfileSource } from '../minecraft/resource-profiles.js'
 import type { MineflayerRuntimeBundle } from '../minecraft/runtime-bundle.js'
+import {
+  SURVIVAL_INVENTORY_PORT,
+  type RuntimePortRegistry
+} from '../minecraft/runtime-ports.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import { AcquireResourceSkill } from '../skills/acquisition.js'
 import { ExcavateResourceSkill } from '../skills/excavation.js'
@@ -47,6 +51,7 @@ const EXCLUDED_FOOD = [
 
 export interface BuiltinSkillModuleDependencies {
   readonly runtime: MineflayerRuntimeBundle
+  readonly runtimePorts: RuntimePortRegistry
   readonly safety: SafetyPolicy
   readonly state: WorldStateCache
   readonly events: RuntimeEventBus
@@ -88,11 +93,14 @@ function createSurvivalModule(
   return {
     id: 'survival',
     install(registry) {
-      registry.register(new EatSkill(dependencies.runtime.inventory, {
+      const inventory =
+        dependencies.runtimePorts.require(SURVIVAL_INVENTORY_PORT)
+
+      registry.register(new EatSkill(inventory, {
         preferredFood: PREFERRED_FOOD,
         excludedItems: EXCLUDED_FOOD
       }))
-      registry.register(new EquipSkill(dependencies.runtime.inventory))
+      registry.register(new EquipSkill(inventory))
     }
   }
 }

@@ -3,6 +3,10 @@ import { EventEmitter } from 'node:events'
 import test from 'node:test'
 import type { Bot } from 'mineflayer'
 import { createMineflayerRuntimeBundle } from '../../src/minecraft/runtime-bundle.js'
+import {
+  defineRuntimePort,
+  runtimePortRegistry
+} from '../../src/minecraft/runtime-ports.js'
 
 class FakeInventory extends EventEmitter {
   items() {
@@ -55,4 +59,68 @@ test('Mineflayer runtime bundle exposes semantic gameplay interfaces, never a ra
   bot.emit('end', 'network-lost')
   assert.deepEqual(runtime.inventory.inventoryItems(), [])
   assert.equal(runtime.gathering.currentPosition(), null)
+})
+
+
+test('Mineflayer runtime extensions register typed ports without exposing raw Bot on the bundle', async () => {
+  const bot = new FakeBot()
+  const TEST_PORT = defineRuntimePort<{ readonly value: string }>(
+    'test.semantic-port'
+  )
+
+  const runtime = createMineflayerRuntimeBundle(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: () => bot as unknown as Bot,
+      extensions: [{
+        id: 'test-extension',
+        install({ readyBot, ports }) {
+          assert.equal(readyBot(), null)
+          ports.register(TEST_PORT, { value: 'ready' })
+        }
+      }]
+    }
+  )
+
+  assert.deepEqual(
+    Object.keys(runtime).sort(),
+    ['adapter', 'gathering', 'inventory']
+  )
+  assert.equal('bot' in runtime, false)
+  assert.equal(
+    runtimePortRegistry(runtime).require(TEST_PORT).value,
+    'ready'
+  )
+})
+
+test('duplicate runtime extension ids fail before any extension installs', () => {
+  const bot = new FakeBot()
+  let installs = 0
+
+  assert.throws(
+    () => createMineflayerRuntimeBundle(
+      {
+        host: 'localhost',
+        port: 25565,
+        username: 'Moxue_Test',
+        auth: 'offline',
+        logLevel: 'info'
+      },
+      {
+        createBot: () => bot as unknown as Bot,
+        extensions: [
+          { id: 'duplicate', install() { installs += 1 } },
+          { id: 'duplicate', install() { installs += 1 } }
+        ]
+      }
+    ),
+    /duplicate Mineflayer runtime extension id/
+  )
+  assert.equal(installs, 0)
 })
