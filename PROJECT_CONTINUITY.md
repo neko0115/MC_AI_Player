@@ -5,7 +5,7 @@
 > Before ending a coding session, update the relevant progress section in this file so the next session can continue without reconstructing context from chat history.
 
 **Last continuity update:** 2026-09-20  
-**Current canonical development branch for this copy:** `feature/modular-extension-core`  
+**Current canonical development branch for this copy:** `feature/workspace-planner`  
 **Current accepted modularization code baseline:** `49f3a57` (`refactor: close parallelization extension hotspots`).
 
 ---
@@ -339,6 +339,60 @@ The extensibility rules in this continuity document are a program-wide requireme
 ---
 
 ## 9. Current Workstreams
+
+### WS-WORKSPACE-PLANNER — active
+
+**Branch:** `feature/workspace-planner`  
+**Proposed worktree:** `D:\MC_AI_player-worktrees\workspace-planner`  
+**Base:** `b75cb48` (M7 SAFE PARALLELIZATION POINT)  
+**Goal:** add a persistent user-defined workspace/area system driven by a dedicated setting wand, with generic region semantics and deterministic bounded directives such as lighting.
+
+Design:
+
+- `docs/superpowers/specs/2026-09-20-workspace-area-planner-design.md`
+- `docs/superpowers/plans/2026-09-20-workspace-area-planner.md`
+
+#### W0 contracts/geometry — implementation pending verification
+
+Commit:
+
+- `0656a12` — `feat: add workspace region geometry contracts`
+
+Current behavior:
+
+- two selected block points normalize to one inclusive axis-aligned cuboid;
+- exact X/Y/Z sizes and volume are derived;
+- chunk coverage is derived without enumerating every block;
+- containment/intersection are deterministic;
+- 5 x 10 x 10, 9 x 1 x 9, and 12-chunk examples have focused tests;
+- workspace region labels/purpose/tags/constraints are bounded data;
+- custom labels such as `快速熔爐` do not create mutation authority;
+- horizontal/vertical selection spans are bounded while still allowing large multi-chunk workspaces.
+
+Important integration boundary:
+
+- MC_AI_Player cannot reliably observe another player's block click with a stick;
+- the setting-wand click must arrive through a trusted Paper observation adapter (preferred MoxueBridge extension);
+- visible wand name should be `墨雪設定棍`, with an internal persistent marker/version preferred as authoritative identity;
+- selection observation never grants world-mutation authority.
+
+**Next exact action:**
+
+1. create/check out the dedicated workspace worktree;
+2. run `npm test -- tests/workspace/geometry.test.ts`;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. if green, begin W1 durable SQLite workspace repository;
+6. after W1, define the Paper selection observation contract before implementing wand integration.
+
+**Do not:**
+
+- implement lighting by hard-coded farm/furnace special cases;
+- let region labels directly authorize mutation;
+- expose raw Mineflayer Bot to this module;
+- make Paper wand observations responsible for executing world changes.
+
+---
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
