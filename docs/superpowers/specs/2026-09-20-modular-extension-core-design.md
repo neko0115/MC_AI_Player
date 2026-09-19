@@ -4,7 +4,7 @@
 **Repository:** `neko0115/MC_AI_Player`  
 **Design branch:** `feature/modular-extension-core`  
 **Base:** `feature/moxuebridge-capabilities` at `c61d389`  
-**Status:** Active design / implementation gate
+**Status:** COMPLETE — SAFE PARALLELIZATION POINT reached
 
 ## 1. Goal
 
@@ -228,7 +228,7 @@ Do not open multiple coding conversations for Production/Combat/Construction unt
 - full tests/typecheck pass;
 - one representative existing module (resource acquisition) has migrated without behavior regression.
 
-At that point `PROJECT_CONTINUITY.md` may mark **SAFE PARALLELIZATION POINT**.
+These criteria are now satisfied. `PROJECT_CONTINUITY.md` marks **SAFE PARALLELIZATION POINT** after M7 acceptance (419 tests / 415 pass / 0 fail / 4 skipped, typecheck PASS, Resource live regression PASS).
 
 ## 11.1 Final extension recipe
 

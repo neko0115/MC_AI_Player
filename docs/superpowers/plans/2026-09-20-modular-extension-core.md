@@ -14,8 +14,8 @@ Every step must preserve current external behavior unless the step explicitly sa
 - [x] Identify current coupling hotspots.
 - [x] Define content/mechanic/behavior extension rules.
 - [x] Define parallelization gate.
-- [ ] Create isolated branch/worktree locally.
-- [ ] Confirm base full suite in the new worktree.
+- [x] Create isolated branch/worktree locally.
+- [x] Confirm base full suite in the new worktree.
 
 ## M1 — Extract behavior-neutral skill module composition
 
@@ -118,3 +118,28 @@ PASS requires:
 - `PROJECT_CONTINUITY.md` updated with **SAFE PARALLELIZATION POINT** and branch/worktree instructions.
 
 Only after M7 begin independent Production / Combat / Construction coding workstreams.
+
+
+## Final acceptance — 2026-09-20
+
+- M0 PASS
+- M1 PASS
+- M2 PASS
+- M3 PASS
+- M4 PASS
+- M5 PASS
+- M6 FULL PASS (automated + controlled Minecraft live)
+- M7 PASS
+
+Final M7 automated result:
+
+- 419 tests total
+- 415 passed
+- 0 failed
+- 4 skipped
+- typecheck PASS
+- working tree clean
+
+**SAFE PARALLELIZATION POINT reached.**
+
+Production and hostile-combat work may now proceed on isolated branches/worktrees. Construction must first audit the existing `feature/project-autonomy-construction` worktree because it was last observed 30 local commits ahead of origin.

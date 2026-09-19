@@ -5,8 +5,8 @@
 > Before ending a coding session, update the relevant progress section in this file so the next session can continue without reconstructing context from chat history.
 
 **Last continuity update:** 2026-09-20  
-**Current canonical development branch for this copy:** `feature/moxuebridge-capabilities`  
-**Current HEAD after this document lands:** see the branch log; the code baseline immediately before this document was `014d684`.
+**Current canonical development branch for this copy:** `feature/modular-extension-core`  
+**Current accepted modularization code baseline:** `49f3a57` (`refactor: close parallelization extension hotspots`).
 
 ---
 
@@ -303,6 +303,7 @@ Last observed from the local repository:
 | `D:\MC_AI_Player` | `feature/moxuebridge-capabilities` | active; PR #5; resource acquisition / server capability integration | current conversation may modify |
 | `D:\MC_AI_player-worktrees\gemini-multi-model-routing` | `feature/gemini-multi-model-routing` | last observed `c2a61c5`, tracking origin | keep isolated |
 | `D:\MC_AI_player-worktrees\project-autonomy-construction` | `feature/project-autonomy-construction` | local was last observed at `7a8ca4a`, **ahead of origin by 30 commits**; remote currently exposes docs-only history through `4d2ee69` | **do not reset/rebase/overwrite from another conversation; inspect this worktree locally first** |
+| `D:\MC_AI_player-worktrees\modular-extension-core` | `feature/modular-extension-core` | M0-M7 modularization gate complete; 419 tests / 415 pass / 0 fail / 4 skipped; live Resource memory recall PASS | accepted modular integration baseline; use as prerequisite for new parallel gameplay modules |
 
 The table is a handoff record, not a substitute for running `git worktree list` and `git branch -vv` at startup.
 
@@ -506,7 +507,7 @@ Controlled Minecraft live memory-recall regression PASS:
 - Paper confirmed A remained consumed and B was consumed;
 - no hidden-block server lookup/X-ray path was introduced.
 
-#### M7 Safe Parallelization Gate — acceptance in progress
+#### M7 Safe Parallelization Gate — PASS / SAFE PARALLELIZATION POINT
 
 Acceptance criteria:
 
@@ -534,28 +535,57 @@ M7 implementation status:
 - modularization design now documents the final extension recipe for future parallel workstreams;
 - Resource M6 live proof is already FULL PASS.
 
-**Verification status:** M7 local verification pending.
+**Verification status:** M7 FULL automated acceptance PASS.
 
-**Next exact action:**
+Final M7 evidence:
 
-1. fast-forward the modular worktree;
-2. run focused M7 tests:
-   - `tests/modules/parallelization-acceptance.test.ts`;
-   - `tests/contracts/skill-catalog.test.ts`;
-   - `tests/contracts/catalog-derived-actions.test.ts`;
-   - `tests/modules/resource-module.test.ts`;
-   - `tests/minecraft/runtime-ports.test.ts`;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. confirm working tree is clean;
-6. if all green, mark **SAFE PARALLELIZATION POINT** and create the recommended Production / Combat / Construction branch+worktree split.
+- focused parallelization/catalog/resource/runtime-port acceptance tests PASS;
+- `npm run typecheck` PASS;
+- full suite: 419 tests total, 415 passed, 0 failed, 4 skipped;
+- working tree clean;
+- independent test module registered its own typed runtime port and executed through `SkillRegistry -> SkillExecutor` without editing builtin gameplay module internals;
+- M6 Resource module already holds FULL automated + controlled Minecraft live PASS evidence.
 
-**Do not:**
+**SAFE PARALLELIZATION POINT:** reached on 2026-09-20.
 
-- start Combat/Production/Construction implementation yet;
-- relax Skill/Goal/Decision schemas yet;
-- change SafetyPolicy authority in M1;
-- merge/reset the existing project-autonomy worktree.
+### Recommended parallel split after M7
+
+The architecture is now safe for parallel gameplay-module work, subject to the branch/worktree rules above.
+
+Recommended active coding conversations:
+
+1. **Production / supply**
+   - proposed branch: `feature/skill-production`
+   - proposed worktree: `D:\MC_AI_player-worktrees\production`
+   - scope: tool acquisition, crafting, smelting/processing, workstation use, versioned knowledge/supply planning;
+   - do not edit Combat or Construction module internals.
+
+2. **Hostile combat**
+   - proposed branch: `feature/skill-hostile-combat`
+   - proposed worktree: `D:\MC_AI_player-worktrees\hostile-combat`
+   - scope: hostile mobs only, deterministic engage/retreat policy, generic weapon descriptors, bounded attack/reposition/reload/use loops;
+   - PvP remains disabled.
+
+3. **Project-autonomy / construction audit first**
+   - existing branch/worktree: `feature/project-autonomy-construction` / `D:\MC_AI_player-worktrees\project-autonomy-construction`;
+   - this worktree was last observed **ahead by 30 local commits**;
+   - first action is inspection/audit only;
+   - do not reset/rebase/overwrite it;
+   - only after its unpublished state is understood should Construction be split to a new `feature/skill-construction` branch if appropriate.
+
+Keep one integration/core conversation available for shared-contract changes. If two parallel workstreams need the same new contract, land that contract deliberately in the shared modular layer rather than independently editing each other's modules.
+
+### Branch baseline rule
+
+Until the modularization branch is merged into the chosen integration base, any new gameplay branch created from it is intentionally stacked. Record its exact base SHA in this file. Prefer branching from the latest accepted `feature/modular-extension-core` HEAD so every workstream inherits the M7 contracts and continuity rules.
+
+**Parallel-work safety rules after M7:**
+
+- Production and hostile-combat modules may now begin on distinct branches/worktrees;
+- Construction must first audit the existing ahead-30 project-autonomy worktree;
+- do not relax trusted catalog / Goal / Decision / Safety contracts from a feature branch merely to make one module easier;
+- shared-contract changes belong to the modular/core integration layer;
+- never merge/reset/rebase another active conversation's worktree without deliberate handoff.
 
 ---
 
@@ -631,23 +661,20 @@ Fix on `014d684`:
 
 The existing normal-player visible rescan remains unchanged. No hidden-block/X-ray lookup was added.
 
-#### CURRENT LIVE GATE — not yet completed
+#### Known Resource Memory live gate — PASS on later modularized descendant
 
-Restart/deploy MC_AI_Player at `014d684` or later and rerun the controlled memory recall scenario.
+The required controlled recall scenario was rerun on the later `feature/modular-extension-core` descendant and PASSed:
 
-PASS requires:
+- second run emitted `visible -> memory`;
+- bot navigated from about `(-247.5,84,317.5)` back near the remembered anchor;
+- normal visible/LOS rescan rediscovered the disconnected backup ore B;
+- run proceeded directly to `gather` without `explore` or `excavate`;
+- `raw_iron` increased 3 -> 4;
+- `skill_completed` and `goal_completed` emitted;
+- Paper confirmed A and B consumed;
+- no hidden-block/X-ray lookup was introduced.
 
-1. start away from the remembered area;
-2. `visible -> memory`;
-3. navigate sufficiently near the remembered anchor;
-4. normal visible/LOS rescan rediscovers a still-existing nearby backup ore;
-5. gather it;
-6. target inventory delta for the run is `>= requested quantity`;
-7. `skill_completed`;
-8. `goal_completed`;
-9. over-collection by a bounded vein-mining chain is valid.
-
-If this still fails, inspect geometry/LOS and actual arrival coordinates before widening any scan or adding new behavior. Preserve the no-X-ray rule.
+This satisfies the original `014d684` live regression gate on an equivalent later descendant.
 
 #### Next after memory recall passes
 
