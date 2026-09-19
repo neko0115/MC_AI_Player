@@ -69,11 +69,27 @@ export const RUNTIME_PORT_REGISTRY =
   Symbol('mc-ai-player.runtime-ports')
 
 export interface RuntimePortContainer {
-  readonly [RUNTIME_PORT_REGISTRY]: RuntimePortRegistry
+  readonly [RUNTIME_PORT_REGISTRY]?: RuntimePortRegistry
+  readonly adapter?: MinecraftAdapter
+  readonly inventory?: SurvivalInventoryAdapter & ContainerTransactionAdapter
+  readonly gathering?: ResourceGatheringAdapter
 }
 
 export function runtimePortRegistry(
   container: RuntimePortContainer
 ): RuntimePortRegistry {
-  return container[RUNTIME_PORT_REGISTRY]
+  const existing = container[RUNTIME_PORT_REGISTRY]
+  if (existing) return existing
+
+  const registry = new RuntimePortRegistry()
+  if (container.adapter) {
+    registry.register(MINECRAFT_ADAPTER_PORT, container.adapter)
+  }
+  if (container.inventory) {
+    registry.register(SURVIVAL_INVENTORY_PORT, container.inventory)
+  }
+  if (container.gathering) {
+    registry.register(RESOURCE_GATHERING_PORT, container.gathering)
+  }
+  return registry
 }

@@ -8,7 +8,7 @@ import type { ResourceProfileSource } from '../minecraft/resource-profiles.js'
 import type { MineflayerRuntimeBundle } from '../minecraft/runtime-bundle.js'
 import {
   SURVIVAL_INVENTORY_PORT,
-  type RuntimePortRegistry
+  runtimePortRegistry
 } from '../minecraft/runtime-ports.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import { AcquireResourceSkill } from '../skills/acquisition.js'
@@ -51,7 +51,6 @@ const EXCLUDED_FOOD = [
 
 export interface BuiltinSkillModuleDependencies {
   readonly runtime: MineflayerRuntimeBundle
-  readonly runtimePorts: RuntimePortRegistry
   readonly safety: SafetyPolicy
   readonly state: WorldStateCache
   readonly events: RuntimeEventBus
@@ -94,7 +93,8 @@ function createSurvivalModule(
     id: 'survival',
     install(registry) {
       const inventory =
-        dependencies.runtimePorts.require(SURVIVAL_INVENTORY_PORT)
+        runtimePortRegistry(dependencies.runtime)
+          .require(SURVIVAL_INVENTORY_PORT)
 
       registry.register(new EatSkill(inventory, {
         preferredFood: PREFERRED_FOOD,
