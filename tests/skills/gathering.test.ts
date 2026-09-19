@@ -82,8 +82,7 @@ class FakeGatheringWorld implements ResourceGatheringAdapter, ResourceNavigation
     if (signal.aborted) return []
     const candidates: Position[] = [
       { x: 4, y: 64, z: 0 },
-      { x: -4, y: 64, z: 0 },
-      { x: -2, y: 64, z: 0 },
+      { x: 1, y: 64, z: 0 },
       { x: 8, y: 64, z: 0 }
     ]
     return candidates
