@@ -122,7 +122,7 @@ export const SKILL_CONTRACTS: readonly SkillContract[] = Object.freeze([
   }),
   contract({
     name: 'find_resource',
-    argsSchema: GatherResourceArgsSchema,
+    argsSchema: null,
     ai: { exposed: false, description: null },
     safety: { capabilities: NONE, mutationAuthority: 'none' }
   }),
