@@ -3,6 +3,12 @@ import type { SkillResult } from '../contracts/skills.js'
 import type { ResourceMutationPermit } from '../safety/policy.js'
 import type { NavigationOptions } from './adapter.js'
 
+export interface BlockObservation {
+  readonly name: string
+  readonly position: Position
+  readonly boundingBox: string
+}
+
 export interface ResourceCandidate {
   readonly blockName: string
   readonly position: Position
@@ -56,6 +62,7 @@ export interface ResourceToolPreparationOptions {
 export interface ResourceGatheringAdapter {
   currentPosition(): Position | null
   inventoryCount(item: string): number
+  inspectBlock?(position: Position): BlockObservation | null
   findResourceBlocks(
     request: ResourceSearchRequest,
     signal: AbortSignal
