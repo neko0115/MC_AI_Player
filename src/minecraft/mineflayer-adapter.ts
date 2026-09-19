@@ -717,7 +717,7 @@ function hostileKind(entity: {
   type?: string
   name?: string
 }): string | null {
-  if (entity.type !== 'mob') return null
+  if (entity.type !== 'mob' && entity.type !== 'hostile') return null
   const name = entity.name?.trim().toLowerCase() ?? ''
   return DEFINITELY_HOSTILE_MOBS.has(name) ? name : null
 }
