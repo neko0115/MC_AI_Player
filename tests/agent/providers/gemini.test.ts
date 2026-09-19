@@ -45,7 +45,7 @@ function context(): DecisionContext {
     recentEvents: [],
     memories: [],
     skills: [
-      { name: 'gather_resource', description: 'Gather an exact bounded quantity.' },
+      { name: 'acquire_resource', description: 'Acquire a bounded resource quantity through deterministic search.' },
       { name: 'stay', description: 'Hold position.' }
     ],
     safetyConstraints: ['PvP is disabled.', 'Generic pathfinding cannot dig.']
@@ -290,7 +290,7 @@ test('Gemini transport prepares immutable exact V2 decision tools', async () => 
   assert.equal(Object.isFrozen(prepared), true)
   assert.deepEqual(
     prepared.tools.map(tool => tool.name).sort(),
-    ['action_gather_resource', 'action_stay', 'decision_blocked', 'decision_complete']
+    ['action_acquire_resource', 'action_stay', 'decision_blocked', 'decision_complete']
   )
   assert.equal(prepared.utf8Bytes, Buffer.byteLength(prepared.input, 'utf8'))
   assert.equal(prepared.input.includes('test-server:survival-v1'), true)
@@ -304,6 +304,27 @@ test('Gemini transport prepares immutable exact V2 decision tools', async () => 
     assert.equal(schema.includes('"analysis"'), false, tool.name)
     assert.equal(schema.includes('"thought"'), false, tool.name)
   }
+})
+
+test('Gemini transport exposes the bounded acquisition action for registered resource workflows', async () => {
+  const module = await import('../../../src/agent/providers/gemini.js')
+  const Transport = (module as Record<string, unknown>).GeminiTransport as new () => {
+    prepare(context: DecisionContext): {
+      tools: ReadonlyArray<{ name: string; parameters: Record<string, unknown> }>
+    }
+  }
+  const transport = new Transport()
+  const prepared = transport.prepare(context())
+  const acquire = prepared.tools.find(tool => tool.name === 'action_acquire_resource')
+
+  assert.ok(acquire)
+  const schema = JSON.stringify(acquire.parameters)
+  assert.equal(schema.includes('resource'), true)
+  assert.equal(schema.includes('quantity'), true)
+  assert.equal(schema.includes('exploreRadius'), true)
+  assert.equal(schema.includes('exploreSteps'), true)
+  assert.equal(schema.includes('excavateLength'), true)
+  assert.equal(schema.includes('gather_resource'), false)
 })
 
 test('Gemini transport executes one lease-selected attempt and normalizes usage without thought leakage', async () => {
