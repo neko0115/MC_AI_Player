@@ -443,7 +443,7 @@ Current M4 scope:
 
 **Verification status:** M4 local FULL automated verification PASS — 410 tests, 406 passed, 0 failed, 4 skipped; working tree clean. The stale Mineflayer gathering permit helper regression was fixed in `fd40a30`.
 
-#### M5 typed runtime extension seam — implementation in progress
+#### M5 typed runtime extension seam — PASS
 
 Commits:
 
@@ -462,15 +462,33 @@ Current M5 scope:
 - survival skill wiring now consumes the inventory runtime through the typed port seam;
 - tests cover typed lookup, duplicate port IDs, missing ports, invalid IDs, runtime extension registration, duplicate extension IDs, and legacy bundle adaptation.
 
-**Verification status:** local verification pending for M5.
+**Verification status:** M5 local FULL automated verification PASS — 416 tests, 412 passed, 0 failed, 4 skipped; working tree clean.
+
+#### M6 isolated Resource module proof — implementation in progress
+
+Commit:
+
+- `2435c20` — `refactor: isolate resource skill module`
+
+Current M6 scope:
+
+- added `src/modules/resource-module.ts` as the owner of the full resource workflow;
+- resource module consumes only typed `MINECRAFT_ADAPTER_PORT` and `RESOURCE_GATHERING_PORT`, not the whole Mineflayer runtime bundle;
+- resource module owns registration/wiring for `find_resource`, `explore_resource`, `excavate_resource`, `gather_resource`, and `acquire_resource`;
+- resource profiles, server capabilities, memory, safety, state, telemetry, and leaf-cleanup policy are explicit module dependencies;
+- `builtin-skills.ts` now composes the resource module instead of containing its internal wiring;
+- tests assert the complete resource skill set, AI exposure of only `acquire_resource`, and fail-closed behavior when a required runtime port is missing.
+
+**Verification status:** local verification pending for M6.
 
 **Next exact action:**
 
 1. fast-forward the modular worktree;
-2. run `npm test -- tests/minecraft/runtime-ports.test.ts tests/minecraft/gameplay-capabilities.test.ts tests/main.test.ts tests/modules/skill-module.test.ts`;
+2. run `npm test -- tests/modules/resource-module.test.ts tests/modules/skill-module.test.ts tests/skills/acquisition.test.ts tests/skills/gathering.test.ts tests/skills/excavation.test.ts tests/minecraft/runtime-ports.test.ts`;
 3. run `npm run typecheck`;
 4. run full `npm test`;
-5. if green, mark M5 PASS and begin M6 resource-module proof/migration.
+5. if automated tests are green, run the controlled `acquire_resource` live memory-recall regression on the modular branch or an equivalent deployed commit;
+6. if live behavior remains correct, mark M6 PASS and proceed to M7 Safe Parallelization acceptance.
 
 **Do not:**
 
