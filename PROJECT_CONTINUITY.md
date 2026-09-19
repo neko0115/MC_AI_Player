@@ -360,7 +360,7 @@ Locked principles:
 - behavior modules remain deterministic below high-level planning;
 - do not open parallel gameplay coding workstreams until the Modularization Gate passes.
 
-#### M1 skill composition seam — implementation in progress
+#### M1 skill composition seam — PASS
 
 Commit:
 
@@ -383,15 +383,33 @@ Safety/behavior constraints preserved:
 - duplicate module IDs fail before any module installs;
 - existing `SkillRegistry` duplicate-skill rejection remains authoritative.
 
-**Verification status:** GitHub CI/local verification pending for `0eb0236`.
+**Verification status:** M1 local FULL automated verification PASS — 404 tests, 400 passed, 0 failed, 4 skipped; working tree clean.
+
+#### M2 trusted skill/action metadata catalog — implementation in progress
+
+Commits:
+
+- `9a8b327` — `refactor: centralize trusted skill metadata`
+- `83e0e57` — `fix: keep internal find resource outside action schema`
+
+Current M2 scope:
+
+- added `src/contracts/skill-catalog.ts` as the trusted metadata source;
+- catalog carries canonical skill name, external args schema when applicable, AI exposure/description, safety capabilities, and mutation-authority class;
+- `src/agent/skill-catalog.ts` now derives AI-visible descriptions from the trusted catalog;
+- `tests/contracts/skill-catalog.test.ts` locks full canonical skill coverage, exact AI exposure ordering/descriptions, bounded args parsing, and current resource-mutation metadata;
+- Goal/Decision schemas remain unchanged in M2;
+- SafetyPolicy remains unchanged in M2.
+
+**Verification status:** local verification pending for M2.
 
 **Next exact action:**
 
-1. create/check out a local worktree for `feature/modular-extension-core`;
-2. run focused module/main tests + typecheck;
-3. run full `npm test`;
-4. fix only wiring/type regressions, if any;
-5. after M1 is green, begin M2 trusted skill/action metadata catalog.
+1. fast-forward the modular worktree to the latest remote branch;
+2. run `tests/contracts/skill-catalog.test.ts`, `tests/skills/registry.test.ts`, and relevant agent catalog/decision tests;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. if green, mark M2 PASS and start M3 duplicated Goal/Decision action-list migration.
 
 **Do not:**
 
