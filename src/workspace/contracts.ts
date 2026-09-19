@@ -151,3 +151,30 @@ export const WorkspaceRegionSchema = z
 
 export type WorkspaceRegion =
   z.infer<typeof WorkspaceRegionSchema>
+
+
+export const WorkspaceRegionInputSchema = WorkspaceRegionSchema
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true
+  })
+  .strict()
+
+export type WorkspaceRegionInput =
+  z.input<typeof WorkspaceRegionInputSchema>
+
+export const WorkspaceSearchQuerySchema = z
+  .object({
+    worldKey: z.string().trim().min(1).max(256),
+    dimension: z.string().trim().min(1).max(128).optional(),
+    purposes: z.array(WorkspacePurposeSchema).min(1).max(8).optional(),
+    tags: z.array(WorkspaceTagSchema).min(1).max(32).optional(),
+    ownerPrincipal: z.string().trim().min(1).max(128).optional(),
+    intersects: WorkspaceBoundsSchema.optional(),
+    limit: z.number().int().min(1).max(100).optional()
+  })
+  .strict()
+
+export type WorkspaceSearchQuery =
+  z.input<typeof WorkspaceSearchQuerySchema>
