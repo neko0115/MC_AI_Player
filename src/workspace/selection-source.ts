@@ -35,6 +35,7 @@ implements WorkspaceSelectionSource {
   private readonly now: () => number
   private readonly maxSelectionAgeMs: number
   private selections = new Map<string, WorkspaceSelection>()
+  private lastGeneratedAt: number | null = null
   private lastSuccessAt: number | null = null
   private lastErrorCode: string | null = null
 
@@ -63,6 +64,30 @@ implements WorkspaceSelectionSource {
     if (!parsed.success) {
       this.noteFailure('invalid_selection_snapshot')
       return false
+    }
+
+    if (
+      this.lastGeneratedAt !== null &&
+      parsed.data.generatedAt < this.lastGeneratedAt
+    ) {
+      this.noteFailure('out_of_order_selection_snapshot')
+      return false
+    }
+
+    if (
+      this.lastGeneratedAt !== null &&
+      parsed.data.generatedAt === this.lastGeneratedAt
+    ) {
+      if (!snapshotEqualsCurrent(
+        parsed.data.selections,
+        this.selections
+      )) {
+        this.noteFailure('selection_snapshot_conflict')
+        return false
+      }
+      this.lastSuccessAt = this.now()
+      this.lastErrorCode = null
+      return true
     }
 
     const next = new Map<string, WorkspaceSelection>()
@@ -96,6 +121,7 @@ implements WorkspaceSelectionSource {
     }
 
     this.selections = next
+    this.lastGeneratedAt = parsed.data.generatedAt
     this.lastSuccessAt = this.now()
     this.lastErrorCode = null
     return true
@@ -144,6 +170,25 @@ implements WorkspaceSelectionSource {
       lastErrorCode: this.lastErrorCode
     }
   }
+}
+
+function snapshotEqualsCurrent(
+  selections: readonly WorkspaceSelection[],
+  current: ReadonlyMap<string, WorkspaceSelection>
+): boolean {
+  if (selections.length !== current.size) return false
+
+  for (const selection of selections) {
+    const existing = current.get(selectionKey(selection))
+    if (
+      !existing ||
+      !selectionIsSameVersion(selection, existing) ||
+      !selectionEquals(selection, existing)
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 function selectionKey(value: {

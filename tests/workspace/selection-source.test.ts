@@ -304,3 +304,79 @@ test('successful empty snapshot clears prior selections without becoming stale',
     null
   )
 })
+
+
+test('older whole snapshots cannot clear a newer accepted selection', () => {
+  let now = 3_000
+  const tracker = new WorkspaceSelectionTracker({
+    now: () => now,
+    maxSelectionAgeMs: 10_000
+  })
+
+  assert.equal(
+    tracker.refresh(snapshot([
+      selection({
+        id: 'selection-current',
+        generation: 5,
+        selectedAt: 2_900
+      })
+    ], 2_950)),
+    true
+  )
+
+  now = 3_100
+  assert.equal(
+    tracker.refresh(snapshot([], 2_000)),
+    false
+  )
+  assert.equal(
+    tracker.status().lastErrorCode,
+    'out_of_order_selection_snapshot'
+  )
+
+  now = 3_200
+  assert.equal(
+    tracker.refresh(snapshot([
+      selection({
+        id: 'selection-current',
+        generation: 5,
+        selectedAt: 2_900
+      })
+    ], 3_150)),
+    true
+  )
+  assert.equal(
+    tracker.latest({
+      worldKey: 'server:survival',
+      dimension: 'overworld',
+      playerId: 'player-1'
+    })?.id,
+    'selection-current'
+  )
+})
+
+test('same generatedAt with conflicting snapshot contents fails closed', () => {
+  const tracker = new WorkspaceSelectionTracker({
+    now: () => 3_000,
+    maxSelectionAgeMs: 10_000
+  })
+
+  assert.equal(
+    tracker.refresh(snapshot([
+      selection({
+        id: 'selection-current',
+        selectedAt: 2_900
+      })
+    ], 2_950)),
+    true
+  )
+
+  assert.equal(
+    tracker.refresh(snapshot([], 2_950)),
+    false
+  )
+  assert.equal(
+    tracker.status().lastErrorCode,
+    'selection_snapshot_conflict'
+  )
+})
