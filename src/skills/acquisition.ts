@@ -190,6 +190,7 @@ implements SkillDefinition<AcquireArgs> {
       ) {
         if (signal.aborted) return cancelled(signal)
 
+        await this.emitPhase(profile.requestedResource, 'visible')
         const visible = await this.visibleCandidate(
           profile,
           MEMORY_SCAN_RADIUS,
@@ -233,6 +234,7 @@ implements SkillDefinition<AcquireArgs> {
         }
 
         if (!progress.exploreCompleted) {
+          await this.emitPhase(profile.requestedResource, 'explore')
           const explored = await this.dependencies.explore.execute(
             { signal, ...(executionId ? { executionId } : {}) },
             {
@@ -316,6 +318,7 @@ implements SkillDefinition<AcquireArgs> {
     signal: AbortSignal,
     executionId?: string
   ): Promise<SkillResult | null> {
+    await this.emitPhase(profile.requestedResource, 'memory')
     const dimension = this.dependencies.state().dimension
     const memories = this.dependencies.memory.search({
       worldKey: this.dependencies.worldKey,
@@ -409,6 +412,11 @@ implements SkillDefinition<AcquireArgs> {
         return returned
       }
 
+      await this.emitPhase(
+        profile.requestedResource,
+        'excavate',
+        direction
+      )
       const excavated =
         await this.dependencies.excavate.execute(
           { signal, ...(executionId ? { executionId } : {}) },
@@ -470,6 +478,7 @@ implements SkillDefinition<AcquireArgs> {
       return { status: 'succeeded', code: 'gathered' }
     }
 
+    await this.emitPhase(profile.requestedResource, 'gather')
     return this.dependencies.gather.execute(
       { signal, ...(executionId ? { executionId } : {}) },
       {
@@ -533,6 +542,25 @@ implements SkillDefinition<AcquireArgs> {
       type: 'memory_written',
       at: this.now(),
       memoryId: memory.id
+    })
+  }
+
+  private async emitPhase(
+    resource: string,
+    phase:
+      | 'visible'
+      | 'memory'
+      | 'explore'
+      | 'excavate'
+      | 'gather',
+    direction?: 'north' | 'south' | 'east' | 'west'
+  ): Promise<void> {
+    await this.dependencies.events?.publish({
+      type: 'resource_search_phase',
+      at: this.now(),
+      resource,
+      phase,
+      ...(direction ? { direction } : {})
     })
   }
 
