@@ -145,6 +145,79 @@ test('loopback starts without a token and exposes bounded health/status', async 
   }
 })
 
+
+test('status exposes only sanitized capability sync state and semantic details', async () => {
+  const current = await started({
+    capabilityStatus: {
+      snapshot: () => ({
+        state: 'current',
+        ids: ['vein_mining', 'tree_felling', 'vein_mining'],
+        details: [
+          {
+            id: 'vein_mining',
+            trigger: 'sneak_and_break',
+            constraints: {
+              max_chain: 100,
+              correct_tool_required: true,
+              must_sneak: true,
+              same_block_only: false,
+              exact_block: 'minecraft:iron_ore',
+              internal_plugin_path: '/secret/path',
+              nested: { should_not_leak: true }
+            }
+          },
+          {
+            id: 'tree_felling',
+            trigger: 'break',
+            constraints: {
+              max_chain: 4,
+              tool_kind: 'axe'
+            }
+          }
+        ]
+      })
+    }
+  })
+  try {
+    const response = await fetch(`${current.address.baseUrl}/v1/status`)
+    assert.equal(response.status, 200)
+    const body = await json(response) as {
+      server_capabilities?: {
+        sync_state?: string
+        ids?: string[]
+        details?: unknown[]
+      }
+    }
+    assert.deepEqual(body.server_capabilities, {
+      sync_state: 'current',
+      ids: ['tree_felling', 'vein_mining'],
+      details: [
+        {
+          id: 'tree_felling',
+          trigger: 'break',
+          constraints: {
+            max_chain: 4,
+            tool_kind: 'axe'
+          }
+        },
+        {
+          id: 'vein_mining',
+          trigger: 'sneak_and_break',
+          constraints: {
+            correct_tool_required: true,
+            max_chain: 100,
+            must_sneak: true,
+            same_block_only: false,
+            exact_block: 'minecraft:iron_ore'
+          }
+        }
+      ]
+    })
+  } finally {
+    await current.server.close()
+  }
+})
+
 test('non-loopback bind requires a bearer token and rejects invalid authorization', async () => {
   const missing = dependencies({ host: '0.0.0.0' })
   await assert.rejects(() => missing.server.start(), /bearer token/i)

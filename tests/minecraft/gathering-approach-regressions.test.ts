@@ -18,6 +18,22 @@ class ApproachBot extends EventEmitter {
   readonly inventory = { items: () => [] }
   readonly searchPositions = [new Vec3(4, 64, 0), new Vec3(6, 70, 0)]
   private readonly blocks = new Map<string, FakeBlock>()
+  readonly world = {
+    raycast: (
+      from: Vec3,
+      direction: Vec3,
+      range: number
+    ) => {
+      const end = from.plus(direction.scaled(range))
+      const target = [...this.searchPositions]
+        .sort(
+          (left, right) =>
+            left.offset(0.5, 0.5, 0.5).distanceTo(end) -
+            right.offset(0.5, 0.5, 0.5).distanceTo(end)
+        )[0]
+      return target ? this.blockAt(target) : null
+    }
+  }
 
   constructor() {
     super()
@@ -44,6 +60,10 @@ class ApproachBot extends EventEmitter {
     return this.searchPositions
       .filter(position => options.matching(this.blockAt(position)!))
       .slice(0, options.count ?? this.searchPositions.length)
+  }
+
+  canSeeBlock(): boolean {
+    return true
   }
 
   blockAt(position: Vec3): FakeBlock {

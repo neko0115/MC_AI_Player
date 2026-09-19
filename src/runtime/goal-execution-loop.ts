@@ -8,7 +8,11 @@ export interface GoalExecutionManagerPort {
 }
 
 export interface GoalExecutionExecutorPort {
-  execute(name: SkillName, args: unknown): Promise<SkillResult>
+  execute(
+    name: SkillName,
+    args: unknown,
+    executionId?: string
+  ): Promise<SkillResult>
 }
 
 export interface GoalExecutionEventSource {
@@ -29,20 +33,35 @@ export function wireGoalExecution(
   dependencies: GoalExecutionDependencies
 ): GoalExecutionBinding {
   const inFlight = new Set<string>()
+  const pendingResume = new Set<string>()
   let disposed = false
 
   const unsubscribe = dependencies.events.subscribe(event => {
-    if (disposed || event.type !== 'goal_started') return
-    if (inFlight.has(event.goalId)) return
+    if (
+      disposed ||
+      (event.type !== 'goal_started' && event.type !== 'goal_resumed')
+    ) return
 
-    inFlight.add(event.goalId)
+    if (inFlight.has(event.goalId)) {
+      if (event.type === 'goal_resumed') {
+        pendingResume.add(event.goalId)
+      }
+      return
+    }
+
+    scheduleGoal(event.goalId)
+  })
+
+  function scheduleGoal(goalId: string): void {
+    if (disposed || inFlight.has(goalId)) return
+    inFlight.add(goalId)
     queueMicrotask(() => {
-      void executeGoal(event.goalId).catch(() => {
+      void executeGoal(goalId).catch(() => {
         // The bridge contains all asynchronous failures. Error text is never
         // forwarded to telemetry, chat, goals, or other runtime surfaces.
       })
     })
-  })
+  }
 
   async function executeGoal(goalId: string): Promise<void> {
     try {
@@ -53,7 +72,8 @@ export function wireGoalExecution(
       try {
         result = await dependencies.executor.execute(
           record.request.kind,
-          structuredClone(record.request.args)
+          structuredClone(record.request.args),
+          goalId
         )
       } catch {
         result = {
@@ -65,6 +85,12 @@ export function wireGoalExecution(
       await dependencies.goals.completeGoal(goalId, result)
     } finally {
       inFlight.delete(goalId)
+      if (pendingResume.delete(goalId)) {
+        const record = dependencies.goals.getGoal(goalId)
+        if (record?.status === 'running') {
+          scheduleGoal(goalId)
+        }
+      }
     }
   }
 
@@ -72,6 +98,7 @@ export function wireGoalExecution(
     dispose() {
       if (disposed) return
       disposed = true
+      pendingResume.clear()
       unsubscribe()
     }
   }

@@ -8,10 +8,13 @@ import {
 import type {
   DroppedResource,
   DroppedResourceStatus,
+  ExplorationSearchRequest,
   PlayerResourceCollection,
   ResourceCandidate,
   ResourceGatheringAdapter,
-  ResourceSearchRequest
+  ResourceHarvestOptions,
+  ResourceSearchRequest,
+  ResourceToolPreparationOptions
 } from './gathering.js'
 
 export type GatheringBotProvider = () => Bot | null
@@ -52,6 +55,14 @@ const HARVEST_HORIZONTAL_OFFSETS = [
   [1, 1]
 ] as const
 const UNSAFE_PASSABLE_BLOCKS = new Set(['water', 'lava', 'powder_snow'])
+const TOOL_MATERIAL_PREFERENCE = [
+  'netherite',
+  'diamond',
+  'iron',
+  'stone',
+  'golden',
+  'wooden'
+] as const
 
 export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
   private readonly options: NormalizedOptions
@@ -92,6 +103,25 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       .items()
       .filter(item => item.name === itemName)
       .reduce((sum, item) => sum + item.count, 0)
+  }
+
+  inspectBlock(position: Position) {
+    const bot = this.readyBot()
+    if (!bot || !isFinitePosition(position)) return null
+    const block = blockAtPosition(bot, position)
+    if (!block) return null
+    return {
+      name: block.name,
+      position: {
+        x: block.position.x,
+        y: block.position.y,
+        z: block.position.z
+      },
+      boundingBox:
+        typeof block.boundingBox === 'string'
+          ? block.boundingBox
+          : 'unknown'
+    }
   }
 
   resourceCollectionCursor(): number {
@@ -135,8 +165,10 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     if (!bot) return []
 
     const blockNames = normalizeBlockNames(request.blockNames)
+    const visibility = request.visibility ?? 'visible'
     if (
       blockNames === null ||
+      (visibility !== 'visible' && visibility !== 'loaded') ||
       !isFinitePosition(request.origin) ||
       !Number.isFinite(request.radius) ||
       request.radius < 1 ||
@@ -168,6 +200,12 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (signal.aborted) return []
       const block = bot.blockAt(position)
       if (!block || !blockNames.includes(block.name)) continue
+      if (
+        visibility === 'visible' &&
+        !hasDirectResourceLineOfSight(bot, block)
+      ) {
+        continue
+      }
 
       const targetPosition = {
         x: block.position.x,
@@ -193,6 +231,167 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
         ...(pickupPosition ? { pickupPosition } : {})
       })
     }
+    return candidates
+  }
+
+  async findExplorationWaypoints(
+    request: ExplorationSearchRequest,
+    signal: AbortSignal
+  ): Promise<readonly Position[]> {
+    if (signal.aborted) return []
+    const bot = this.readyBot()
+    if (!bot) return []
+
+    if (
+      !isFinitePosition(request.origin) ||
+      !Number.isFinite(request.radius) ||
+      request.radius < 4 ||
+      request.radius > this.options.maxSearchRadius ||
+      !Number.isInteger(request.limit) ||
+      request.limit < 1 ||
+      request.limit > this.options.maxCandidatesPerSearch
+    ) {
+      return []
+    }
+
+    const point = bot.entity.position.clone()
+    point.set(
+      request.origin.x,
+      request.origin.y,
+      request.origin.z
+    )
+
+    let positions: ReturnType<Bot['findBlocks']>
+    try {
+      positions = bot.findBlocks({
+        point,
+        matching: block => isSafeSupport(block),
+        maxDistance: request.radius,
+        count: Math.min(
+          this.options.maxCandidatesPerSearch,
+          request.limit * 8
+        )
+      })
+    } catch {
+      return []
+    }
+
+    const unique = new Map<string, Position>()
+    for (const position of positions) {
+      if (signal.aborted) return []
+      const target = {
+        x: position.x,
+        y: position.y + 1,
+        z: position.z
+      }
+      if (
+        Math.sqrt(squaredDistance(target, request.origin)) < 3
+      ) {
+        continue
+      }
+
+      const support = bot.blockAt(position)
+      const feet = blockAtPosition(bot, target)
+      const head = blockAtPosition(bot, {
+        x: target.x,
+        y: target.y + 1,
+        z: target.z
+      })
+
+      if (!support || !feet || !head) continue
+      if (!isSafeSupport(support)) continue
+      if (!isPassableSpace(feet) || !isPassableSpace(head)) continue
+      if (!hasClearStandingSpaceLineOfSight(bot, target)) continue
+
+      unique.set(
+        `${target.x},${target.y},${target.z}`,
+        target
+      )
+    }
+
+    return [...unique.values()]
+      .sort((left, right) => {
+        const distanceDelta =
+          squaredDistance(right, request.origin) -
+          squaredDistance(left, request.origin)
+        if (distanceDelta !== 0) return distanceDelta
+        return positionKey(left).localeCompare(positionKey(right))
+      })
+      .slice(0, request.limit)
+  }
+
+  async findDecayingLeafBlocks(
+    leafNames: readonly string[],
+    origin: Position,
+    radius: number,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<readonly ResourceCandidate[]> {
+    if (signal.aborted) return []
+    const bot = this.readyBot()
+    if (!bot) return []
+
+    const names = normalizeBlockNames(leafNames)
+    if (
+      names === null ||
+      !isFinitePosition(origin) ||
+      !Number.isFinite(radius) ||
+      radius < 1 ||
+      radius > MAX_DROP_SEARCH_RADIUS ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > this.options.maxCandidatesPerSearch
+    ) {
+      return []
+    }
+
+    const point = bot.entity.position.clone()
+    point.set(origin.x, origin.y, origin.z)
+
+    let positions: ReturnType<Bot['findBlocks']>
+    try {
+      positions = bot.findBlocks({
+        point,
+        matching: block => names.includes(block.name),
+        maxDistance: radius,
+        count: this.options.maxCandidatesPerSearch
+      })
+    } catch {
+      return []
+    }
+
+    const candidates: ResourceCandidate[] = []
+    for (const position of positions) {
+      if (signal.aborted || candidates.length >= limit) return candidates
+      const block = bot.blockAt(position)
+      if (!block || !names.includes(block.name)) continue
+
+      const properties = blockProperties(block)
+      const persistent = properties.persistent
+      const distance = Number(properties.distance)
+      const isPersistent =
+        persistent === true || String(persistent).toLowerCase() === 'true'
+
+      if (isPersistent || !Number.isFinite(distance) || distance < 7) continue
+
+      const targetPosition = {
+        x: block.position.x,
+        y: block.position.y,
+        z: block.position.z
+      }
+      const approachPosition = hasGeometry(block)
+        ? findSafeHarvestApproach(bot, targetPosition)
+        : targetPosition
+
+      if (!approachPosition) continue
+
+      candidates.push({
+        blockName: block.name,
+        position: targetPosition,
+        approachPosition
+      })
+    }
+
     return candidates
   }
 
@@ -243,10 +442,70 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     return drop ? { kind: 'present', drop } : { kind: 'gone' }
   }
 
+  async prepareResourceTool(
+    target: ResourceCandidate,
+    signal: AbortSignal,
+    options: ResourceToolPreparationOptions = {}
+  ): Promise<SkillResult> {
+    if (signal.aborted) return cancelled(signal)
+    if (!isResourceName(target.blockName) || !isFinitePosition(target.position)) {
+      return { status: 'failed', code: 'invalid_resource_target' }
+    }
+
+    const bot = this.readyBot()
+    if (!bot) return { status: 'failed', code: 'minecraft_not_ready' }
+
+    const point = bot.entity.position.clone()
+    point.set(target.position.x, target.position.y, target.position.z)
+    const block = bot.blockAt(point)
+    if (!block) return { status: 'failed', code: 'resource_missing' }
+    if (block.name !== target.blockName) {
+      return { status: 'failed', code: 'resource_changed' }
+    }
+
+    const harvestTools = (
+      block as unknown as { harvestTools?: Readonly<Record<string, boolean>> }
+    ).harvestTools
+    const acceptedTypes = new Set(
+      Object.keys(harvestTools ?? {})
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value >= 0)
+    )
+
+    const forbiddenEnchantments = normalizeEnchantments(
+      options.forbiddenEnchantments ?? []
+    )
+    const inventory = bot.inventory.items()
+      .filter(item => !hasForbiddenEnchantment(item, forbiddenEnchantments))
+
+    const accepted = acceptedTypes.size > 0
+      ? inventory.filter(item => acceptedTypes.has(item.type))
+      : inventory
+
+    const tool = selectSemanticTool(accepted, options.toolKind)
+      ?? (acceptedTypes.size > 0 ? accepted[0] : undefined)
+
+    if (!tool) {
+      return options.toolKind || acceptedTypes.size > 0
+        ? { status: 'failed', code: 'correct_tool_unavailable' }
+        : { status: 'succeeded', code: 'tool_not_required' }
+    }
+
+    try {
+      await bot.equip(tool, 'hand')
+      if (signal.aborted) return cancelled(signal)
+      return { status: 'succeeded', code: 'correct_tool_equipped' }
+    } catch {
+      if (signal.aborted) return cancelled(signal)
+      return { status: 'failed', code: 'tool_equip_failed' }
+    }
+  }
+
   async harvestResourceBlock(
     target: ResourceCandidate,
     permit: ResourceMutationPermit,
-    signal: AbortSignal
+    signal: AbortSignal,
+    options: ResourceHarvestOptions = {}
   ): Promise<SkillResult> {
     if (signal.aborted) return cancelled(signal)
     if (
@@ -276,8 +535,15 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       return { status: 'failed', code: 'resource_not_diggable' }
     }
 
-    const before = this.inventoryCount(target.blockName)
+    const expectedItemNames = normalizeExpectedItemNames(
+      options.expectedItemNames ?? [target.blockName]
+    )
+    if (expectedItemNames === null) {
+      return { status: 'failed', code: 'invalid_harvest_options' }
+    }
+    const before = this.inventoryCountMany(expectedItemNames)
     let disconnected = false
+    let sneaking = false
     const onAbort = () => {
       try {
         bot.stopDigging()
@@ -294,12 +560,19 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     bot.once('end', onEnd)
 
     try {
+      if (options.sneak === true) {
+        bot.setControlState('sneak', true)
+        sneaking = true
+      }
       await bot.dig(block)
       if (signal.aborted) return cancelled(signal)
       if (disconnected) return { status: 'failed', code: 'disconnected' }
+      if (options.requireCollection === false) {
+        return { status: 'succeeded', code: 'removed' }
+      }
 
       const collected = await this.waitForInventoryIncrease(
-        target.blockName,
+        expectedItemNames,
         before,
         signal,
         () => disconnected
@@ -313,6 +586,11 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (disconnected) return { status: 'failed', code: 'disconnected' }
       return { status: 'failed', code: digFailureCode(error) }
     } finally {
+      if (sneaking) {
+        try {
+          bot.setControlState('sneak', false)
+        } catch {}
+      }
       signal.removeEventListener('abort', onAbort)
       bot.off('end', onEnd)
     }
@@ -386,21 +664,85 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
     }
   }
 
+  private inventoryCountMany(itemNames: readonly string[]): number {
+    return itemNames.reduce(
+      (sum, itemName) => sum + this.inventoryCount(itemName),
+      0
+    )
+  }
+
   private async waitForInventoryIncrease(
-    itemName: string,
+    itemNames: readonly string[],
     before: number,
     signal: AbortSignal,
     disconnected: () => boolean
   ): Promise<boolean> {
-    if (this.inventoryCount(itemName) > before) return true
+    if (this.inventoryCountMany(itemNames) > before) return true
     const deadline = Date.now() + this.options.collectionTimeoutMs
     while (Date.now() < deadline) {
       if (signal.aborted || disconnected()) return false
       await this.options.sleep(this.options.collectionPollMs)
-      if (this.inventoryCount(itemName) > before) return true
+      if (this.inventoryCountMany(itemNames) > before) return true
     }
-    return this.inventoryCount(itemName) > before
+    return this.inventoryCountMany(itemNames) > before
   }
+}
+
+
+
+function normalizeExpectedItemNames(
+  values: readonly string[]
+): string[] | null {
+  if (values.length < 1 || values.length > 32) return null
+  const normalized = [...new Set(values.map(value => value.trim()))]
+  return normalized.every(isResourceName) ? normalized : null
+}
+
+function normalizeEnchantments(values: readonly string[]): Set<string> {
+  return new Set(
+    values
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean)
+      .map(value => value.includes(':') ? value.slice(value.indexOf(':') + 1) : value)
+  )
+}
+
+function hasForbiddenEnchantment(
+  item: { readonly enchants?: readonly { readonly name?: string }[] },
+  forbidden: ReadonlySet<string>
+): boolean {
+  if (forbidden.size === 0) return false
+  return (item.enchants ?? []).some(enchantment => {
+    const raw = enchantment.name?.trim().toLowerCase() ?? ''
+    const name = raw.includes(':') ? raw.slice(raw.indexOf(':') + 1) : raw
+    return forbidden.has(name)
+  })
+}
+
+function blockProperties(block: unknown): Record<string, unknown> {
+  const candidate = block as { getProperties?: () => unknown }
+  if (typeof candidate.getProperties !== 'function') return {}
+  try {
+    const properties = candidate.getProperties()
+    return properties && typeof properties === 'object'
+      ? properties as Record<string, unknown>
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function selectSemanticTool<T extends { readonly name: string }>(
+  items: readonly T[],
+  toolKind: 'axe' | 'pickaxe' | undefined
+): T | undefined {
+  if (!toolKind) return undefined
+  for (const material of TOOL_MATERIAL_PREFERENCE) {
+    const exactName = `${material}_${toolKind}`
+    const match = items.find(item => item.name === exactName)
+    if (match) return match
+  }
+  return items.find(item => item.name.endsWith(`_${toolKind}`))
 }
 
 function droppedResourceFromEntity(entity: any): DroppedResource | null {
@@ -489,6 +831,165 @@ function findSafePostHarvestPickupPosition(bot: Bot, target: Position): Position
   return { ...target }
 }
 
+function hasDirectResourceLineOfSight(
+  bot: Bot,
+  block: NonNullable<ReturnType<Bot['blockAt']>>
+): boolean {
+  const eyeHeight =
+    (bot.entity as { eyeHeight?: number }).eyeHeight ?? 1.62
+  const eye = bot.entity.position.offset(
+    0,
+    eyeHeight,
+    0
+  )
+
+  for (const targetPoint of resourceVisibilitySamplePoints(block)) {
+    const delta = targetPoint.minus(eye)
+    const distance = eye.distanceTo(targetPoint)
+    if (!Number.isFinite(distance) || distance <= 0) continue
+
+    const hit = bot.world.raycast(
+      eye,
+      delta.normalize(),
+      distance + 0.05
+    )
+
+    if (hit === null) {
+      if (block.boundingBox === 'empty') return true
+      continue
+    }
+
+    const hitCell = raycastHitCell(hit)
+    if (
+      hitCell !== null &&
+      sameBlockCell(hitCell, block.position)
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function resourceVisibilitySamplePoints(
+  block: NonNullable<ReturnType<Bot['blockAt']>>
+) {
+  const offsets = [
+    [0.5, 0.5, 0.5],
+    [0.1, 0.1, 0.1],
+    [0.1, 0.1, 0.9],
+    [0.1, 0.9, 0.1],
+    [0.1, 0.9, 0.9],
+    [0.9, 0.1, 0.1],
+    [0.9, 0.1, 0.9],
+    [0.9, 0.9, 0.1],
+    [0.9, 0.9, 0.9],
+    [0.1, 0.5, 0.5],
+    [0.9, 0.5, 0.5],
+    [0.5, 0.1, 0.5],
+    [0.5, 0.9, 0.5],
+    [0.5, 0.5, 0.1],
+    [0.5, 0.5, 0.9]
+  ] as const
+
+  return offsets.map(([x, y, z]) =>
+    block.position.offset(x, y, z)
+  )
+}
+
+function raycastHitCell(
+  hit: unknown
+): { x: number; y: number; z: number } | null {
+  if (!hit || typeof hit !== 'object') return null
+
+  const direct = hit as {
+    x?: unknown
+    y?: unknown
+    z?: unknown
+  }
+  if (
+    typeof direct.x === 'number' &&
+    typeof direct.y === 'number' &&
+    typeof direct.z === 'number' &&
+    Number.isFinite(direct.x) &&
+    Number.isFinite(direct.y) &&
+    Number.isFinite(direct.z)
+  ) {
+    return {
+      x: direct.x,
+      y: direct.y,
+      z: direct.z
+    }
+  }
+
+  const positioned = hit as {
+    position?: {
+      x?: unknown
+      y?: unknown
+      z?: unknown
+    }
+  }
+  const position = positioned.position
+  if (
+    position &&
+    typeof position.x === 'number' &&
+    typeof position.y === 'number' &&
+    typeof position.z === 'number' &&
+    Number.isFinite(position.x) &&
+    Number.isFinite(position.y) &&
+    Number.isFinite(position.z)
+  ) {
+    return {
+      x: position.x,
+      y: position.y,
+      z: position.z
+    }
+  }
+
+  return null
+}
+
+function sameBlockCell(
+  left: { x: number; y: number; z: number },
+  right: { x: number; y: number; z: number }
+): boolean {
+  return (
+    Math.floor(left.x) === Math.floor(right.x) &&
+    Math.floor(left.y) === Math.floor(right.y) &&
+    Math.floor(left.z) === Math.floor(right.z)
+  )
+}
+
+function hasClearStandingSpaceLineOfSight(
+  bot: Bot,
+  target: Position
+): boolean {
+  const eyeHeight =
+    (bot.entity as { eyeHeight?: number }).eyeHeight ?? 1.62
+  const eye = bot.entity.position.offset(
+    0,
+    eyeHeight,
+    0
+  )
+  const targetPoint = bot.entity.position.clone()
+  targetPoint.set(
+    target.x + 0.5,
+    target.y + 1,
+    target.z + 0.5
+  )
+
+  const delta = targetPoint.minus(eye)
+  const distance = eye.distanceTo(targetPoint)
+  if (!Number.isFinite(distance) || distance <= 0) return false
+
+  const hit = bot.world.raycast(
+    eye,
+    delta.normalize(),
+    distance
+  )
+  return hit === null
+}
+
 function blockAtPosition(bot: Bot, position: Position): ReturnType<Bot['blockAt']> {
   const point = bot.entity.position.clone()
   point.set(position.x, position.y, position.z)
@@ -511,6 +1012,10 @@ function withinHarvestReach(stance: Position, target: Position): boolean {
     center.y - eye.y,
     center.z - eye.z
   ) <= MAX_HARVEST_REACH
+}
+
+function positionKey(position: Position): string {
+  return `${position.x},${position.y},${position.z}`
 }
 
 function squaredDistance(a: Position, b: Position): number {

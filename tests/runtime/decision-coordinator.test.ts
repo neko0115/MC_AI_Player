@@ -1,0 +1,432 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { ContextBuilder } from '../../src/agent/context-builder.js'
+import { DecisionGate } from '../../src/agent/decision-gate.js'
+import type {
+  LogicalDecisionRequest,
+  LogicalDecisionResult
+} from '../../src/agent/routing/contracts.js'
+import { GoalManager } from '../../src/goals/goal-manager.js'
+import type { MinecraftMemoryRepository } from '../../src/memory/repository.js'
+import { MinecraftIdentityRegistry } from '../../src/minecraft/identity-registry.js'
+import { DecisionCoordinator } from '../../src/runtime/decision-coordinator.js'
+import { SafetyPolicy } from '../../src/safety/policy.js'
+import { SkillRegistry } from '../../src/skills/registry.js'
+import { WorldStateCache } from '../../src/state/world-state-cache.js'
+import { RuntimeEventBus } from '../../src/telemetry/event-bus.js'
+
+class EmptyMemory implements MinecraftMemoryRepository {
+  remember(): never { throw new Error('not used') }
+  search() { return [] }
+  forget() { return false }
+  close(): void {}
+}
+
+class FakeLogicalExecutor {
+  readonly requests: LogicalDecisionRequest[] = []
+  readonly signals: AbortSignal[] = []
+  private readonly pending: Array<(result: LogicalDecisionResult) => void> = []
+
+  execute(request: LogicalDecisionRequest, signal: AbortSignal): Promise<LogicalDecisionResult> {
+    this.requests.push(structuredClone(request))
+    this.signals.push(signal)
+    return new Promise(resolve => this.pending.push(resolve))
+  }
+
+  resolveNext(result: LogicalDecisionResult): void {
+    const resolve = this.pending.shift()
+    if (!resolve) throw new Error('no pending decision')
+    resolve(result)
+  }
+}
+
+function harness() {
+  const events = new RuntimeEventBus()
+  const state = new WorldStateCache({ maxRecentEvents: 32 })
+  events.subscribe(event => state.apply(event))
+
+  const registry = new SkillRegistry()
+  registry.register({
+    name: 'stay',
+    async execute() { return { status: 'succeeded', code: 'held' } }
+  })
+  registry.register({
+    name: 'go_to',
+    async execute() { return { status: 'succeeded', code: 'reached' } }
+  })
+
+  const goals = new GoalManager({
+    skillController: { async cancelActive() {} },
+    events,
+    nextGoalId: (() => {
+      let value = 0
+      return () => `goal-${++value}`
+    })(),
+    now: () => 100
+  })
+  const identity = new MinecraftIdentityRegistry()
+  identity.beginSession()
+  const logicalExecutor = new FakeLogicalExecutor()
+
+  const coordinator = new DecisionCoordinator({
+    events,
+    state,
+    goals,
+    memory: new EmptyMemory(),
+    registry,
+    identity,
+    identityMode: 'offline',
+    manualAccess: { ownerUuid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', operatorAllowlistUuids: [] },
+    worldKey: 'test-world',
+    botUsername: 'Moxue_Test',
+    logicalExecutor,
+    decisionGate: new DecisionGate({ safety: new SafetyPolicy(), events }),
+    contextBuilder: new ContextBuilder(),
+    safetyConstraints: ['PvP is disabled.'],
+    nextTaskId: (() => { let value = 0; return () => `task-${++value}` })(),
+    nextDecisionId: (() => { let value = 0; return () => `decision-${++value}` })(),
+    now: () => 1_000
+  })
+  coordinator.start()
+  return { coordinator, events, state, logicalExecutor, goals, registry }
+}
+
+async function ready(events: RuntimeEventBus): Promise<void> {
+  await events.publish({ type: 'connected', at: 1 })
+  await events.publish({
+    type: 'spawned', at: 2, dimension: 'overworld',
+    position: { x: 0, y: 64, z: 0 }, health: 20, food: 20
+  })
+}
+
+function completeResult(): LogicalDecisionResult {
+  return {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured', provider: 'fake', mode: 'function_call',
+      value: { version: 2, outcome: 'complete' }
+    }
+  }
+}
+
+function stayResult(): LogicalDecisionResult {
+  return {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured', provider: 'fake', mode: 'function_call',
+      value: {
+        version: 2,
+        outcome: 'action',
+        action: { intent: 'stay', args: {} }
+      }
+    }
+  }
+}
+
+function goToResult(): LogicalDecisionResult {
+  return {
+    kind: 'success',
+    providerResult: {
+      kind: 'structured', provider: 'fake', mode: 'function_call',
+      value: {
+        version: 2,
+        outcome: 'action',
+        action: {
+          intent: 'go_to',
+          args: { x: 4, y: 64, z: 4, radius: 1 }
+        }
+      }
+    }
+  }
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, 1))
+  }
+  throw new Error('condition did not become true')
+}
+
+async function startStayGoal(
+  current: ReturnType<typeof harness>,
+  message = '墨雪 原地待命'
+): Promise<string> {
+  const beforeRequests = current.logicalExecutor.requests.length
+  await current.events.publish({
+    type: 'player_chat', at: 3 + beforeRequests, player: 'Boss', message
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === beforeRequests + 1)
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.source === 'ai')
+  const goalId = current.goals.activeGoal()?.goalId
+  assert.ok(goalId)
+  return goalId
+}
+
+async function startGoToGoal(
+  current: ReturnType<typeof harness>,
+  message = '墨雪 去那邊看看'
+): Promise<string> {
+  const beforeRequests = current.logicalExecutor.requests.length
+  await current.events.publish({
+    type: 'player_chat', at: 30 + beforeRequests, player: 'Boss', message
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === beforeRequests + 1)
+  current.logicalExecutor.resolveNext(goToResult())
+  await waitFor(() => current.goals.activeGoal()?.request.kind === 'go_to')
+  const goalId = current.goals.activeGoal()?.goalId
+  assert.ok(goalId)
+  return goalId
+}
+
+test('addressed chat enqueues AI work without blocking RuntimeEventBus on an unresolved provider call', async () => {
+  const current = harness()
+  await ready(current.events)
+
+  await Promise.race([
+    current.events.publish({
+      type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 跟我來'
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('event bus waited for AI decision')), 100)
+    )
+  ])
+
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+  assert.equal(current.coordinator.status().decisionInFlight, true)
+  assert.equal(current.logicalExecutor.requests[0]?.context.task?.objective, '跟我來')
+
+  current.coordinator.dispose()
+})
+
+test('state-only events update latest state during an in-flight decision without starting a second AI call', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 跟我來'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+
+  await current.events.publish({
+    type: 'inventory_changed', at: 4, items: [{ name: 'bread', count: 2 }]
+  })
+  await current.events.publish({
+    type: 'position_changed', at: 5, position: { x: 5, y: 64, z: 5 }
+  })
+  await new Promise(resolve => setTimeout(resolve, 5))
+
+  assert.equal(current.logicalExecutor.requests.length, 1)
+  assert.deepEqual(current.state.snapshot().inventory, [{ name: 'bread', count: 2 }])
+  assert.deepEqual(current.state.snapshot().position, { x: 5, y: 64, z: 5 })
+
+  current.coordinator.dispose()
+})
+
+test('successful action is gated against latest state before the Coordinator submits one AI goal', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 原地待命'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.source === 'ai')
+
+  const goal = current.goals.activeGoal()
+  assert.equal(goal?.request.kind, 'stay')
+  assert.equal(current.coordinator.status().activeGoalId, goal?.goalId ?? null)
+  assert.equal(current.coordinator.status().execution, 'goal_running')
+  assert.equal(current.coordinator.status().decisionInFlight, false)
+
+  current.coordinator.dispose()
+})
+
+test('complete closes the active task without creating a GoalRequest', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 看看是否已完成'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+
+  current.logicalExecutor.resolveNext(completeResult())
+  await waitFor(() => current.coordinator.status().activeTaskId === null)
+
+  assert.equal(current.goals.activeGoal(), null)
+  assert.equal(current.coordinator.status().execution, 'idle')
+
+  current.coordinator.dispose()
+})
+
+test('emergency stop aborts the in-flight decision and a late provider response cannot resurrect work', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 3, player: 'Boss', message: '墨雪 原地待命'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+  const signal = current.logicalExecutor.signals[0]
+  assert.ok(signal)
+
+  await current.events.publish({
+    type: 'emergency_stop', at: 4, reason: 'operator stop'
+  })
+  await waitFor(() => signal.aborted)
+  assert.equal(current.coordinator.status().activeTaskId, null)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await new Promise(resolve => setTimeout(resolve, 5))
+
+  assert.equal(current.goals.activeGoal(), null)
+  assert.equal(current.coordinator.status().execution, 'idle')
+
+  current.coordinator.dispose()
+})
+
+test('goal completion continues the same task exactly once and carries the previous action into fresh context', async () => {
+  const current = harness()
+  await ready(current.events)
+  const goalId = await startStayGoal(current, '墨雪 原地待命然後再確認')
+
+  await current.goals.completeGoal(goalId, { status: 'succeeded', code: 'held' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  assert.equal(current.coordinator.status().activeTaskId, 'task-1')
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.previousAction, 'stay')
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.consecutiveReplans, 0)
+
+  current.logicalExecutor.resolveNext(completeResult())
+  await waitFor(() => current.coordinator.status().activeTaskId === null)
+  assert.equal(current.coordinator.status().execution, 'idle')
+
+  current.coordinator.dispose()
+})
+
+test('stuck and skill failure coalesce until goal_failed then dispatch one Flash-medium replan', async () => {
+  const current = harness()
+  await ready(current.events)
+  const goalId = await startStayGoal(current)
+
+  await current.events.publish({ type: 'stuck', at: 10, code: 'no_path' })
+  await current.events.publish({ type: 'skill_failed', at: 11, skill: 'stay', code: 'blocked' })
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(current.logicalExecutor.requests.length, 1)
+
+  await current.goals.completeGoal(goalId, { status: 'failed', code: 'blocked' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  const replan = current.logicalExecutor.requests[1]
+  assert.equal(replan?.routePlan.routeClass, 'complex')
+  assert.equal(replan?.routePlan.thinking, 'medium')
+  assert.equal(replan?.routePlan.reserveAuthorized, false)
+  assert.equal(replan?.routePlan.reasons.includes('stuck'), true)
+  assert.equal(replan?.routePlan.reasons.includes('goal_failed'), true)
+  assert.equal(replan?.context.task?.consecutiveReplans, 1)
+
+  current.coordinator.dispose()
+})
+
+test('second consecutive goal failure escalates to high without reserve and a later success resets consecutive replans', async () => {
+  const current = harness()
+  await ready(current.events)
+  const firstGoalId = await startStayGoal(current)
+
+  await current.events.publish({ type: 'stuck', at: 10, code: 'no_path' })
+  await current.goals.completeGoal(firstGoalId, { status: 'failed', code: 'blocked' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.goalId === 'goal-2')
+  await current.goals.completeGoal('goal-2', { status: 'failed', code: 'blocked_again' })
+  await waitFor(() => current.logicalExecutor.requests.length === 3)
+
+  const highReplan = current.logicalExecutor.requests[2]
+  assert.equal(highReplan?.routePlan.routeClass, 'complex')
+  assert.equal(highReplan?.routePlan.thinking, 'high')
+  assert.equal(highReplan?.routePlan.highReason, 'repeated_replanning')
+  assert.equal(highReplan?.routePlan.reserveAuthorized, false)
+  assert.equal(highReplan?.context.task?.consecutiveReplans, 2)
+
+  current.logicalExecutor.resolveNext(stayResult())
+  await waitFor(() => current.goals.activeGoal()?.goalId === 'goal-3')
+  await current.goals.completeGoal('goal-3', { status: 'succeeded', code: 'held' })
+  await waitFor(() => current.logicalExecutor.requests.length === 4)
+
+  assert.equal(current.logicalExecutor.requests[3]?.context.task?.consecutiveReplans, 0)
+
+  current.coordinator.dispose()
+})
+
+test('bounded goal lets a different player task queue and starts it only after the active task completes', async () => {
+  const current = harness()
+  await ready(current.events)
+  const boundedGoalId = await startGoToGoal(current)
+
+  await current.events.publish({
+    type: 'player_chat', at: 40, player: 'Alice', message: '墨雪 幫我看背包'
+  })
+  await new Promise(resolve => setTimeout(resolve, 5))
+
+  assert.equal(current.coordinator.status().pendingTaskCount, 1)
+  assert.equal(current.logicalExecutor.requests.length, 1)
+  assert.equal(current.goals.activeGoal()?.goalId, boundedGoalId)
+
+  await current.goals.completeGoal(boundedGoalId, { status: 'succeeded', code: 'reached' })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.taskId, 'task-1')
+
+  current.logicalExecutor.resolveNext(completeResult())
+  await waitFor(() => current.logicalExecutor.requests.length === 3)
+  assert.equal(current.logicalExecutor.requests[2]?.context.task?.taskId, 'task-2')
+  assert.equal(current.logicalExecutor.requests[2]?.context.task?.objective, '幫我看背包')
+  assert.equal(current.coordinator.status().pendingTaskCount, 0)
+
+  current.coordinator.dispose()
+})
+
+test('continuous stay goal is safely superseded by a new explicit task instead of blocking the queue', async () => {
+  const current = harness()
+  await ready(current.events)
+  const continuousGoalId = await startStayGoal(current)
+
+  await current.events.publish({
+    type: 'player_chat', at: 50, player: 'Alice', message: '墨雪 新任務'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+
+  assert.equal(current.goals.getGoal(continuousGoalId)?.status, 'cancelled')
+  assert.equal(current.coordinator.status().activeTaskId, 'task-2')
+  assert.equal(current.coordinator.status().pendingTaskCount, 0)
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.objective, '新任務')
+
+  current.coordinator.dispose()
+})
+
+test('pending explicit task queue is capped at eight and never merges different ingress requests', async () => {
+  const current = harness()
+  await ready(current.events)
+  await current.events.publish({
+    type: 'player_chat', at: 60, player: 'Boss', message: '墨雪 主任務'
+  })
+  await waitFor(() => current.logicalExecutor.requests.length === 1)
+
+  for (let index = 0; index < 9; index += 1) {
+    await current.events.publish({
+      type: 'player_chat',
+      at: 61 + index,
+      player: index % 2 === 0 ? 'Alice' : 'Bob',
+      message: `墨雪 排隊任務${index}`
+    })
+  }
+  await waitFor(() => current.coordinator.status().pendingTaskCount === 8)
+  assert.equal(current.logicalExecutor.requests.length, 1)
+
+  current.logicalExecutor.resolveNext(completeResult())
+  await waitFor(() => current.logicalExecutor.requests.length === 2)
+  assert.equal(current.logicalExecutor.requests[1]?.context.task?.objective, '排隊任務0')
+  assert.equal(current.coordinator.status().pendingTaskCount, 7)
+
+  current.coordinator.dispose()
+})

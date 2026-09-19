@@ -39,3 +39,45 @@ test('goal request rejects instruction-like extra fields', () => {
 
   assert.equal(result.success, false)
 })
+
+
+test('goal request accepts bounded horizontal resource excavation', () => {
+  const request = GoalRequestSchema.parse({
+    kind: 'excavate_resource',
+    args: {
+      resource: 'diamond_ore',
+      direction: 'east',
+      maxLength: 8,
+      radius: 6
+    }
+  })
+
+  assert.equal(request.kind, 'excavate_resource')
+  assert.equal(request.args.maxLength, 8)
+})
+
+test('goal request rejects unbounded or vertical excavation', () => {
+  assert.equal(
+    GoalRequestSchema.safeParse({
+      kind: 'excavate_resource',
+      args: {
+        resource: 'diamond_ore',
+        direction: 'down',
+        maxLength: 8
+      }
+    }).success,
+    false
+  )
+
+  assert.equal(
+    GoalRequestSchema.safeParse({
+      kind: 'excavate_resource',
+      args: {
+        resource: 'diamond_ore',
+        direction: 'east',
+        maxLength: 100
+      }
+    }).success,
+    false
+  )
+})

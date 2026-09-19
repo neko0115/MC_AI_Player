@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AiConfig, MinecraftConfig } from '../src/config.js'
+import type { MinecraftConfig } from '../src/config.js'
 import type { Position, RuntimeEvent } from '../src/contracts/events.js'
 import type { SkillResult } from '../src/contracts/skills.js'
 import type { MinecraftAdapter, NavigationOptions } from '../src/minecraft/adapter.js'
 import type { MineflayerRuntimeBundle } from '../src/minecraft/runtime-bundle.js'
 import type { MinecraftMemoryRepository, MemorySearchQuery, MinecraftMemory } from '../src/memory/repository.js'
 import type { ProviderCapabilities, DecisionProvider } from '../src/agent/provider.js'
+import type {
+  LogicalDecisionExecutor,
+  LogicalDecisionRequest,
+  LogicalDecisionResult
+} from '../src/agent/routing/contracts.js'
 import type { ControlServerOptions, ControlServerAddress } from '../src/api/control-server.js'
-import { createApplication } from '../src/main.js'
+import {
+  createApplication,
+  createFakeDecisionStack,
+  type ApplicationResourceProfilesPort,
+  type ApplicationServerCapabilitiesPort
+} from '../src/main.js'
 
 class FakeAdapter implements MinecraftAdapter {
   readonly calls: string[]
@@ -121,11 +131,108 @@ class FakeControlServer {
   }
 }
 
-function safeProvider(): DecisionProvider {
-  return {
-    capabilities: { structuredFinal: true, reasoningSeparated: true },
-    async decide() {
-      return { kind: 'timeout', provider: 'fake-test' }
+
+class FakeResourceProfiles implements ApplicationResourceProfilesPort {
+  constructor(private readonly calls: string[]) {}
+
+  async start(): Promise<void> {
+    this.calls.push('resources.start')
+  }
+
+  stop(): void {
+    this.calls.push('resources.stop')
+  }
+
+  resolve() {
+    return undefined
+  }
+
+  snapshot() {
+    return [{
+      id: 'examplemod:titanium_ore',
+      kind: 'ore',
+      aliases: ['examplemod:titanium'],
+      blockIds: ['examplemod:titanium_ore'],
+      collectedItemIds: ['examplemod:raw_titanium'],
+      minimumDropCount: 1,
+      toolKind: 'pickaxe',
+      capabilityId: 'vein_mining',
+      relatedLeaves: [],
+      cleanupPolicy: null,
+      confidence: 'authoritative' as const
+    }]
+  }
+}
+
+class FakeServerCapabilities implements ApplicationServerCapabilitiesPort {
+  constructor(private readonly calls: string[]) {}
+
+  async start(): Promise<void> {
+    this.calls.push('capabilities.start')
+  }
+
+  stop(): void {
+    this.calls.push('capabilities.stop')
+  }
+
+  snapshot() {
+    return [{
+      id: 'vein_mining',
+      name: '連鎖挖礦',
+      description: '一次挖掘相連的礦物方塊',
+      available: true,
+      source: {
+        plugin: 'VeinMiner',
+        version: '2.11.2',
+        provenance: 'integration'
+      },
+      usage: {
+        trigger: 'sneak_and_break',
+        human: '蹲下並使用正確的十字鎬挖掘相連礦物'
+      },
+      constraints: {
+        max_chain: 100,
+        correct_tool_required: true,
+        must_sneak: true
+      }
+    }] as const
+  }
+
+  has(id: string): boolean {
+    return id === 'vein_mining'
+  }
+
+  get(id: string) {
+    return id === 'vein_mining' ? this.snapshot()[0] : undefined
+  }
+
+  status() {
+    return {
+      state: 'current' as const,
+      lastSuccessAt: 1234,
+      lastErrorCode: null
+    }
+  }
+}
+
+class RecordingLogicalExecutor implements LogicalDecisionExecutor {
+  readonly requests: LogicalDecisionRequest[] = []
+  readonly signals: AbortSignal[] = []
+
+  async execute(
+    request: LogicalDecisionRequest,
+    signal: AbortSignal
+  ): Promise<LogicalDecisionResult> {
+    this.requests.push(structuredClone(request))
+    this.signals.push(signal)
+    return {
+      kind: 'success',
+      providerResult: {
+        kind: 'structured',
+        provider: 'fake-test',
+        mode: 'function_call',
+        value: { version: 2, outcome: 'complete' }
+      }
     }
   }
 }
@@ -139,19 +246,98 @@ function unsafeProvider(capabilities: ProviderCapabilities): DecisionProvider {
   }
 }
 
+const logicalRequest = {
+  context: {
+    worldKey: 'test-world',
+    currentGoal: null,
+    self: {
+      connected: true,
+      spawned: true,
+      health: 20,
+      food: 20,
+      dimension: 'overworld',
+      position: { x: 0, y: 64, z: 0 }
+    },
+    nearbyPlayers: [],
+    inventory: [],
+    recentEvents: [],
+    memories: [],
+    skills: [],
+    safetyConstraints: []
+  },
+  routePlan: {
+    decisionId: 'decision-fake-1',
+    policy: 'balanced-v1' as const,
+    routeClass: 'routine' as const,
+    thinking: 'low' as const,
+    reserveAuthorized: false,
+    reasons: [],
+    highReason: null
+  }
+}
+
+test('fake decision stack invokes one safe provider without routing infrastructure', async () => {
+  let calls = 0
+  const provider: DecisionProvider = {
+    capabilities: { structuredFinal: true, reasoningSeparated: true },
+    async decide() {
+      calls += 1
+      return { kind: 'timeout', provider: 'fake-test' }
+    }
+  }
+  const executor = createFakeDecisionStack({ provider })
+
+  const result = await executor.execute(logicalRequest, new AbortController().signal)
+
+  assert.equal(calls, 1)
+  assert.deepEqual(result, {
+    kind: 'success',
+    providerResult: { kind: 'timeout', provider: 'fake-test' }
+  })
+})
+
+test('fake decision stack honours cancellation before provider invocation and keeps capability gate', async () => {
+  let calls = 0
+  const provider: DecisionProvider = {
+    capabilities: { structuredFinal: true, reasoningSeparated: true },
+    async decide() {
+      calls += 1
+      return { kind: 'timeout', provider: 'fake-test' }
+    }
+  }
+  const executor = createFakeDecisionStack({ provider })
+  const abort = new AbortController()
+  abort.abort('cancelled')
+
+  assert.deepEqual(await executor.execute(logicalRequest, abort.signal), { kind: 'cancelled' })
+  assert.equal(calls, 0)
+  assert.throws(
+    () => createFakeDecisionStack({
+      provider: unsafeProvider({ structuredFinal: false, reasoningSeparated: true })
+    }),
+    /structured final/i
+  )
+})
+
 function environment(): NodeJS.ProcessEnv {
   return {
     MC_HOST: 'localhost',
     MC_PORT: '25565',
     MC_USERNAME: 'Moxue_Test',
     MC_AUTH: 'offline',
+    MC_SERVER_IDENTITY_MODE: 'offline',
     MC_AI_PROVIDER: 'fake',
+    MC_AI_ROUTING_CONFIG: 'data/this-file-must-not-be-read-in-fake-mode.json',
     MC_CONTROL_HOST: '127.0.0.1',
     MC_CONTROL_PORT: '8766'
   }
 }
 
-function harness(provider: DecisionProvider = safeProvider()) {
+function harness(options: {
+  readonly env?: NodeJS.ProcessEnv
+  readonly serverCapabilities?: ApplicationServerCapabilitiesPort
+  readonly resourceProfiles?: ApplicationResourceProfilesPort
+} = {}) {
   const calls: string[] = []
   const adapter = new FakeAdapter(calls)
   const runtime: MineflayerRuntimeBundle = {
@@ -171,24 +357,152 @@ function harness(provider: DecisionProvider = safeProvider()) {
   }
   const memory = new FakeMemory(calls)
   const recorder = new FakeRecorder()
+  const logicalExecutor = new RecordingLogicalExecutor()
   let control: FakeControlServer | null = null
-  const application = createApplication(environment(), {
+  const application = createApplication(options.env ?? environment(), {
     createRuntime: (_config: MinecraftConfig) => runtime,
     createMemory: () => memory,
     createRecorder: () => recorder,
-    createDecisionProvider: (_config: AiConfig) => provider,
+    createLogicalDecisionExecutor: () => logicalExecutor,
+    ...(options.serverCapabilities
+      ? { createServerCapabilities: () => options.serverCapabilities as ApplicationServerCapabilitiesPort }
+      : {}),
+    ...(options.resourceProfiles
+      ? { createResourceProfiles: () => options.resourceProfiles as ApplicationResourceProfilesPort }
+      : {}),
     createControlServer: options => {
       control = new FakeControlServer(calls, options)
       return control
     }
   })
-  return { application, adapter, calls, memory, recorder, control: () => control }
+  return {
+    application,
+    adapter,
+    calls,
+    memory,
+    recorder,
+    logicalExecutor,
+    control: () => control
+  }
 }
 
 test('creating the composition root has no connect or port-binding side effects', () => {
   const current = harness()
   assert.deepEqual(current.calls, [])
   assert.ok(current.control())
+})
+
+test('fake application ignores routing infrastructure and addressed chat reaches the shared logical executor', async () => {
+  const current = harness()
+  await current.application.start()
+  try {
+    current.adapter.emit({ type: 'connected', at: 1 })
+    current.adapter.emit({
+      type: 'spawned',
+      at: 2,
+      dimension: 'overworld',
+      position: { x: 0, y: 64, z: 0 },
+      health: 20,
+      food: 20
+    })
+    current.adapter.emit({
+      type: 'player_chat',
+      at: 3,
+      player: 'Boss',
+      message: '墨雪 原地待命'
+    })
+
+    await waitFor(() => current.logicalExecutor.requests.length === 1)
+    assert.equal(
+      current.logicalExecutor.requests[0]?.context.task?.objective,
+      '原地待命'
+    )
+  } finally {
+    current.recorder.releaseFirst()
+    await current.application.close()
+  }
+})
+
+
+test('enabled MoxueBridge capability source participates in lifecycle and AI context', async () => {
+  const calls: string[] = []
+  const capabilities = new FakeServerCapabilities(calls)
+  const resources = new FakeResourceProfiles(calls)
+  const current = harness({
+    env: {
+      ...environment(),
+      MC_MOXUEBRIDGE_BASE_URL: 'http://127.0.0.1:8766',
+      MC_MOXUEBRIDGE_TOKEN: 'test-token'
+    },
+    serverCapabilities: capabilities,
+    resourceProfiles: resources
+  })
+
+  // Use the harness-owned call log for application lifecycle order.
+  // The capability fake has its own log so its lifecycle can be asserted directly.
+  await current.application.start()
+  try {
+    assert.deepEqual(calls, [
+      'capabilities.start',
+      'resources.start'
+    ])
+
+    current.adapter.emit({ type: 'connected', at: 1 })
+    current.adapter.emit({
+      type: 'spawned',
+      at: 2,
+      dimension: 'overworld',
+      position: { x: 0, y: 64, z: 0 },
+      health: 20,
+      food: 20
+    })
+    current.adapter.emit({
+      type: 'player_chat',
+      at: 3,
+      player: 'Boss',
+      message: '墨雪 幫我找鐵礦'
+    })
+
+    await waitFor(() => current.logicalExecutor.requests.length === 1)
+    assert.deepEqual(
+      current.logicalExecutor.requests[0]?.context.serverCapabilities?.map(item => item.id),
+      ['vein_mining']
+    )
+    assert.deepEqual(
+      current.logicalExecutor.requests[0]?.context.serverResources?.map(item => item.id),
+      ['examplemod:titanium_ore']
+    )
+    assert.equal(
+      JSON.stringify(current.logicalExecutor.requests[0]?.context).includes('VeinMiner'),
+      false
+    )
+
+    const control = current.control()
+    assert.ok(control)
+    assert.deepEqual(control.options.capabilityStatus?.snapshot(), {
+      state: 'current',
+      ids: ['vein_mining'],
+      details: [{
+        id: 'vein_mining',
+        trigger: 'sneak_and_break',
+        constraints: {
+          max_chain: 100,
+          correct_tool_required: true,
+          must_sneak: true
+        }
+      }]
+    })
+  } finally {
+    current.recorder.releaseFirst()
+    await current.application.close()
+  }
+
+  assert.deepEqual(calls, [
+    'capabilities.start',
+    'resources.start',
+    'resources.stop',
+    'capabilities.stop'
+  ])
 })
 
 test('application start connects Minecraft before opening the Control API and close reverses external exposure', async () => {
@@ -258,13 +572,6 @@ test('GoalManager is wired to deterministic skills without blocking submission, 
 
   await current.application.close()
   assert.equal(current.adapter.holdSignal?.aborted, true)
-})
-
-test('composition root rejects a selected provider without the reasoning-isolation capability contract', () => {
-  assert.throws(
-    () => harness(unsafeProvider({ structuredFinal: true, reasoningSeparated: false })),
-    /reasoning separation/i
-  )
 })
 
 async function waitFor(predicate: () => boolean): Promise<void> {

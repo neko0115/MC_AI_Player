@@ -30,6 +30,40 @@ export interface RuntimeEventSource {
   subscribe(listener: (event: RuntimeEvent) => void | Promise<void>): () => void
 }
 
+export interface ControlAiStatusSnapshot {
+  readonly routineModel: string
+  readonly complexModel: string
+  readonly available: boolean
+  readonly activeProject: string | null
+  readonly flashAutoUsedPct: number
+  readonly manualDeepThinkAvailable: boolean
+  readonly coordinatorState: 'running' | 'stopped'
+  readonly activeTaskId: string | null
+  readonly activeGoalKind: GoalRequest['kind'] | null
+  readonly pendingTaskCount: number
+  readonly decisionInFlight: boolean
+}
+
+export interface ControlAiStatusPort {
+  snapshot(): ControlAiStatusSnapshot
+}
+
+export interface ControlCapabilityStatusDetail {
+  readonly id: string
+  readonly trigger: string
+  readonly constraints: Readonly<Record<string, unknown>>
+}
+
+export interface ControlCapabilityStatusSnapshot {
+  readonly state: 'current' | 'stale' | 'unavailable'
+  readonly ids: readonly string[]
+  readonly details?: readonly ControlCapabilityStatusDetail[]
+}
+
+export interface ControlCapabilityStatusPort {
+  snapshot(): ControlCapabilityStatusSnapshot
+}
+
 export interface ControlServerOptions {
   readonly host: string
   readonly port: number
@@ -39,6 +73,8 @@ export interface ControlServerOptions {
   readonly state: ControlStatePort
   readonly memory: ControlMemoryPort
   readonly events: RuntimeEventSource
+  readonly aiStatus?: ControlAiStatusPort
+  readonly capabilityStatus?: ControlCapabilityStatusPort
 }
 
 export interface ControlServerAddress {
@@ -51,6 +87,16 @@ const DEFAULT_MAX_BODY_BYTES = 16 * 1024
 const MAX_STATUS_QUEUE = 64
 const MAX_STATUS_PLAYERS = 32
 const MAX_STATUS_INVENTORY = 128
+const MAX_STATUS_CAPABILITIES = 64
+const CAPABILITY_CONSTRAINT_ALLOWLIST = new Set([
+  'max_chain',
+  'correct_tool_required',
+  'must_sneak',
+  'same_block_only',
+  'exact_block',
+  'tool_kind',
+  'merge_item_drops'
+])
 
 const StopRequestSchema = z
   .object({
@@ -257,7 +303,13 @@ export class ControlServer {
           .map(item => structuredClone(item))
       },
       active_goal: active ? cloneGoal(active) : null,
-      queued_goals: queued.map(cloneGoal)
+      queued_goals: queued.map(cloneGoal),
+      ...(this.options.aiStatus
+        ? { ai: publicAiStatus(this.options.aiStatus.snapshot()) }
+        : {}),
+      ...(this.options.capabilityStatus
+        ? { server_capabilities: publicCapabilityStatus(this.options.capabilityStatus.snapshot()) }
+        : {})
     }
   }
 
@@ -287,6 +339,77 @@ export class ControlServer {
     }
     request.once('close', cleanup)
     response.once('close', cleanup)
+  }
+}
+
+
+function publicCapabilityStatus(snapshot: ControlCapabilityStatusSnapshot): unknown {
+  const state =
+    snapshot.state === 'current' || snapshot.state === 'stale'
+      ? snapshot.state
+      : 'unavailable'
+  const ids = [...new Set(
+    snapshot.ids
+      .map(id => boundedText(id, 128))
+      .filter(Boolean)
+  )]
+    .sort()
+    .slice(0, MAX_STATUS_CAPABILITIES)
+
+  const details = (snapshot.details ?? [])
+    .slice(0, MAX_STATUS_CAPABILITIES)
+    .map(detail => ({
+      id: boundedText(detail.id, 128),
+      trigger: boundedText(detail.trigger, 128),
+      constraints: publicCapabilityConstraints(detail.constraints)
+    }))
+    .filter(detail => detail.id.length > 0)
+    .sort((left, right) => left.id.localeCompare(right.id))
+
+  return {
+    sync_state: state,
+    ids,
+    ...(details.length > 0 ? { details } : {})
+  }
+}
+
+function publicCapabilityConstraints(
+  constraints: Readonly<Record<string, unknown>>
+): Readonly<Record<string, string | number | boolean | null>> {
+  const safe: Record<string, string | number | boolean | null> = {}
+  for (const key of [...CAPABILITY_CONSTRAINT_ALLOWLIST].sort()) {
+    const value = constraints[key]
+    if (
+      value === null ||
+      typeof value === 'boolean' ||
+      (typeof value === 'number' && Number.isFinite(value)) ||
+      typeof value === 'string'
+    ) {
+      safe[key] = typeof value === 'string'
+        ? boundedText(value, 128)
+        : value
+    }
+  }
+  return safe
+}
+
+function publicAiStatus(snapshot: ControlAiStatusSnapshot): unknown {
+  return {
+    routine_model: boundedText(snapshot.routineModel, 256),
+    complex_model: boundedText(snapshot.complexModel, 256),
+    available: snapshot.available === true,
+    active_project: snapshot.activeProject === null
+      ? null
+      : boundedText(snapshot.activeProject, 64),
+    flash_auto_used_pct: boundedPercent(snapshot.flashAutoUsedPct),
+    manual_deep_think_available: snapshot.manualDeepThinkAvailable === true,
+    coordinator_state: snapshot.coordinatorState === 'running' ? 'running' : 'stopped',
+    active_task_id: snapshot.activeTaskId === null
+      ? null
+      : boundedText(snapshot.activeTaskId, 128),
+    active_goal_kind: snapshot.activeGoalKind,
+    pending_task_count: boundedCount(snapshot.pendingTaskCount),
+    decision_in_flight: snapshot.decisionInFlight === true
   }
 }
 
@@ -404,6 +527,21 @@ function cloneGoal(record: GoalRecord): GoalRecord {
     ...record,
     request: structuredClone(record.request)
   }
+}
+
+function boundedText(value: string, maximum: number): string {
+  const normalized = value.trim()
+  return normalized.length <= maximum ? normalized : normalized.slice(0, maximum)
+}
+
+function boundedPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(100, Math.max(0, value))
+}
+
+function boundedCount(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(1_000_000, Math.max(0, Math.floor(value)))
 }
 
 function normalizeHost(value: string): string {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { ContextBuilder } from '../../src/agent/context-builder.js'
-import { DecisionGate, DecisionPipeline } from '../../src/agent/decision-gate.js'
+import { DecisionGate } from '../../src/agent/decision-gate.js'
 import { FakeDecisionProvider } from '../../src/agent/fake-provider.js'
 import type { Position, RuntimeEvent } from '../../src/contracts/events.js'
 import type { SkillResult } from '../../src/contracts/skills.js'
@@ -220,16 +220,18 @@ test('replay-backed cooperative session completes gather, return, handoff, memor
   })
   const binding = wireGoalExecution({ events, goals, executor })
   const gate = new DecisionGate({ safety, events, now: () => 3_000 })
-  const pipeline = new DecisionPipeline(gate, goals)
   const provider = new FakeDecisionProvider([
     {
       kind: 'structured',
       mode: 'function_call',
       reasoning: REASONING_SENTINEL,
       value: {
-        version: 1,
-        intent: 'gather_resource',
-        args: { resource: 'oak_log', quantity: 16 }
+        version: 2,
+        outcome: 'action',
+        action: {
+          intent: 'gather_resource',
+          args: { resource: 'oak_log', quantity: 16 }
+        }
       }
     },
     {
@@ -276,16 +278,27 @@ test('replay-backed cooperative session completes gather, return, handoff, memor
     const providerResult = await provider.decide({ context })
     assert.equal(JSON.stringify(providerResult).includes(REASONING_SENTINEL), false)
 
-    const accepted = await pipeline.handle(providerResult, state.snapshot())
-    assert.equal(accepted.kind, 'accepted')
-    assert.equal(accepted.kind === 'accepted' ? accepted.goal.kind : null, 'gather_resource')
+    const accepted = await gate.accept(
+      providerResult,
+      state.snapshot(),
+      name => registry.has(name)
+    )
+    assert.equal(accepted.kind, 'action')
+    assert.equal(accepted.kind === 'action' ? accepted.goal.kind : null, 'gather_resource')
+    if (accepted.kind === 'action') {
+      await goals.submit(accepted.goal, 'ai')
+    }
     await waitForGoal(goals, 'goal-2', 'succeeded')
     assert.equal(world.inventoryCount('oak_log'), 16)
     assert.equal(world.harvested.length, 16)
     assert.equal(world.harvested.every(candidate => candidate.blockName === 'oak_log'), true)
 
     const invalidResult = await provider.decide({ context })
-    const rejected = await pipeline.handle(invalidResult, state.snapshot())
+    const rejected = await gate.accept(
+      invalidResult,
+      state.snapshot(),
+      name => registry.has(name)
+    )
     assert.equal(rejected.kind, 'rejected')
 
     const returnGoal = await goals.submit({

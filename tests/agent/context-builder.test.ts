@@ -57,7 +57,7 @@ const activeGoal: GoalRecord = {
   updatedAt: 20
 }
 
-test('context builder keeps only bounded decision-relevant state', () => {
+test('context builder keeps bounded task objective and decision-relevant state', () => {
   const events: RuntimeEvent[] = [
     { type: 'connected', at: 1 },
     { type: 'player_chat', at: 2, player: 'Boss', message: 'bring wood' },
@@ -71,11 +71,21 @@ test('context builder keeps only bounded decision-relevant state', () => {
     maxMemories: 2,
     maxMemoryContentChars: 80,
     maxSkills: 2,
-    maxSafetyConstraints: 2
+    maxSafetyConstraints: 2,
+    maxTaskObjectiveChars: 80,
+    maxTaskDirectiveChars: 40
   })
 
   const context = builder.build({
     worldKey: WORLD_KEY,
+    task: {
+      taskId: 'task-1',
+      objective: `採 16 個橡木，回家後放進基地箱子${'。'.repeat(100)}`,
+      phase: 'active',
+      consecutiveReplans: 1,
+      previousAction: 'gather_resource',
+      ephemeralDirective: `再確認背包和箱子${'！'.repeat(100)}`
+    },
     state: state(events),
     currentGoal: activeGoal,
     memories: [
@@ -97,6 +107,10 @@ test('context builder keeps only bounded decision-relevant state', () => {
   })
 
   assert.equal(context.worldKey, WORLD_KEY)
+  assert.equal(context.task?.taskId, 'task-1')
+  assert.equal(context.task?.objective.length, 80)
+  assert.equal(context.task?.ephemeralDirective?.length, 40)
+  assert.equal(context.task?.consecutiveReplans, 1)
   assert.deepEqual(context.self, {
     connected: true,
     spawned: true,
@@ -138,4 +152,125 @@ test('context builder does not mutate source snapshots or leak foreign-world mem
 
   assert.deepEqual(snapshot, original)
   assert.deepEqual(context.memories, [])
+  assert.equal(context.task, undefined)
+})
+
+
+test('context builder exposes stable server capability semantics without leaking plugin identity', () => {
+  const builder = new ContextBuilder()
+  const context = builder.build({
+    worldKey: WORLD_KEY,
+    state: state([]),
+    currentGoal: null,
+    memories: [],
+    skills: [{ name: 'gather_resource', description: 'Gather a bounded resource quantity.' }],
+    serverCapabilities: [{
+      id: 'vein_mining',
+      name: '連鎖挖礦',
+      description: '一次挖掘相連的礦物方塊',
+      available: true,
+      source: {
+        plugin: 'VeinMiner',
+        version: '2.11.2',
+        provenance: 'integration'
+      },
+      usage: {
+        trigger: 'sneak_and_break',
+        human: '蹲下並使用正確的十字鎬挖掘相連礦物'
+      },
+      constraints: {
+        max_chain: 100,
+        correct_tool_required: true,
+        must_sneak: true,
+        nested_internal_detail: { should_not_leak: true }
+      }
+    }],
+    safetyConstraints: []
+  })
+
+  assert.deepEqual(context.serverCapabilities, [{
+    id: 'vein_mining',
+    name: '連鎖挖礦',
+    description: '一次挖掘相連的礦物方塊',
+    trigger: 'sneak_and_break',
+    usage: '蹲下並使用正確的十字鎬挖掘相連礦物',
+    constraints: {
+      max_chain: 100,
+      correct_tool_required: true,
+      must_sneak: true
+    }
+  }])
+  assert.equal(JSON.stringify(context).includes('VeinMiner'), false)
+  assert.equal(JSON.stringify(context).includes('2.11.2'), false)
+})
+
+
+
+test('context builder exposes bounded resource semantics and ranks task-relevant resources first', () => {
+  const builder = new ContextBuilder({
+    maxServerResources: 2
+  })
+
+  const context = builder.build({
+    worldKey: WORLD_KEY,
+    task: {
+      taskId: 'task-resource-1',
+      objective: '幫我找 examplemod:titanium_ore 並取得 raw titanium',
+      phase: 'active',
+      consecutiveReplans: 0,
+      previousAction: null
+    },
+    state: state([]),
+    currentGoal: null,
+    memories: [],
+    skills: [],
+    serverResources: [
+      {
+        id: 'examplemod:copper_ore',
+        kind: 'ore',
+        aliases: [],
+        blockIds: ['examplemod:copper_ore'],
+        collectedItemIds: ['examplemod:raw_copper'],
+        minimumDropCount: 1,
+        toolKind: 'pickaxe',
+        capabilityId: 'vein_mining',
+        relatedLeaves: [],
+        cleanupPolicy: null,
+        confidence: 'authoritative'
+      },
+      {
+        id: 'examplemod:titanium_ore',
+        kind: 'ore',
+        aliases: ['examplemod:titanium'],
+        blockIds: ['examplemod:titanium_ore'],
+        collectedItemIds: ['examplemod:raw_titanium'],
+        minimumDropCount: 1,
+        toolKind: 'pickaxe',
+        capabilityId: 'vein_mining',
+        relatedLeaves: [],
+        cleanupPolicy: null,
+        confidence: 'authoritative'
+      },
+      {
+        id: 'examplemod:rubber_log',
+        kind: 'log',
+        aliases: [],
+        blockIds: ['examplemod:rubber_log'],
+        collectedItemIds: ['examplemod:rubber_log'],
+        minimumDropCount: 1,
+        toolKind: 'axe',
+        capabilityId: 'tree_felling',
+        relatedLeaves: ['examplemod:rubber_leaves'],
+        cleanupPolicy: 'natural_decay',
+        confidence: 'inferred'
+      }
+    ],
+    safetyConstraints: []
+  })
+
+  assert.equal(context.serverResources?.length, 2)
+  assert.equal(context.serverResources?.[0]?.id, 'examplemod:titanium_ore')
+  assert.deepEqual(context.serverResources?.[0]?.drops, ['examplemod:raw_titanium'])
+  assert.equal(context.serverResources?.[0]?.toolKind, 'pickaxe')
+  assert.equal(context.serverResources?.[1]?.id, 'examplemod:copper_ore')
 })

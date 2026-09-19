@@ -58,13 +58,57 @@ test('player info without a spawned entity is not treated as a positioned player
   )
 })
 
-test('chat and health are normalized without raw provider data', () => {
-  assert.deepEqual(bridge.chat('Boss', '跟我來'), {
+test('hostile observations expose only bounded semantic identity and position', () => {
+  assert.deepEqual(
+    bridge.hostileSeen({
+      id: 42,
+      name: 'creeper',
+      position: { x: 4, y: 64, z: -2 }
+    }),
+    {
+      type: 'hostile_seen',
+      at: 1234,
+      hostile: {
+        entityId: 42,
+        kind: 'creeper',
+        position: { x: 4, y: 64, z: -2 }
+      }
+    }
+  )
+
+  assert.deepEqual(bridge.hostileLeft(42), {
+    type: 'hostile_left',
+    at: 1234,
+    entityId: 42
+  })
+})
+
+test('chat carries current-session identity evidence and player-left invalidates it', () => {
+  assert.deepEqual(bridge.chat('Boss', '跟我來', 'player-uuid'), {
     type: 'player_chat',
     at: 1234,
     player: 'Boss',
+    playerId: 'player-uuid',
     message: '跟我來'
   })
+  assert.deepEqual(bridge.playerLeft('Boss', 'player-uuid'), {
+    type: 'player_left',
+    at: 1234,
+    player: 'Boss',
+    playerId: 'player-uuid'
+  })
+})
+
+test('chat may remain unprivileged when no current UUID evidence exists', () => {
+  assert.deepEqual(bridge.chat('Guest', 'hello'), {
+    type: 'player_chat',
+    at: 1234,
+    player: 'Guest',
+    message: 'hello'
+  })
+})
+
+test('health is normalized without raw provider data', () => {
   assert.deepEqual(bridge.health(botView), {
     type: 'health_changed',
     at: 1234,

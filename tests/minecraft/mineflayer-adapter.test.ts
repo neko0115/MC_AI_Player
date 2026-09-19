@@ -146,6 +146,7 @@ test('observation-only adapter emits normalized events and never initiates movem
   assert.deepEqual(seen, [
     'connected',
     'spawned',
+    'inventory_changed',
     'health_changed',
     'inventory_changed',
     'player_chat'
@@ -230,7 +231,135 @@ test('inventory listener waits until spawn when Mineflayer injects inventory lat
   bot.emit('spawn')
   bot.inventory.emit('updateSlot', 9, null, { name: 'oak_log', count: 3, slot: 9 })
 
-  assert.deepEqual(seen, ['connected', 'spawned', 'inventory_changed'])
+  assert.deepEqual(seen, [
+    'connected',
+    'spawned',
+    'inventory_changed',
+    'inventory_changed'
+  ])
+})
+
+test('definitely hostile mobs are observed by block cell while neutral mobs are ignored', async () => {
+  const bot = new FakeBot()
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: () => bot as unknown as Bot,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 10
+    }
+  )
+  const seen: Array<Record<string, unknown>> = []
+  adapter.onEvent(event => {
+    if (
+      event.type === 'hostile_seen' ||
+      event.type === 'hostile_left'
+    ) {
+      seen.push(structuredClone(event) as unknown as Record<string, unknown>)
+    }
+  })
+
+  await adapter.connect()
+  bot.emit('login')
+  bot.emit('spawn')
+
+  const creeper = {
+    id: 7,
+    type: 'mob',
+    name: 'creeper',
+    position: { x: 5.2, y: 64, z: 0 }
+  }
+  bot.emit('entitySpawn', creeper)
+  creeper.position.x = 5.8
+  bot.emit('entityMoved', creeper)
+  creeper.position.x = 4.9
+  bot.emit('entityMoved', creeper)
+
+  bot.emit('entitySpawn', {
+    id: 8,
+    type: 'mob',
+    name: 'enderman',
+    position: { x: 3, y: 64, z: 0 }
+  })
+
+  bot.emit('entityGone', creeper)
+
+  assert.deepEqual(seen, [
+    {
+      type: 'hostile_seen',
+      at: 10,
+      hostile: {
+        entityId: 7,
+        kind: 'creeper',
+        position: { x: 5.2, y: 64, z: 0 }
+      }
+    },
+    {
+      type: 'hostile_seen',
+      at: 10,
+      hostile: {
+        entityId: 7,
+        kind: 'creeper',
+        position: { x: 4.9, y: 64, z: 0 }
+      }
+    },
+    {
+      type: 'hostile_left',
+      at: 10,
+      entityId: 7
+    }
+  ])
+})
+
+test('modern hostile entity classification emits hostile observations', async () => {
+  const bot = new FakeBot()
+  const adapter = new MineflayerAdapter(
+    {
+      host: 'localhost',
+      port: 25565,
+      username: 'Moxue_Test',
+      auth: 'offline',
+      logLevel: 'info'
+    },
+    {
+      createBot: () => bot as unknown as Bot,
+      reconnect: { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      now: () => 10
+    }
+  )
+  const seen: Array<Record<string, unknown>> = []
+  adapter.onEvent(event => {
+    if (event.type === 'hostile_seen') {
+      seen.push(structuredClone(event) as unknown as Record<string, unknown>)
+    }
+  })
+
+  await adapter.connect()
+  bot.emit('login')
+  bot.emit('spawn')
+
+  bot.emit('entitySpawn', {
+    id: 9,
+    type: 'hostile',
+    name: 'zombie',
+    position: { x: 3, y: 64, z: 0 }
+  })
+
+  assert.deepEqual(seen, [{
+    type: 'hostile_seen',
+    at: 10,
+    hostile: {
+      entityId: 9,
+      kind: 'zombie',
+      position: { x: 3, y: 64, z: 0 }
+    }
+  }])
 })
 
 test('player info without entity waits for player entitySpawn before emitting player_seen', async () => {

@@ -1,5 +1,10 @@
-import { DecisionV1Schema, type DecisionV1 } from '../contracts/decision.js'
-import type { GoalRequest, GoalSource } from '../contracts/goals.js'
+import {
+  DecisionOutcomeV2Schema,
+  type DecisionAction,
+  type DecisionBlockedReason
+} from '../contracts/decision.js'
+import type { GoalRequest } from '../contracts/goals.js'
+import type { SkillName } from '../contracts/skills.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 import type { RuntimeEventBus } from '../telemetry/event-bus.js'
@@ -8,16 +13,25 @@ import {
   type StructuredProviderMode
 } from './provider.js'
 
-export interface AiGoalSubmitter {
-  submit(request: GoalRequest, source: GoalSource): Promise<unknown>
-}
-
-export interface AcceptedDecision {
-  readonly kind: 'accepted'
+export interface GatedAction {
+  readonly kind: 'action'
   readonly provider: string
   readonly mode: StructuredProviderMode
-  readonly intent: DecisionV1['intent']
+  readonly intent: DecisionAction['intent']
   readonly goal: GoalRequest
+}
+
+export interface GatedComplete {
+  readonly kind: 'complete'
+  readonly provider: string
+  readonly mode: StructuredProviderMode
+}
+
+export interface GatedBlocked {
+  readonly kind: 'blocked'
+  readonly provider: string
+  readonly mode: StructuredProviderMode
+  readonly reason: DecisionBlockedReason
 }
 
 export interface RejectedDecision {
@@ -26,7 +40,7 @@ export interface RejectedDecision {
   readonly code: string
 }
 
-export type GatedDecision = AcceptedDecision | RejectedDecision
+export type GatedOutcome = GatedAction | GatedComplete | GatedBlocked | RejectedDecision
 
 interface DecisionGateDependencies {
   readonly safety: SafetyPolicy
@@ -45,8 +59,9 @@ export class DecisionGate {
 
   async accept(
     input: unknown,
-    state: WorldStateSnapshot
-  ): Promise<GatedDecision> {
+    state: WorldStateSnapshot,
+    isSkillRegistered: (name: SkillName) => boolean
+  ): Promise<GatedOutcome> {
     const envelope = ProviderResultSchema.safeParse(input)
     if (!envelope.success) {
       return this.reject(providerFromUnknown(input), 'provider_result_invalid')
@@ -63,14 +78,37 @@ export class DecisionGate {
       return this.reject(provider, normalizeCode(result.code, 'provider_invalid'))
     }
 
-    const parsed = DecisionV1Schema.safeParse(result.value)
+    const parsed = DecisionOutcomeV2Schema.safeParse(result.value)
     if (!parsed.success) {
       return this.reject(provider, 'decision_schema_invalid')
     }
 
-    const goal = decisionToGoal(parsed.data)
+    const outcome = parsed.data
+    if (outcome.outcome === 'complete') {
+      return {
+        kind: 'complete',
+        provider,
+        mode: result.mode
+      }
+    }
+
+    if (outcome.outcome === 'blocked') {
+      return {
+        kind: 'blocked',
+        provider,
+        mode: result.mode,
+        reason: outcome.reason
+      }
+    }
+
+    const action = outcome.action
+    if (!isSkillRegistered(action.intent)) {
+      return this.reject(provider, 'skill_not_registered')
+    }
+
+    const goal = actionToGoal(action)
     const skillAuthorization = this.dependencies.safety.authorizeSkill(
-      parsed.data.intent,
+      action.intent,
       state
     )
     if (skillAuthorization.kind !== 'allow') {
@@ -85,14 +123,14 @@ export class DecisionGate {
     await this.events?.publish({
       type: 'decision_accepted',
       at: this.now(),
-      intent: parsed.data.intent
+      intent: action.intent
     })
 
     return {
-      kind: 'accepted',
+      kind: 'action',
       provider,
       mode: result.mode,
-      intent: parsed.data.intent,
+      intent: action.intent,
       goal
     }
   }
@@ -112,46 +150,32 @@ export class DecisionGate {
   }
 }
 
-export class DecisionPipeline {
-  constructor(
-    private readonly gate: DecisionGate,
-    private readonly goals: AiGoalSubmitter
-  ) {}
-
-  async handle(
-    result: unknown,
-    state: WorldStateSnapshot
-  ): Promise<GatedDecision> {
-    const gated = await this.gate.accept(result, state)
-    if (gated.kind !== 'accepted') {
-      return gated
-    }
-
-    await this.goals.submit(gated.goal, 'ai')
-    return gated
-  }
-}
-
-function decisionToGoal(decision: DecisionV1): GoalRequest {
-  switch (decision.intent) {
+function actionToGoal(action: DecisionAction): GoalRequest {
+  switch (action.intent) {
     case 'follow_player':
-      return { kind: 'follow_player', args: { ...decision.args } }
+      return { kind: 'follow_player', args: { ...action.args } }
     case 'stay':
       return { kind: 'stay', args: {} }
     case 'go_to':
-      return { kind: 'go_to', args: { ...decision.args } }
+      return { kind: 'go_to', args: { ...action.args } }
     case 'return_home':
       return { kind: 'return_home', args: {} }
     case 'eat':
       return { kind: 'eat', args: {} }
     case 'equip':
-      return { kind: 'equip', args: { ...decision.args } }
+      return { kind: 'equip', args: { ...action.args } }
     case 'gather_resource':
-      return { kind: 'gather_resource', args: { ...decision.args } }
+      return { kind: 'gather_resource', args: { ...action.args } }
+    case 'explore_resource':
+      return { kind: 'explore_resource', args: { ...action.args } }
+    case 'excavate_resource':
+      return { kind: 'excavate_resource', args: { ...action.args } }
+    case 'acquire_resource':
+      return { kind: 'acquire_resource', args: { ...action.args } }
     case 'deposit_item':
-      return { kind: 'deposit_item', args: { ...decision.args } }
+      return { kind: 'deposit_item', args: { ...action.args } }
     case 'withdraw_item':
-      return { kind: 'withdraw_item', args: { ...decision.args } }
+      return { kind: 'withdraw_item', args: { ...action.args } }
   }
 }
 

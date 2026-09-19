@@ -67,10 +67,17 @@ export function createMineflayerRuntimeBundle(
   const gathering: ResourceGatheringAdapter = {
     currentPosition: () => gatheringRuntime.currentPosition(),
     inventoryCount: item => gatheringRuntime.inventoryCount(item),
+    inspectBlock: position => gatheringRuntime.inspectBlock(position),
     findResourceBlocks: (request, signal) =>
       gatheringRuntime.findResourceBlocks(request, signal),
-    harvestResourceBlock: (target, permit, signal) =>
-      gatheringRuntime.harvestResourceBlock(target, permit, signal),
+    findExplorationWaypoints: (request, signal) =>
+      gatheringRuntime.findExplorationWaypoints(request, signal),
+    prepareResourceTool: (target, signal, options) =>
+      gatheringRuntime.prepareResourceTool(target, signal, options),
+    harvestResourceBlock: (target, permit, signal, options) =>
+      gatheringRuntime.harvestResourceBlock(target, permit, signal, options),
+    findDecayingLeafBlocks: (leafNames, origin, radius, limit, signal) =>
+      gatheringRuntime.findDecayingLeafBlocks(leafNames, origin, radius, limit, signal),
     findDroppedResource: (itemName, origin, radius, signal) =>
       gatheringRuntime.findDroppedResource(itemName, origin, radius, signal),
     droppedResourceStatus: entityId =>
