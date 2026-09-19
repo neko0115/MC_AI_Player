@@ -403,7 +403,7 @@ Current M2 scope:
 
 **Verification status:** M2 local FULL automated verification PASS — 407 tests, 403 passed, 0 failed, 4 skipped; focused catalog/decision tests and typecheck PASS.
 
-#### M3 catalog-derived Goal/Decision actions — implementation in progress
+#### M3 catalog-derived Goal/Decision actions — PASS
 
 Commits:
 
@@ -421,15 +421,35 @@ Current M3 scope:
 - strict unknown-field rejection and existing bounded argument schemas are preserved;
 - SafetyPolicy is intentionally unchanged until M4.
 
-**Verification status:** local verification pending for M3.
+**Verification status:** M3 local FULL automated verification PASS — 409 tests, 405 passed, 0 failed, 4 skipped; working tree clean.
+
+#### M4 catalog-owned Safety authority — implementation in progress
+
+Commits:
+
+- `baa0d00` — `refactor: derive safety authority from trusted catalog`
+- `c408cab` — `refactor: make safety trust the skill catalog`
+
+Current M4 scope:
+
+- removed caller-owned `SkillSafetyMetadata` from capability and resource-mutation authorization;
+- `SafetyPolicy` now reads capabilities and mutation authority from the trusted skill catalog;
+- `gather_resource` and `excavate_resource` no longer self-declare `break_blocks` when requesting a permit;
+- resource-mutation authorization no longer contains hard-coded `gather_resource || excavate_resource` name checks;
+- known-skill authorization now checks the trusted catalog instead of a separate SkillNameSchema authority list;
+- PvP remains hard-denied;
+- scoped mutation permits remain WeakSet-authenticated and bounded by allowed block names;
+- tests were updated to prove catalog authority and fail-closed behavior.
+
+**Verification status:** local verification pending for M4.
 
 **Next exact action:**
 
-1. fast-forward the modular worktree to the latest remote branch;
-2. run focused catalog/goal/decision/decision-gate tests;
+1. fast-forward the modular worktree;
+2. run focused safety/catalog/gather/excavation tests;
 3. run `npm run typecheck`;
 4. run full `npm test`;
-5. if green, mark M3 PASS and start M4 Safety authority migration from trusted catalog metadata.
+5. if green, mark M4 PASS and begin M5 typed runtime extension seam.
 
 **Do not:**
 
