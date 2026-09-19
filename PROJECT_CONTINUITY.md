@@ -441,15 +441,15 @@ Current M4 scope:
 - scoped mutation permits remain WeakSet-authenticated and bounded by allowed block names;
 - tests were updated to prove catalog authority and fail-closed behavior.
 
-**Verification status:** local verification pending for M4.
+**Verification status:** M4 focused safety/resource tests PASS, but first full verification exposed one stale test fixture in `tests/minecraft/mineflayer-gathering.test.ts`: its `issuedPermit()` helper still called the old four-argument `issueResourceMutationPermit(..., metadata, state)` API. This caused typecheck TS2554 and seven runtime test failures because JavaScript treated the old metadata object as the new state argument. Fixed in `fd40a30` by removing caller-owned capability metadata from that helper. Full M4 verification must be rerun after pulling that commit.
 
 **Next exact action:**
 
-1. fast-forward the modular worktree;
-2. run focused safety/catalog/gather/excavation tests;
-3. run `npm run typecheck`;
+1. fast-forward the modular worktree to include `fd40a30`;
+2. run `npm run typecheck`;
+3. run `npm test -- tests/minecraft/mineflayer-gathering.test.ts tests/safety/policy.test.ts tests/safety/resource-permit.test.ts`;
 4. run full `npm test`;
-5. if green, mark M4 PASS and begin M5 typed runtime extension seam.
+5. if all are green and worktree is clean, mark M4 PASS and begin M5 typed runtime extension seam.
 
 **Do not:**
 
