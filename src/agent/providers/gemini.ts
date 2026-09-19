@@ -187,6 +187,13 @@ const DECISION_PARAMETER_SCHEMA: Readonly<Record<string, unknown>> = Object.free
       destination: { type: 'string', enum: ['hand', 'off-hand', 'head', 'torso', 'legs', 'feet'] }
     }, ['item']),
     decisionBranch('gather_resource', { resource: stringSchema(128), quantity: integerSchema(1, 2304) }, ['resource', 'quantity']),
+    decisionBranch('acquire_resource', {
+      resource: stringSchema(128),
+      quantity: integerSchema(1, 2304),
+      exploreRadius: integerSchema(4, 64),
+      exploreSteps: integerSchema(1, 16),
+      excavateLength: integerSchema(1, 16)
+    }, ['resource', 'quantity']),
     decisionBranch('deposit_item', { item: stringSchema(128), quantity: integerSchema(1, 2304), storage: identifierSchema() }, ['item', 'quantity', 'storage']),
     decisionBranch('withdraw_item', { item: stringSchema(128), quantity: integerSchema(1, 2304), storage: identifierSchema() }, ['item', 'quantity', 'storage'])
   ]
@@ -202,6 +209,7 @@ interface RoutedActionToolDefinition {
     | 'eat'
     | 'equip'
     | 'gather_resource'
+    | 'acquire_resource'
     | 'deposit_item'
     | 'withdraw_item'
   readonly tool: GeminiFunctionTool
@@ -258,6 +266,19 @@ const ROUTED_ACTION_TOOL_DEFINITIONS: readonly RoutedActionToolDefinition[] = Ob
     'action_gather_resource',
     'Gather an exact bounded quantity of one resource.',
     { resource: stringSchema(128), quantity: integerSchema(1, 2304) },
+    ['resource', 'quantity']
+  ),
+  routedActionTool(
+    'acquire_resource',
+    'action_acquire_resource',
+    'Acquire at least a bounded quantity of one resource through deterministic search, memory, exploration, excavation, and gathering.',
+    {
+      resource: stringSchema(128),
+      quantity: integerSchema(1, 2304),
+      exploreRadius: integerSchema(4, 64),
+      exploreSteps: integerSchema(1, 16),
+      excavateLength: integerSchema(1, 16)
+    },
     ['resource', 'quantity']
   ),
   routedActionTool(
