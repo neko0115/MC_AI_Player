@@ -3,6 +3,8 @@ import {
   DepositItemArgsSchema,
   EatArgsSchema,
   EquipArgsSchema,
+  ExcavateResourceArgsSchema,
+  ExploreResourceArgsSchema,
   FollowPlayerArgsSchema,
   GatherResourceArgsSchema,
   GoToArgsSchema,
@@ -19,6 +21,8 @@ export const DecisionV1Schema = z.discriminatedUnion('intent', [
   z.object({ version: z.literal(1), intent: z.literal('eat'), args: EatArgsSchema }).strict(),
   z.object({ version: z.literal(1), intent: z.literal('equip'), args: EquipArgsSchema }).strict(),
   z.object({ version: z.literal(1), intent: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
+  z.object({ version: z.literal(1), intent: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
+  z.object({ version: z.literal(1), intent: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
   z.object({ version: z.literal(1), intent: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
   z.object({ version: z.literal(1), intent: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
 ])
@@ -31,6 +35,8 @@ const DecisionActionSchema = z.discriminatedUnion('intent', [
   z.object({ intent: z.literal('eat'), args: EatArgsSchema }).strict(),
   z.object({ intent: z.literal('equip'), args: EquipArgsSchema }).strict(),
   z.object({ intent: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
+  z.object({ intent: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
+  z.object({ intent: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
   z.object({ intent: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
   z.object({ intent: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
 ])
