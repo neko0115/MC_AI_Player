@@ -57,6 +57,16 @@ export const ExcavateResourceArgsSchema = z
   })
   .strict()
 
+export const AcquireResourceArgsSchema = z
+  .object({
+    resource: IdentifierSchema,
+    quantity: QuantitySchema,
+    exploreRadius: z.number().int().min(4).max(64).optional(),
+    exploreSteps: z.number().int().min(1).max(16).optional(),
+    excavateLength: z.number().int().min(1).max(16).optional()
+  })
+  .strict()
+
 
 export const DepositItemArgsSchema = z
   .object({
@@ -84,6 +94,7 @@ export const GoalRequestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('gather_resource'), args: GatherResourceArgsSchema }).strict(),
   z.object({ kind: z.literal('explore_resource'), args: ExploreResourceArgsSchema }).strict(),
   z.object({ kind: z.literal('excavate_resource'), args: ExcavateResourceArgsSchema }).strict(),
+  z.object({ kind: z.literal('acquire_resource'), args: AcquireResourceArgsSchema }).strict(),
   z.object({ kind: z.literal('deposit_item'), args: DepositItemArgsSchema }).strict(),
   z.object({ kind: z.literal('withdraw_item'), args: WithdrawItemArgsSchema }).strict()
 ])
