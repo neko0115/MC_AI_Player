@@ -147,8 +147,9 @@ test('bounded Mineflayer search returns semantic resource candidates', async () 
   assert.deepEqual(runtime.currentPosition(), { x: 0, y: 64, z: 0 })
 })
 
-test('visible resource scan accepts a target when raycast hits the target even if canSeeBlock is false', async () => {
+test('visible resource scan accepts a partially exposed target when one surface sample is visible', async () => {
   const target = new Vec3(2, 64, 1)
+  let raycastCalls = 0
   const bot = {
     entity: { position: new Vec3(0.5, 64, 0.5) },
     inventory: { items: () => [] },
@@ -174,6 +175,13 @@ test('visible resource scan accepts a target when raycast hits the target even i
     },
     world: {
       raycast() {
+        raycastCalls += 1
+        if (raycastCalls === 1) {
+          return {
+            name: 'stone',
+            position: new Vec3(1, 65, 1)
+          }
+        }
         return {
           name: 'diamond_ore',
           position: target.clone()
@@ -195,6 +203,7 @@ test('visible resource scan accepts a target when raycast hits the target even i
   )
 
   assert.equal(visible.length, 1)
+  assert.ok(raycastCalls >= 2)
   assert.equal(visible[0]?.blockName, 'diamond_ore')
   assert.deepEqual(visible[0]?.position, { x: 2, y: 64, z: 1 })
 })
