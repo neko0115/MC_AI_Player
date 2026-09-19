@@ -1,12 +1,15 @@
 import type { GoalRequest } from '../contracts/goals.js'
-import { SkillNameSchema } from '../contracts/skills.js'
+import {
+  skillContract,
+  type SkillSafetyCapability
+} from '../contracts/skill-catalog.js'
+import {
+  SkillNameSchema,
+  type SkillName
+} from '../contracts/skills.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
 
-export type SafetyCapability = 'break_blocks' | 'place_blocks' | 'pvp'
-
-export interface SkillSafetyMetadata {
-  readonly capabilities?: readonly SafetyCapability[]
-}
+export type SafetyCapability = SkillSafetyCapability
 
 export interface SafetyThresholds {
   readonly minHealthForNonCritical: number
@@ -93,7 +96,6 @@ export class SafetyPolicy {
   authorizeCapability(
     skillName: string,
     capability: SafetyCapability,
-    metadata: SkillSafetyMetadata,
     state: WorldStateSnapshot
   ): SafetyDecision {
     const skillDecision = this.authorizeSkill(skillName, state)
@@ -105,7 +107,8 @@ export class SafetyPolicy {
       return { kind: 'deny', code: 'pvp_disabled' }
     }
 
-    if (!metadata.capabilities?.includes(capability)) {
+    const contract = skillContract(skillName as SkillName)
+    if (!contract.safety.capabilities.includes(capability)) {
       return { kind: 'deny', code: 'capability_not_declared' }
     }
 
@@ -115,20 +118,18 @@ export class SafetyPolicy {
   issueResourceMutationPermit(
     skillName: string,
     allowedBlockNames: readonly string[],
-    metadata: SkillSafetyMetadata,
     state: WorldStateSnapshot
   ): ResourceMutationDecision {
     const skillDecision = this.authorizeSkill(skillName, state)
     if (skillDecision.kind !== 'allow') {
       return skillDecision
     }
-    if (
-      skillName !== 'gather_resource' &&
-      skillName !== 'excavate_resource'
-    ) {
+
+    const contract = skillContract(skillName as SkillName)
+    if (contract.safety.mutationAuthority !== 'resource_break') {
       return { kind: 'deny', code: 'mutation_skill_not_allowed' }
     }
-    if (!metadata.capabilities?.includes('break_blocks')) {
+    if (!contract.safety.capabilities.includes('break_blocks')) {
       return { kind: 'deny', code: 'capability_not_declared' }
     }
 

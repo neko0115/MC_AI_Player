@@ -27,7 +27,6 @@ test('only scoped mutation skills may receive a block-mutation permit', () => {
   const allowed = policy.issueResourceMutationPermit(
     'gather_resource',
     ['oak_log'],
-    { capabilities: ['break_blocks'] },
     readyState()
   )
   assert.equal(allowed.kind, 'allow')
@@ -38,7 +37,6 @@ test('only scoped mutation skills may receive a block-mutation permit', () => {
   const excavation = policy.issueResourceMutationPermit(
     'excavate_resource',
     ['stone', 'deepslate'],
-    { capabilities: ['break_blocks'] },
     readyState()
   )
   assert.equal(excavation.kind, 'allow')
@@ -52,24 +50,26 @@ test('only scoped mutation skills may receive a block-mutation permit', () => {
   const denied = policy.issueResourceMutationPermit(
     'go_to',
     ['oak_log'],
-    { capabilities: ['break_blocks'] },
     readyState()
   )
   assert.deepEqual(denied, { kind: 'deny', code: 'mutation_skill_not_allowed' })
 })
 
-test('resource mutation permit requires declared break_blocks capability and ready Minecraft state', () => {
+test('resource mutation authority comes from the trusted catalog and still requires ready Minecraft state', () => {
   const policy = new SafetyPolicy()
 
   assert.deepEqual(
-    policy.issueResourceMutationPermit('gather_resource', ['oak_log'], {}, readyState()),
-    { kind: 'deny', code: 'capability_not_declared' }
+    policy.issueResourceMutationPermit(
+      'go_to',
+      ['oak_log'],
+      readyState()
+    ),
+    { kind: 'deny', code: 'mutation_skill_not_allowed' }
   )
   assert.deepEqual(
     policy.issueResourceMutationPermit(
       'gather_resource',
       ['oak_log'],
-      { capabilities: ['break_blocks'] },
       readyState({ connected: false, spawned: false })
     ),
     { kind: 'deny', code: 'minecraft_not_ready' }
@@ -83,7 +83,6 @@ test('empty or wildcard mutation scopes are rejected', () => {
     policy.issueResourceMutationPermit(
       'gather_resource',
       [],
-      { capabilities: ['break_blocks'] },
       readyState()
     ),
     { kind: 'deny', code: 'invalid_mutation_scope' }
@@ -92,7 +91,6 @@ test('empty or wildcard mutation scopes are rejected', () => {
     policy.issueResourceMutationPermit(
       'gather_resource',
       ['*'],
-      { capabilities: ['break_blocks'] },
       readyState()
     ),
     { kind: 'deny', code: 'invalid_mutation_scope' }
@@ -103,5 +101,24 @@ test('plain objects cannot forge a resource mutation permit', () => {
   assert.equal(
     isResourceMutationPermit({ mutateBlocks: true, allowedBlockNames: ['oak_log'] }),
     false
+  )
+})
+
+
+test('caller-shaped data cannot grant resource mutation authority to another skill', () => {
+  const policy = new SafetyPolicy()
+  const forgedState = {
+    ...readyState(),
+    capabilities: ['break_blocks'],
+    mutationAuthority: 'resource_break'
+  } as unknown as WorldStateSnapshot
+
+  assert.deepEqual(
+    policy.issueResourceMutationPermit(
+      'go_to',
+      ['oak_log'],
+      forgedState
+    ),
+    { kind: 'deny', code: 'mutation_skill_not_allowed' }
   )
 })

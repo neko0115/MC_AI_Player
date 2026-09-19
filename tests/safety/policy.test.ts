@@ -2,10 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { GoalRequest } from '../../src/contracts/goals.js'
 import type { WorldStateSnapshot } from '../../src/state/world-state.js'
-import {
-  SafetyPolicy,
-  type SkillSafetyMetadata
-} from '../../src/safety/policy.js'
+import { SafetyPolicy } from '../../src/safety/policy.js'
 
 function state(overrides: Partial<WorldStateSnapshot> = {}): WorldStateSnapshot {
   return {
@@ -64,17 +61,23 @@ test('generic navigation is hardened against digging, building and pvp', () => {
   })
 })
 
-test('block mutation requires an explicit internal skill capability', () => {
+test('skill capabilities come only from the trusted catalog', () => {
   const policy = new SafetyPolicy()
-  const noCapabilities: SkillSafetyMetadata = {}
-  const gatherCapabilities: SkillSafetyMetadata = { capabilities: ['break_blocks'] }
 
   assert.deepEqual(
-    policy.authorizeCapability('gather_resource', 'break_blocks', noCapabilities, state()),
+    policy.authorizeCapability(
+      'go_to',
+      'break_blocks',
+      state()
+    ),
     { kind: 'deny', code: 'capability_not_declared' }
   )
   assert.deepEqual(
-    policy.authorizeCapability('gather_resource', 'break_blocks', gatherCapabilities, state()),
+    policy.authorizeCapability(
+      'gather_resource',
+      'break_blocks',
+      state()
+    ),
     { kind: 'allow', code: 'allowed' }
   )
 })
@@ -86,7 +89,6 @@ test('pvp remains denied even when a skill claims the capability', () => {
     policy.authorizeCapability(
       'gather_resource',
       'pvp',
-      { capabilities: ['pvp'] },
       state()
     ),
     { kind: 'deny', code: 'pvp_disabled' }

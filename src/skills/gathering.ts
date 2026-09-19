@@ -536,7 +536,6 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
       const permitDecision = this.dependencies.safety.issueResourceMutationPermit(
         'gather_resource',
         profile.blockNames,
-        { capabilities: ['break_blocks'] },
         this.dependencies.state()
       )
       if (permitDecision.kind !== 'allow') {
@@ -754,7 +753,6 @@ export class GatherResourceSkill implements SkillDefinition<GatherArgs> {
     const permitDecision = this.dependencies.safety.issueResourceMutationPermit(
       'gather_resource',
       profile.relatedLeafNames,
-      { capabilities: ['break_blocks'] },
       this.dependencies.state()
     )
     if (permitDecision.kind !== 'allow') return null

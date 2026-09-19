@@ -165,7 +165,6 @@ implements SkillDefinition<ExcavateArgs> {
       this.dependencies.safety.issueResourceMutationPermit(
         'excavate_resource',
         SAFE_EXCAVATION_BLOCKS,
-        { capabilities: ['break_blocks'] },
         this.dependencies.state()
       )
     if (permitDecision.kind !== 'allow') {
