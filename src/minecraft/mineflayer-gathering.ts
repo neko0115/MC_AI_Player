@@ -281,7 +281,7 @@ export class MineflayerGatheringRuntime implements ResourceGatheringAdapter {
       if (!feet || !head || !support) continue
       if (!isPassableSpace(feet) || !isPassableSpace(head)) continue
       if (!isSafeSupport(support)) continue
-      if (!bot.canSeeBlock(support)) continue
+      if (!bot.canSeeBlock(feet)) continue
 
       unique.set(
         `${target.x},${target.y},${target.z}`,
