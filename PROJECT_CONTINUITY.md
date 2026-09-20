@@ -1030,6 +1030,14 @@ Important boundary:
 
 **W5C2 verification status:** local verification pending.
 
+Verification note:
+
+- first local typecheck exposed two `exactOptionalPropertyTypes` errors in `WorkspaceChatRouter.resolveTarget()`;
+- `conversationWorkspaceId` and `recentWorkspaceId` were being passed as explicit `undefined`;
+- fixed by returning deterministic `none` when the corresponding binding is absent and only supplying the optional property when a concrete string exists;
+- regression test now locks missing conversation/recent bindings to `clarify: missing_reference`;
+- rerun typecheck and W5C2 validation after `d6b1bd4` / `f100f9d`.
+
 **Next exact action:**
 
 1. fast-forward `feature/workspace-planner`;
