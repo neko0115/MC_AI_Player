@@ -504,15 +504,31 @@ Live wand regression verification PASS after MoxueBridge `1516105`:
 
 **Paper setting-wand observation LIVE PASS.**
 
-Remaining W3 gate:
+W3 live transport verification PASS:
 
-- fast-forward MC_AI workspace worktree to `798a627` or later;
-- run focused Control/Bridge/Main tests, typecheck and full suite;
-- start MC_AI_Player against the live MoxueBridge;
-- query `GET /v1/workspace-selection?dimension=<dimension>&player_id=<uuid>`;
-- require `sync_state=current` and exact selection id/generation/A/B parity with the Bridge endpoint.
+- fresh Bridge selection:
+  - id `1931c7c2-2acc-48be-91ad-8b537d88c435`;
+  - generation `3`;
+  - dimension `overworld`;
+  - A = `(-198,63,253)`;
+  - B = `(-190,63,270)`;
+- MC_AI_Player `GET /v1/workspace-selection` returned:
+  - `sync_state = current`;
+  - `last_error_code = null`;
+  - identical id / generation / dimension / player / A / B / selected_at;
+  - injected MC connection world key `127.0.0.1:25565`;
+- this proves Paper -> MoxueBridge -> MC_AI selection source parity end to end.
 
-W4 design is now locked but production implementation waits for the W3 live gate.
+**W3 LIVE PASS.**
+
+Remaining W3 gate before FULL PASS:
+
+- run focused Control/Bridge/Main tests for `798a627` or later;
+- run `npm run typecheck`;
+- run full `npm test`;
+- confirm working tree clean.
+
+W4 design is locked; production implementation begins after this automated gate is confirmed.
 
 W4 lifecycle direction:
 
