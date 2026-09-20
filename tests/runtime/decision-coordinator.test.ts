@@ -87,6 +87,8 @@ implements WorkspaceChatInstructionRouter {
 function harness(options: {
   readonly workspaceChatRouter?:
     WorkspaceChatInstructionRouter
+  readonly identityMode?:
+    'online' | 'offline'
 } = {}) {
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: 32 })
@@ -122,7 +124,9 @@ function harness(options: {
     memory: new EmptyMemory(),
     registry,
     identity,
-    identityMode: 'offline',
+    identityMode:
+      options.identityMode ??
+      'offline',
     manualAccess: { ownerUuid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', operatorAllowlistUuids: [] },
     worldKey: 'test-world',
     botUsername: 'Moxue_Test',
@@ -149,6 +153,25 @@ async function ready(events: RuntimeEventBus): Promise<void> {
   await events.publish({
     type: 'spawned', at: 2, dimension: 'overworld',
     position: { x: 0, y: 64, z: 0 }, health: 20, food: 20
+  })
+}
+
+async function observeTrustedBoss(
+  events: RuntimeEventBus
+): Promise<void> {
+  await events.publish({
+    type: 'player_seen',
+    at: 2.5,
+    player: {
+      name: 'Boss',
+      id:
+        'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      position: {
+        x: 1,
+        y: 64,
+        z: 1
+      }
+    }
   })
 }
 
@@ -238,15 +261,20 @@ test('addressed chat with authoritative player id is semantically routed before 
     new FakeWorkspaceChatRouter()
   const current = harness({
     workspaceChatRouter:
-      workspace
+      workspace,
+    identityMode: 'online'
   })
   await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
 
   await current.events.publish({
     type: 'player_chat',
     at: 3,
     player: 'Boss',
-    playerId: 'player-uuid',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
     message:
       '墨雪 這塊以後我自己留著種，你不要拿'
   })
@@ -258,6 +286,11 @@ test('addressed chat with authoritative player id is semantically routed before 
     workspace.requests[0]
       ?.utterance,
     '這塊以後我自己留著種，你不要拿'
+  )
+  assert.equal(
+    workspace.requests[0]
+      ?.actorPrincipal,
+    'cccccccccccccccccccccccccccccccc'
   )
   assert.equal(
     current.logicalExecutor
@@ -286,15 +319,20 @@ test('workspace not_workspace result falls through to unchanged gameplay AI obje
     new FakeWorkspaceChatRouter()
   const current = harness({
     workspaceChatRouter:
-      workspace
+      workspace,
+    identityMode: 'online'
   })
   await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
 
   await current.events.publish({
     type: 'player_chat',
     at: 3,
     player: 'Boss',
-    playerId: 'player-uuid',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
     message: '墨雪 跟我去山上'
   })
 
@@ -323,15 +361,20 @@ test('workspace semantic routing stays off the coordinator mailbox while state e
     new FakeWorkspaceChatRouter()
   const current = harness({
     workspaceChatRouter:
-      workspace
+      workspace,
+    identityMode: 'online'
   })
   await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
 
   await current.events.publish({
     type: 'player_chat',
     at: 3,
     player: 'Boss',
-    playerId: 'player-uuid',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
     message: '墨雪 隨便一種很難理解的說法'
   })
   await waitFor(() =>
@@ -370,15 +413,20 @@ test('disconnect aborts pending workspace semantic route and late result cannot 
     new FakeWorkspaceChatRouter()
   const current = harness({
     workspaceChatRouter:
-      workspace
+      workspace,
+    identityMode: 'online'
   })
   await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
 
   await current.events.publish({
     type: 'player_chat',
     at: 3,
     player: 'Boss',
-    playerId: 'player-uuid',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
     message: '墨雪 這個先記一下'
   })
   await waitFor(() =>
@@ -414,9 +462,13 @@ test('chat without authoritative player id preserves legacy gameplay path instea
     new FakeWorkspaceChatRouter()
   const current = harness({
     workspaceChatRouter:
-      workspace
+      workspace,
+    identityMode: 'online'
   })
   await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
 
   await current.events.publish({
     type: 'player_chat',
