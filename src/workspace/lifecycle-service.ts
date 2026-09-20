@@ -1,8 +1,10 @@
 import {
   WorkspaceConstraintsSchema,
   WorkspacePurposeSchema,
+  WorkspaceUsePolicySchema,
   type WorkspaceConstraints,
   type WorkspacePurpose,
+  type WorkspaceUsePolicy,
   type WorkspaceRegion,
   type WorkspaceRegionInput,
   type WorkspaceSelection
@@ -36,6 +38,7 @@ export interface CreateWorkspaceFromSelectionInput {
   readonly actorPrincipal: string
   readonly label: string
   readonly purpose: WorkspacePurpose
+  readonly moxueUsePolicy?: WorkspaceUsePolicy
   readonly tags?: readonly string[]
   readonly constraints?: WorkspaceConstraints
 }
@@ -59,6 +62,10 @@ export class WorkspaceLifecycleService {
       WorkspaceConstraintsSchema.parse(
         input.constraints ?? {}
       )
+    const moxueUsePolicy =
+      WorkspaceUsePolicySchema.parse(
+        input.moxueUsePolicy ?? 'shared'
+      )
 
     return this.repository.create(
       {
@@ -70,6 +77,7 @@ export class WorkspaceLifecycleService {
         ),
         label: input.label,
         purpose,
+        moxueUsePolicy,
         tags: [...(input.tags ?? [])],
         constraints,
         ownerPrincipal: input.actorPrincipal,
@@ -176,6 +184,36 @@ export class WorkspaceLifecycleService {
           actorPrincipal,
           action: 'purpose_changed',
           safeSummary: 'Workspace purpose changed'
+        }
+      )
+    )
+  }
+
+  changeUsePolicy(
+    workspaceId: string,
+    actorPrincipal: string,
+    policy: WorkspaceUsePolicy
+  ): WorkspaceRegion {
+    const workspace =
+      this.requireMutableOwned(
+        workspaceId,
+        actorPrincipal
+      )
+
+    return this.requireUpdated(
+      this.repository.update(
+        workspace.id,
+        toInput(workspace, {
+          moxueUsePolicy:
+            WorkspaceUsePolicySchema.parse(
+              policy
+            )
+        }),
+        {
+          actorPrincipal,
+          action: 'use_policy_changed',
+          safeSummary:
+            'Workspace Moxue use policy changed'
         }
       )
     )
@@ -386,6 +424,9 @@ function toInput(
     purpose:
       overrides.purpose ??
       workspace.purpose,
+    moxueUsePolicy:
+      overrides.moxueUsePolicy ??
+      workspace.moxueUsePolicy,
     tags:
       overrides.tags
         ? [...overrides.tags]
