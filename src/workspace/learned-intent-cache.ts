@@ -2,6 +2,7 @@ import {
   createHash,
   createHmac
 } from 'node:crypto'
+import { z } from 'zod'
 import { createRequire } from 'node:module'
 import {
   WORKSPACE_CHAT_INTENT_CONTRACT_VERSION,
@@ -31,6 +32,9 @@ interface DatabaseLike {
   exec(sql: string): void
   pragma(source: string): unknown
   prepare(sql: string): StatementLike
+  transaction<TArgs extends unknown[], TResult>(
+    fn: (...args: TArgs) => TResult
+  ): (...args: TArgs) => TResult
   close(): void
 }
 
@@ -43,8 +47,37 @@ interface LearnedRow {
   intent_hash: string
   intent_json: string
   contract_version: number
+  created_at: number
+  updated_at: number
+  last_success_at: number
   success_count: number
   revoked: number
+}
+
+export interface LearnedWorkspaceIntentTransferRecord {
+  readonly fingerprint: string
+  readonly applicability: Applicability
+  readonly intentHash: string
+  readonly intent: WorkspaceChatIntent
+  readonly contractVersion: number
+  readonly createdAt: number
+  readonly updatedAt: number
+  readonly lastSuccessAt: number
+  readonly successCount: number
+  readonly revoked: boolean
+}
+
+export interface LearnedWorkspaceIntentSnapshot {
+  readonly format: 'mc-ai-player.workspace-intent-cache.snapshot'
+  readonly version: 1
+  readonly semanticContractVersion: number
+  readonly exportedAt: number
+  readonly records: readonly LearnedWorkspaceIntentTransferRecord[]
+}
+
+export interface LearnedWorkspaceIntentImportResult {
+  readonly merged: number
+  readonly skipped: number
 }
 
 export interface LearnedWorkspaceIntentCache {
@@ -58,6 +91,10 @@ export interface LearnedWorkspaceIntentCache {
   revokeUtterance(
     context: WorkspaceSemanticContext
   ): number
+  exportSnapshot(): LearnedWorkspaceIntentSnapshot
+  importSnapshot(
+    snapshot: unknown
+  ): LearnedWorkspaceIntentImportResult
   close(): void
 }
 
@@ -78,6 +115,54 @@ type Applicability =
   | 'explicit'
   | 'conversation'
   | 'recent'
+
+const ApplicabilitySchema = z.enum([
+  'context_free',
+  'selection',
+  'explicit',
+  'conversation',
+  'recent'
+])
+
+const TransferRecordSchema = z
+  .object({
+    fingerprint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/),
+    applicability: ApplicabilitySchema,
+    intentHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/),
+    intent: WorkspaceChatIntentSchema,
+    contractVersion:
+      z.number().int().positive(),
+    createdAt:
+      z.number().int().nonnegative(),
+    updatedAt:
+      z.number().int().nonnegative(),
+    lastSuccessAt:
+      z.number().int().nonnegative(),
+    successCount:
+      z.number().int().positive(),
+    revoked: z.boolean()
+  })
+  .strict()
+
+const SnapshotSchema = z
+  .object({
+    format: z.literal(
+      'mc-ai-player.workspace-intent-cache.snapshot'
+    ),
+    version: z.literal(1),
+    semanticContractVersion:
+      z.number().int().positive(),
+    exportedAt:
+      z.number().int().nonnegative(),
+    records: z
+      .array(TransferRecordSchema)
+      .max(100_000)
+  })
+  .strict()
 
 export class SqliteLearnedWorkspaceIntentCache
 implements LearnedWorkspaceIntentCache {
@@ -309,6 +394,163 @@ implements LearnedWorkspaceIntentCache {
       fingerprint,
       WORKSPACE_CHAT_INTENT_CONTRACT_VERSION
     ).changes
+  }
+
+  exportSnapshot(): LearnedWorkspaceIntentSnapshot {
+    this.assertOpen()
+
+    const rows = this.db.prepare(`
+      SELECT
+        fingerprint,
+        applicability,
+        intent_hash,
+        intent_json,
+        contract_version,
+        created_at,
+        updated_at,
+        last_success_at,
+        success_count,
+        revoked
+      FROM learned_workspace_intents
+      WHERE contract_version = ?
+      ORDER BY fingerprint ASC,
+               applicability ASC,
+               intent_hash ASC
+      LIMIT 100000
+    `)
+      .all(
+        WORKSPACE_CHAT_INTENT_CONTRACT_VERSION
+      )
+      .map(requireLearnedRow)
+
+    const records =
+      rows.map(row =>
+        transferRecordFromRow(row)
+      )
+
+    return {
+      format:
+        'mc-ai-player.workspace-intent-cache.snapshot',
+      version: 1,
+      semanticContractVersion:
+        WORKSPACE_CHAT_INTENT_CONTRACT_VERSION,
+      exportedAt: this.now(),
+      records
+    }
+  }
+
+  importSnapshot(
+    snapshot: unknown
+  ): LearnedWorkspaceIntentImportResult {
+    this.assertOpen()
+    const parsed =
+      SnapshotSchema.parse(snapshot)
+
+    let merged = 0
+    let skipped = 0
+
+    const merge =
+      this.db.transaction(() => {
+        for (
+          const candidate of
+          parsed.records
+        ) {
+          if (
+            candidate.contractVersion !==
+              WORKSPACE_CHAT_INTENT_CONTRACT_VERSION ||
+            parsed.semanticContractVersion !==
+              WORKSPACE_CHAT_INTENT_CONTRACT_VERSION
+          ) {
+            skipped += 1
+            continue
+          }
+
+          const canonical =
+            canonicalIntent(
+              candidate.intent
+            )
+          if (
+            intentHash(canonical) !==
+              candidate.intentHash
+          ) {
+            skipped += 1
+            continue
+          }
+
+          this.db.prepare(`
+            INSERT INTO learned_workspace_intents (
+              fingerprint,
+              applicability,
+              intent_hash,
+              intent_json,
+              contract_version,
+              created_at,
+              updated_at,
+              last_success_at,
+              success_count,
+              revoked
+            ) VALUES (
+              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?
+            )
+            ON CONFLICT (
+              fingerprint,
+              applicability,
+              intent_hash,
+              contract_version
+            ) DO UPDATE SET
+              intent_json = CASE
+                WHEN excluded.updated_at >
+                  learned_workspace_intents.updated_at
+                THEN excluded.intent_json
+                ELSE learned_workspace_intents.intent_json
+              END,
+              created_at = MIN(
+                learned_workspace_intents.created_at,
+                excluded.created_at
+              ),
+              updated_at = MAX(
+                learned_workspace_intents.updated_at,
+                excluded.updated_at
+              ),
+              last_success_at = MAX(
+                learned_workspace_intents.last_success_at,
+                excluded.last_success_at
+              ),
+              success_count = MAX(
+                learned_workspace_intents.success_count,
+                excluded.success_count
+              ),
+              revoked = CASE
+                WHEN excluded.updated_at >
+                  learned_workspace_intents.updated_at
+                THEN excluded.revoked
+                WHEN excluded.updated_at <
+                  learned_workspace_intents.updated_at
+                THEN learned_workspace_intents.revoked
+                ELSE MAX(
+                  learned_workspace_intents.revoked,
+                  excluded.revoked
+                )
+              END
+          `).run(
+            candidate.fingerprint,
+            candidate.applicability,
+            candidate.intentHash,
+            canonical,
+            candidate.contractVersion,
+            candidate.createdAt,
+            candidate.updatedAt,
+            candidate.lastSuccessAt,
+            candidate.successCount,
+            candidate.revoked ? 1 : 0
+          )
+          merged += 1
+        }
+      })
+
+    merge()
+    return { merged, skipped }
   }
 
   close(): void {
@@ -671,6 +913,58 @@ function normalizeHmacKey(
   return buffer
 }
 
+function transferRecordFromRow(
+  row: LearnedRow
+): LearnedWorkspaceIntentTransferRecord {
+  let rawIntent: unknown
+  try {
+    rawIntent =
+      JSON.parse(row.intent_json)
+  } catch {
+    throw new Error(
+      'invalid learned workspace intent JSON'
+    )
+  }
+
+  const intent =
+    WorkspaceChatIntentSchema.parse(
+      rawIntent
+    )
+  const canonical =
+    canonicalIntent(intent)
+
+  if (
+    intentHash(canonical) !==
+      row.intent_hash
+  ) {
+    throw new Error(
+      'learned workspace intent hash mismatch'
+    )
+  }
+
+  return TransferRecordSchema.parse({
+    fingerprint:
+      row.fingerprint,
+    applicability:
+      row.applicability,
+    intentHash:
+      row.intent_hash,
+    intent,
+    contractVersion:
+      row.contract_version,
+    createdAt:
+      row.created_at,
+    updatedAt:
+      row.updated_at,
+    lastSuccessAt:
+      row.last_success_at,
+    successCount:
+      row.success_count,
+    revoked:
+      row.revoked === 1
+  })
+}
+
 function requireLearnedRow(
   value: unknown
 ): LearnedRow {
@@ -711,6 +1005,21 @@ function requireLearnedRow(
       requireInteger(
         row.contract_version,
         'contract_version'
+      ),
+    created_at:
+      requireInteger(
+        row.created_at,
+        'created_at'
+      ),
+    updated_at:
+      requireInteger(
+        row.updated_at,
+        'updated_at'
+      ),
+    last_success_at:
+      requireInteger(
+        row.last_success_at,
+        'last_success_at'
       ),
     success_count:
       requireInteger(
