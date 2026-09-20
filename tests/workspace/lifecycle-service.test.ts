@@ -65,6 +65,10 @@ test('lifecycle creates a durable active workspace from the trusted actor select
       })
 
     assert.equal(created.status, 'active')
+    assert.equal(
+      created.moxueUsePolicy,
+      'shared'
+    )
     assert.deepEqual(created.bounds, {
       min: { x: 0, y: 64, z: 0 },
       max: { x: 8, y: 64, z: 8 }
@@ -153,6 +157,17 @@ test('lifecycle rename resize purpose tags and constraints preserve identity and
       'production'
     )
 
+    const policyChanged =
+      service.changeUsePolicy(
+        created.id,
+        'player-1',
+        'moxue_preferred'
+      )
+    assert.equal(
+      policyChanged.moxueUsePolicy,
+      'moxue_preferred'
+    )
+
     const tagged =
       service.replaceTags(
         created.id,
@@ -187,6 +202,7 @@ test('lifecycle rename resize purpose tags and constraints preserve identity and
     assert.deepEqual(actions, [
       'constraints_changed',
       'tags_changed',
+      'use_policy_changed',
       'purpose_changed',
       'resized',
       'renamed',
