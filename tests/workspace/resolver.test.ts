@@ -636,7 +636,7 @@ test('unique nearby workspace resolves but multiple nearby workspaces are ambigu
   }
 })
 
-test('recent workspace is fallback only and archived workspace is excluded from all resolution paths', () => {
+test('archived workspaces remain excluded by default but restore resolution may opt in explicitly', () => {
   const repo = makeRepo()
   try {
     const recent =
@@ -706,6 +706,28 @@ test('recent workspace is fallback only and archived workspace is excluded from 
         reason: 'explicit_not_found'
       }
     )
+
+    const restoreTarget =
+      resolver.resolve({
+        worldKey: 'server:survival',
+        dimension: 'overworld',
+        actorPrincipal: 'player-1',
+        explicitReference:
+          archived.id,
+        includeArchived: true
+      })
+    assert.equal(
+      restoreTarget.kind,
+      'resolved'
+    )
+    if (
+      restoreTarget.kind === 'resolved'
+    ) {
+      assert.equal(
+        restoreTarget.workspace.status,
+        'archived'
+      )
+    }
 
     assert.equal(
       resolver.resolve({
