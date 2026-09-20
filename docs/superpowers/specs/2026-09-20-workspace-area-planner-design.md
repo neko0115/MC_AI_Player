@@ -84,6 +84,7 @@ WorkspaceRegion {
   bounds
   label
   purpose
+  moxueUsePolicy
   tags
   constraints
   ownerPrincipal
@@ -240,7 +241,55 @@ Initial Workspace v1 uses one authoritative owner principal. Persistent identity
 
 Selection player name is descriptive only; player id/UUID is the authority key.
 
-### 8.6 Management versus execution
+Ownership controls Workspace management authority. It is distinct from `moxueUsePolicy`, which controls whether Moxue may use the region operationally.
+
+### 8.6 Moxue use policy
+
+Workspace ownership and Moxue usage permission are separate concepts.
+
+`ownerPrincipal` answers who may manage the Workspace metadata. It must not be overloaded to decide whether Moxue may consume/use resources inside that Workspace.
+
+Initial use-policy vocabulary:
+
+- `owner_only`
+  - represents private/player-owned use;
+  - Moxue may know the region exists so planning can avoid conflicting use;
+  - Moxue must not harvest crops, withdraw/deposit storage contents, consume production output, or perform ordinary workspace mutation there;
+  - simple path traversal is not automatically forbidden unless a separate protected/no-entry constraint says so.
+
+- `shared`
+  - ordinary default for statements such as "這是倉庫" or "這是農田";
+  - Moxue may use the Workspace when purpose-specific rules, storage ACLs and SafetyPolicy permit it.
+
+- `moxue_preferred`
+  - for statements such as "這是你專用的農田/倉庫" or "這個給你用";
+  - Moxue may use it and should prefer it over equivalent `shared` candidates during deterministic planning;
+  - "專用" in this v1 policy means preferred for Moxue, not a claim that humans are forbidden from using it;
+  - if a future user explicitly says "只有你能用", that stronger exclusivity should be modeled separately rather than inferred silently.
+
+Default policy for newly defined ordinary Workspaces is `shared`.
+
+Natural-language examples:
+
+```text
+"墨雪 這是我的私人倉庫"
+"墨雪 這是我自己的農田"
+"墨雪 這是我的倉庫"
+-> moxueUsePolicy = owner_only
+
+"墨雪 這是你專用的農田"
+"墨雪 這個倉庫給你用"
+"墨雪 這是墨雪專用倉庫"
+-> moxueUsePolicy = moxue_preferred
+
+"墨雪 這是倉庫"
+"墨雪 這是農田"
+-> moxueUsePolicy = shared
+```
+
+Use policy is metadata/authorization input. It does not by itself grant block mutation, container access, or bypass storage/project/SafetyPolicy checks.
+
+### 8.7 Management versus execution
 
 Workspace lifecycle operations change metadata only.
 
