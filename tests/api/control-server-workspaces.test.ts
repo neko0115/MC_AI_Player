@@ -87,6 +87,7 @@ function workspace(
     },
     label: '農田',
     purpose: 'farm',
+    moxueUsePolicy: 'shared',
     status: 'active',
     tags: ['crop'],
     constraints: {
@@ -124,6 +125,9 @@ implements ControlWorkspaceManagementPort {
     return workspace({
       label: request.label,
       purpose: request.purpose,
+      moxueUsePolicy:
+        request.moxueUsePolicy ??
+        'shared',
       tags: [...(request.tags ?? [])],
       constraints:
         structuredClone(
@@ -208,6 +212,26 @@ implements ControlWorkspaceManagementPort {
     return workspace({
       id,
       purpose
+    })
+  }
+
+  changeUsePolicy(
+    id: string,
+    actor: string,
+    policy:
+      WorkspaceRegion['moxueUsePolicy']
+  ): WorkspaceRegion {
+    this.calls.push({
+      kind: 'use-policy',
+      value: {
+        id,
+        actor,
+        policy
+      }
+    })
+    return workspace({
+      id,
+      moxueUsePolicy: policy
     })
   }
 
@@ -414,6 +438,8 @@ test('workspace create/list/get API is bounded and never accepts caller coordina
             dimension: 'overworld',
             label: '農田',
             purpose: 'farm',
+            moxue_use_policy:
+              'owner_only',
             tags: ['crop'],
             constraints: {
               requested_spacing: 5
@@ -434,6 +460,11 @@ test('workspace create/list/get API is bounded and never accepts caller coordina
     )
     assert.equal(
       createdBody.workspace
+        .moxue_use_policy,
+      'owner_only'
+    )
+    assert.equal(
+      createdBody.workspace
         .constraints
         .requested_spacing,
       5
@@ -445,6 +476,8 @@ test('workspace create/list/get API is bounded and never accepts caller coordina
         actorPrincipal: 'player-1',
         label: '農田',
         purpose: 'farm',
+        moxueUsePolicy:
+          'owner_only',
         tags: ['crop'],
         constraints: {
           requestedSpacing: 5
@@ -536,6 +569,16 @@ test('workspace mutation endpoints map one action each and expose audit without 
     )
 
     assert.equal(
+      (await post('use-policy', {
+        actor_principal:
+          'player-1',
+        moxue_use_policy:
+          'moxue_preferred'
+      })).status,
+      200
+    )
+
+    assert.equal(
       (await post('tags', {
         actor_principal:
           'player-1',
@@ -614,6 +657,7 @@ test('workspace mutation endpoints map one action each and expose audit without 
         'rename',
         'resize',
         'purpose',
+        'use-policy',
         'tags',
         'constraints',
         'archive',
