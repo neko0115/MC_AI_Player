@@ -416,7 +416,7 @@ test('workspace create/list/get API is bounded and never accepts caller coordina
             purpose: 'farm',
             tags: ['crop'],
             constraints: {
-              requestedSpacing: 5
+              requested_spacing: 5
             }
           })
         }
@@ -437,6 +437,19 @@ test('workspace create/list/get API is bounded and never accepts caller coordina
         .constraints
         .requested_spacing,
       5
+    )
+    assert.deepEqual(
+      management.calls[0]?.value,
+      {
+        dimension: 'overworld',
+        actorPrincipal: 'player-1',
+        label: '農田',
+        purpose: 'farm',
+        tags: ['crop'],
+        constraints: {
+          requestedSpacing: 5
+        }
+      }
     )
 
     const listed =
@@ -539,7 +552,7 @@ test('workspace mutation endpoints map one action each and expose audit without 
         actor_principal:
           'player-1',
         constraints: {
-          requestedSpacing: 6
+          requested_spacing: 6
         }
       })).status,
       200
@@ -559,6 +572,20 @@ test('workspace mutation endpoints map one action each and expose audit without 
           'player-1'
       })).status,
       200
+    )
+
+    assert.deepEqual(
+      management.calls.find(
+        call =>
+          call.kind === 'constraints'
+      )?.value,
+      {
+        id: 'workspace-1',
+        actor: 'player-1',
+        constraints: {
+          requestedSpacing: 6
+        }
+      }
     )
 
     const audit =
