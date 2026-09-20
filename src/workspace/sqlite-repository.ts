@@ -374,7 +374,7 @@ implements WorkspaceRepository {
       SELECT *
       FROM workspace_audit
       WHERE workspace_id = ?
-      ORDER BY created_at DESC, event_id ASC
+      ORDER BY created_at DESC, rowid DESC
       LIMIT ?
     `)
       .all(normalizedId, limit)
