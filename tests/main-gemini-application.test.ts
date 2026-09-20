@@ -11,8 +11,15 @@ import type { ControlServerAddress, ControlServerOptions } from '../src/api/cont
 import type { AdminServerAddress, AdminServerOptions } from '../src/api/admin-server.js'
 import { createApplication } from '../src/main.js'
 import type {
-  WorkspaceIntentInterpreter
+  WorkspaceChatIntent,
+  WorkspaceIntentInterpreter,
+  WorkspaceSemanticContext
 } from '../src/workspace/chat-intent.js'
+import type {
+  LearnedWorkspaceIntentCache,
+  LearnedWorkspaceIntentImportResult,
+  LearnedWorkspaceIntentSnapshot
+} from '../src/workspace/learned-intent-cache.js'
 
 class FakeAdapter implements MinecraftAdapter {
   constructor(private readonly calls: string[]) {}
@@ -29,6 +36,59 @@ class FakeAdapter implements MinecraftAdapter {
   }
   async stopMotion(): Promise<void> {}
   onEvent(_listener: (event: RuntimeEvent) => void): () => void { return () => {} }
+}
+
+class FakeLearnedWorkspaceIntentCache
+implements LearnedWorkspaceIntentCache {
+  constructor(
+    private readonly calls: string[]
+  ) {}
+
+  lookup(
+    _context: WorkspaceSemanticContext
+  ): WorkspaceChatIntent | null {
+    return null
+  }
+
+  rememberSuccessful(
+    _context: WorkspaceSemanticContext,
+    _intent: WorkspaceChatIntent
+  ): boolean {
+    return true
+  }
+
+  revokeUtterance(
+    _context: WorkspaceSemanticContext
+  ): number {
+    return 0
+  }
+
+  exportSnapshot():
+    LearnedWorkspaceIntentSnapshot {
+    return {
+      format:
+        'mc-ai-player.workspace-intent-cache.snapshot',
+      version: 1,
+      semanticContractVersion: 1,
+      exportedAt: 1,
+      records: []
+    }
+  }
+
+  importSnapshot(
+    _snapshot: unknown
+  ): LearnedWorkspaceIntentImportResult {
+    return {
+      merged: 0,
+      skipped: 0
+    }
+  }
+
+  close(): void {
+    this.calls.push(
+      'semantic-cache.close'
+    )
+  }
 }
 
 class FakeMemory implements MinecraftMemoryRepository {
@@ -85,6 +145,8 @@ function env(): NodeJS.ProcessEnv {
     MC_AI_PROVIDER: 'gemini',
     MC_AI_ROUTING_CONFIG: 'private-routing.json',
     MC_AI_KEY_PRIMARY: 'TEST_SECRET_DO_NOT_LEAK',
+    MC_WORKSPACE_SEMANTIC_MASTER_SECRET:
+      'workspace-semantic-master-secret-test-0123456789',
     MC_ADMIN_TOKEN: 'ADMIN_SECRET_DO_NOT_LEAK',
     MC_ADMIN_PORT: '8767',
     MC_CONTROL_HOST: '127.0.0.1',
@@ -154,6 +216,23 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
     createRuntime: (_config: MinecraftConfig) => runtime(calls),
     createMemory: () => new FakeMemory(calls),
     createRecorder: () => ({ async record() { return { ok: true } } }),
+    createLearnedWorkspaceIntentCache:
+      (filename, hmacKey) => {
+        calls.push(
+          'semantic-cache.create'
+        )
+        assert.equal(
+          filename,
+          'data/workspace-semantic-cache.sqlite3'
+        )
+        assert.equal(
+          hmacKey.byteLength,
+          32
+        )
+        return new FakeLearnedWorkspaceIntentCache(
+          calls
+        )
+      },
     createGeminiDecisionStack: options => {
       calls.push('gemini.create')
       assert.equal(options.routingConfigPath, 'private-routing.json')
@@ -172,7 +251,13 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
     }
   })
 
-  assert.deepEqual(calls, ['gemini.create'])
+  assert.deepEqual(
+    calls,
+    [
+      'gemini.create',
+      'semantic-cache.create'
+    ]
+  )
   assert.equal(controlCreated, true)
   assert.equal(adminCreated, true)
   const capturedControl = controlCaptures[0]
@@ -199,14 +284,27 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
   assert.equal(capturedAdmin.quota, fakeStack.quotaLedger)
 
   await application.start()
-  assert.deepEqual(calls.slice(0, 4), [
-    'gemini.create',
-    'adapter.connect',
-    'control.start',
-    'admin.start'
-  ])
+  assert.deepEqual(
+    calls.slice(0, 5),
+    [
+      'gemini.create',
+      'semantic-cache.create',
+      'adapter.connect',
+      'control.start',
+      'admin.start'
+    ]
+  )
 
   await application.close()
   assert.equal(calls.indexOf('admin.close') < calls.indexOf('control.close'), true)
-  assert.equal(calls.indexOf('gemini.close') < calls.indexOf('memory.close'), true)
+  assert.equal(
+    calls.indexOf('gemini.close') <
+      calls.indexOf('semantic-cache.close'),
+    true
+  )
+  assert.equal(
+    calls.indexOf('semantic-cache.close') <
+      calls.indexOf('memory.close'),
+    true
+  )
 })
