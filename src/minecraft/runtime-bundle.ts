@@ -11,6 +11,9 @@ import {
   type MineflayerBotFactory
 } from './mineflayer-adapter.js'
 import { MineflayerGatheringRuntime } from './mineflayer-gathering.js'
+import {
+  MineflayerChatOutput
+} from './chat-output.js'
 import { MineflayerInventoryRuntime } from './mineflayer-inventory.js'
 import {
   installMineflayerRuntimeExtensions,
@@ -18,6 +21,7 @@ import {
 } from './runtime-extension.js'
 import {
   MINECRAFT_ADAPTER_PORT,
+  MINECRAFT_CHAT_OUTPUT_PORT,
   RESOURCE_GATHERING_PORT,
   RUNTIME_PORT_REGISTRY,
   RuntimePortRegistry,
@@ -65,6 +69,10 @@ export function createMineflayerRuntimeBundle(
   const readyBot = (): Bot | null => spawned ? currentBot : null
   const inventoryRuntime = new MineflayerInventoryRuntime(readyBot)
   const gatheringRuntime = new MineflayerGatheringRuntime(readyBot)
+  const chatOutput =
+    new MineflayerChatOutput(
+      readyBot
+    )
 
   const inventory: SurvivalInventoryAdapter & ContainerTransactionAdapter = {
     inventoryItems: () => inventoryRuntime.inventoryItems(),
@@ -106,6 +114,10 @@ export function createMineflayerRuntimeBundle(
   ports.register(MINECRAFT_ADAPTER_PORT, adapter)
   ports.register(SURVIVAL_INVENTORY_PORT, inventory)
   ports.register(RESOURCE_GATHERING_PORT, gathering)
+  ports.register(
+    MINECRAFT_CHAT_OUTPUT_PORT,
+    chatOutput
+  )
 
   installMineflayerRuntimeExtensions(
     { readyBot, ports },
