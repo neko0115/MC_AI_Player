@@ -91,6 +91,10 @@ import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
+import {
+  MINECRAFT_CHAT_OUTPUT_PORT,
+  runtimePortRegistry
+} from './minecraft/runtime-ports.js'
 import { createBuiltinSkillModules } from './modules/builtin-skills.js'
 import { installSkillModules } from './modules/skill-module.js'
 import { DecisionCoordinator } from './runtime/decision-coordinator.js'
@@ -321,6 +325,16 @@ export function createApplication(
   const memory = (dependencies.createMemory ?? createDefaultMemory)(DEFAULT_MEMORY_PATH)
   const recorder = (dependencies.createRecorder ?? createDefaultRecorder)(DEFAULT_EVENT_LOG_PATH)
   const runtime = (dependencies.createRuntime ?? createMineflayerRuntimeBundle)(minecraftConfig)
+  const runtimePorts =
+    runtimePortRegistry(runtime)
+  const chatOutput =
+    runtimePorts.has(
+      MINECRAFT_CHAT_OUTPUT_PORT
+    )
+      ? runtimePorts.require(
+          MINECRAFT_CHAT_OUTPUT_PORT
+        )
+      : null
   const safety = new SafetyPolicy()
   const createServerCapabilities =
     dependencies.createServerCapabilities ?? createDefaultServerCapabilities
@@ -492,6 +506,9 @@ export function createApplication(
     logicalExecutor,
     ...(workspaceChatRouter
       ? { workspaceChatRouter }
+      : {}),
+    ...(chatOutput
+      ? { chatOutput }
       : {}),
     decisionGate: new DecisionGate({ safety, events }),
     contextBuilder: new ContextBuilder(),
