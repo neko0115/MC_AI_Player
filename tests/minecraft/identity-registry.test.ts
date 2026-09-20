@@ -39,6 +39,44 @@ test('offline server identity always resolves Minecraft chat as untrusted', () =
   })
 })
 
+test('stable workspace identity requires online current-session UUID evidence', () => {
+  const registry =
+    new MinecraftIdentityRegistry()
+  registry.beginSession()
+  registry.observePlayer(
+    'Boss',
+    'cccccccc-cccc-cccc-cccc-cccccccccccc'
+  )
+
+  assert.equal(
+    registry.resolveObservedPlayerId({
+      mode: 'online',
+      player: 'Boss',
+      playerId:
+        'CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC'
+    }),
+    'cccccccccccccccccccccccccccccccc'
+  )
+  assert.equal(
+    registry.resolveObservedPlayerId({
+      mode: 'offline',
+      player: 'Boss',
+      playerId:
+        'cccccccc-cccc-cccc-cccc-cccccccccccc'
+    }),
+    null
+  )
+  assert.equal(
+    registry.resolveObservedPlayerId({
+      mode: 'online',
+      player: 'Boss',
+      playerId:
+        'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    }),
+    null
+  )
+})
+
 test('online current-session owner and operator UUIDs gain only Minecraft deep/reserve capabilities', () => {
   const registry = new MinecraftIdentityRegistry()
   registry.beginSession()
