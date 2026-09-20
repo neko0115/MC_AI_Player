@@ -20,6 +20,11 @@ export type WorkspaceManagementErrorCode =
   | 'workspace_selection_missing'
   | 'workspace_not_found'
   | 'workspace_not_owner'
+  | 'workspace_archived'
+  | 'workspace_already_archived'
+  | 'workspace_already_active'
+  | 'workspace_selection_owner_mismatch'
+  | 'workspace_selection_scope_mismatch'
 
 export class WorkspaceManagementError extends Error {
   constructor(
@@ -171,15 +176,8 @@ export class WorkspaceManagementService {
         actorPrincipal
       )
     if (workspace.status !== 'active') {
-      return this.mapLifecycle(() =>
-        this.lifecycle.replaceBoundsFromSelection(
-          workspace.id,
-          workspace.ownerPrincipal,
-          this.requireCurrentSelection(
-            workspace.ownerPrincipal,
-            workspace.dimension
-          )
-        )
+      throw new WorkspaceManagementError(
+        'workspace_archived'
       )
     }
 
@@ -371,22 +369,9 @@ export class WorkspaceManagementService {
       if (
         error instanceof WorkspaceLifecycleError
       ) {
-        if (
-          error.code ===
-          'workspace_not_found'
-        ) {
-          throw new WorkspaceManagementError(
-            'workspace_not_found'
-          )
-        }
-        if (
-          error.code ===
-          'workspace_not_owner'
-        ) {
-          throw new WorkspaceManagementError(
-            'workspace_not_owner'
-          )
-        }
+        throw new WorkspaceManagementError(
+          error.code
+        )
       }
       throw error
     }
