@@ -59,6 +59,7 @@ test('workspace create round-trips exact geometry, semantics, active status, pro
 
     assert.equal(created.id, 'workspace-1')
     assert.equal(created.status, 'active')
+    assert.equal(created.moxueUsePolicy, 'shared')
     assert.equal(created.createdAt, 100)
     assert.equal(created.updatedAt, 100)
     assert.deepEqual(created.bounds, {
@@ -165,6 +166,7 @@ test('workspace search is isolated by world/dimension and supports tags, purpose
     repo.create(workspace({
       label: 'Overworld furnace',
       purpose: 'production',
+      moxueUsePolicy: 'moxue_preferred',
       tags: ['smelting', 'base'],
       bounds: normalizeWorkspaceBounds(
         { x: 20, y: 64, z: 20 },
@@ -210,6 +212,18 @@ test('workspace search is isolated by world/dimension and supports tags, purpose
     assert.deepEqual(
       base.map(result => result.label).sort(),
       ['Overworld farm', 'Overworld furnace']
+    )
+
+    const preferred = repo.search({
+      worldKey: 'server:survival',
+      dimension: 'overworld',
+      usePolicies: ['moxue_preferred'],
+      limit: 10
+    })
+
+    assert.deepEqual(
+      preferred.map(result => result.label),
+      ['Overworld furnace']
     )
   } finally {
     repo.close()
@@ -395,12 +409,140 @@ test('v1 database migrates to active v2 workspace status without losing existing
         'active'
       )
       assert.equal(
+        migrated.moxueUsePolicy,
+        'shared'
+      )
+      assert.equal(
         migrated.label,
         'Legacy farm'
       )
       assert.deepEqual(
         repo.listAudit('workspace-old'),
         []
+      )
+    } finally {
+      repo.close()
+    }
+  } finally {
+    rmSync(directory, {
+      recursive: true,
+      force: true
+    })
+  }
+})
+
+test('v2 database migrates to shared v3 Moxue use policy without losing rows or audit support', () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), 'mc-ai-workspace-v2-')
+  )
+  const filename = join(
+    directory,
+    'workspaces.sqlite3'
+  )
+  const Database =
+    require('better-sqlite3') as new (
+      filename: string
+    ) => {
+      exec(sql: string): void
+      prepare(sql: string): {
+        run(...params: unknown[]): unknown
+      }
+      close(): void
+    }
+
+  try {
+    const db = new Database(filename)
+    db.exec(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE workspace_schema_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE workspace_regions (
+        id TEXT PRIMARY KEY,
+        world_key TEXT NOT NULL,
+        dimension TEXT NOT NULL,
+        min_x INTEGER NOT NULL,
+        min_y INTEGER NOT NULL,
+        min_z INTEGER NOT NULL,
+        max_x INTEGER NOT NULL,
+        max_y INTEGER NOT NULL,
+        max_z INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+          CHECK (status IN ('active', 'archived')),
+        constraints_json TEXT NOT NULL,
+        owner_principal TEXT NOT NULL,
+        source_selection_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE workspace_tags (
+        workspace_id TEXT NOT NULL
+          REFERENCES workspace_regions(id)
+          ON DELETE CASCADE,
+        tag TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, tag)
+      );
+      CREATE TABLE workspace_audit (
+        event_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL
+          REFERENCES workspace_regions(id)
+          ON DELETE CASCADE,
+        actor_principal TEXT NOT NULL,
+        action TEXT NOT NULL,
+        safe_summary TEXT NOT NULL,
+        source_selection_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+    `)
+    db.prepare(
+      'INSERT INTO workspace_schema_meta (key, value) VALUES (?, ?)'
+    ).run('schema_version', '2')
+    db.prepare(`
+      INSERT INTO workspace_regions (
+        id, world_key, dimension,
+        min_x, min_y, min_z,
+        max_x, max_y, max_z,
+        label, purpose, status,
+        constraints_json,
+        owner_principal, source_selection_id,
+        created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?
+      )
+    `).run(
+      'workspace-v2',
+      'server:survival',
+      'overworld',
+      0, 64, 0,
+      8, 64, 8,
+      'V2 farm',
+      'farm',
+      'active',
+      '{}',
+      'player-1',
+      'selection-v2',
+      20,
+      20
+    )
+    db.close()
+
+    const repo =
+      new SqliteWorkspaceRepository(filename)
+    try {
+      const migrated =
+        repo.get('workspace-v2')
+      assert.ok(migrated)
+      assert.equal(
+        migrated.moxueUsePolicy,
+        'shared'
+      )
+      assert.equal(
+        migrated.label,
+        'V2 farm'
       )
     } finally {
       repo.close()
