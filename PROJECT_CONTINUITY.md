@@ -424,7 +424,7 @@ Current W2 scope:
 
 **W2 verification status:** full automated verification PASS — 442 tests total, 438 passed, 0 failed, 4 skipped; working tree clean.
 
-#### W3 Paper selection bridge + MC_AI transport — implementation in progress
+#### W3 Paper selection bridge + MC_AI transport — FULL PASS
 
 W2 is complete.
 
@@ -521,14 +521,28 @@ W3 live transport verification PASS:
 
 **W3 LIVE PASS.**
 
-Remaining W3 gate before FULL PASS:
+W3 final automated verification PASS:
 
-- run focused Control/Bridge/Main tests for `798a627` or later;
-- run `npm run typecheck`;
-- run full `npm test`;
-- confirm working tree clean.
+- full suite: 447 tests total;
+- 443 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS;
+- working tree clean.
 
-W4 design is locked; production implementation begins after this automated gate is confirmed.
+Combined with the controlled live parity evidence above, W3 is now **FULL PASS**.
+
+#### W4 Workspace lifecycle management — implementation starting
+
+Locked behavior:
+
+- durable status = `active | archived`;
+- ordinary user "delete" maps to archive;
+- archived workspaces remain queryable for history/dependencies but are excluded from ordinary resolution/execution;
+- restore is supported;
+- lifecycle mutations append safe audit transactionally;
+- hard purge remains a separate dependency-safe maintenance operation;
+- selection observation and durable workspace state remain separate.
 
 W4 lifecycle direction:
 
