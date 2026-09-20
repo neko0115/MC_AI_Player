@@ -197,17 +197,38 @@ implements WorkspaceChatInstructionRouter {
     }
 
     try {
-      return this.executeIntent(
-        intent,
-        {
-          actor,
-          dimension,
-          selection,
-          playerPosition:
-            input.playerPosition ??
-            null
+      const result =
+        this.executeIntent(
+          intent,
+          {
+            actor,
+            dimension,
+            selection,
+            playerPosition:
+              input.playerPosition ??
+              null
+          }
+        )
+
+      if (
+        result.kind === 'handled' &&
+        this.options.interpreter
+          .learnSuccessful
+      ) {
+        try {
+          await this.options.interpreter
+            .learnSuccessful(
+              semanticContext,
+              intent
+            )
+        } catch {
+          // Learning is advisory. A cache write failure
+          // must never turn a successful Workspace
+          // operation into a user-visible failure.
         }
-      )
+      }
+
+      return result
     } catch (error) {
       if (
         error instanceof
