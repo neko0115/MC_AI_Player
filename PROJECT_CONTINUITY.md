@@ -477,10 +477,27 @@ Live evidence completed:
   - initial `selections = []`;
 - this proves the new plugin build is loaded and the authenticated read-only workspace-selection endpoint is active.
 
+Live wand evidence:
+
+- normal left-click A + right-click B produced generation 1 with correct overworld/player/coordinates;
+- ordinary unnamed stick left the selection id/generation/selected_at unchanged — PASS;
+- repeating a new A click after completion exposed a live race in the first implementation: the store combined new A with old B and emitted a new complete generation immediately;
+- a subsequent full A+B reselection therefore advanced generation twice (2 -> 4), proving that polling between the two clicks could observe an unintended mixed selection.
+
+Regression fix:
+
+- MoxueBridge `1516105` — `fix: isolate fresh workspace selection cycles`;
+- after a completed selection, the next A or B click starts a fresh pending selection;
+- previous complete selection is hidden while the new cycle is incomplete;
+- repeated same-corner clicks only update the pending corner;
+- generation increments exactly once when both fresh corners exist;
+- supports either A->B or B->A order without reusing an old corner.
+
 Remaining live gates:
 
-- in-game `墨雪設定棍` A/B selection;
-- endpoint returns the expected player/dimension/coordinates;
+- rebuild/redeploy MoxueBridge at `1516105` and rerun the four wand cases;
+- verify pending one-corner selection is absent from the endpoint;
+- verify a fresh completed A+B selection advances generation only once;
 - MC_AI_Player workspace selection client reaches `current` and resolves the same selection.
 
 Automated evidence:
