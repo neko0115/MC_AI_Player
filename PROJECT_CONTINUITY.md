@@ -1243,6 +1243,18 @@ Live acceptance still requires:
 - non-Workspace fallback;
 - cache miss -> provider -> successful learning -> repeated cache hit with no second semantic provider call.
 
+**W5C5 tooling verification:** Automated PASS.
+
+Final automated evidence before live validation:
+
+- full suite: 525 tests total;
+- 521 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS;
+- working tree clean;
+- live evidence inspector tests PASS.
+
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
 Full-suite regression note:
