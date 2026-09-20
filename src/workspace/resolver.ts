@@ -53,6 +53,7 @@ export interface ResolveWorkspaceInput {
   readonly playerPosition?: WorkspacePoint
   readonly nearbyRadius?: number
   readonly recentWorkspaceId?: string
+  readonly includeArchived?: boolean
 }
 
 const DEFAULT_NEARBY_RADIUS = 32
@@ -78,7 +79,8 @@ export class WorkspaceResolver {
 
     const conversation = this.activeOwnedById(
       scope,
-      input.conversationWorkspaceId
+      input.conversationWorkspaceId,
+      input.includeArchived === true
     )
     if (conversation) {
       return resolved(
@@ -91,6 +93,8 @@ export class WorkspaceResolver {
       worldKey: scope.worldKey,
       dimension: scope.dimension,
       ownerPrincipal: scope.actorPrincipal,
+      includeArchived:
+        input.includeArchived === true,
       limit: MAX_CANDIDATES
     })
 
@@ -141,7 +145,8 @@ export class WorkspaceResolver {
 
     const recent = this.activeOwnedById(
       scope,
-      input.recentWorkspaceId
+      input.recentWorkspaceId,
+      input.includeArchived === true
     )
     if (recent) {
       return resolved(
@@ -171,9 +176,10 @@ export class WorkspaceResolver {
     }
 
     const direct =
-      this.activeOwnedById(
+      this.ownedById(
         scope,
-        normalizedReference
+        normalizedReference,
+        input.includeArchived === true
       )
     if (direct) {
       return resolved(
@@ -186,6 +192,8 @@ export class WorkspaceResolver {
       worldKey: scope.worldKey,
       dimension: scope.dimension,
       ownerPrincipal: scope.actorPrincipal,
+      includeArchived:
+        input.includeArchived === true,
       limit: MAX_CANDIDATES
     })
 
@@ -222,7 +230,20 @@ export class WorkspaceResolver {
 
   private activeOwnedById(
     scope: NormalizedScope,
-    id: string | undefined
+    id: string | undefined,
+    includeArchived = false
+  ): WorkspaceRegion | null {
+    return this.ownedById(
+      scope,
+      id,
+      includeArchived
+    )
+  }
+
+  private ownedById(
+    scope: NormalizedScope,
+    id: string | undefined,
+    includeArchived: boolean
   ): WorkspaceRegion | null {
     if (id === undefined) return null
     const normalizedId =
@@ -236,7 +257,8 @@ export class WorkspaceResolver {
     if (!workspace) return null
 
     if (
-      workspace.status !== 'active' ||
+      (!includeArchived &&
+        workspace.status !== 'active') ||
       workspace.worldKey !== scope.worldKey ||
       workspace.dimension.toLowerCase() !==
         scope.dimension ||
