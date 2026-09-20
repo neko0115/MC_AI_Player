@@ -1170,7 +1170,26 @@ Acceptance coverage:
 - `not_workspace` fallback silence;
 - default Mineflayer runtime registers the chat-output port while preserving the historical enumerable bundle surface of only `adapter / gathering / inventory`.
 
-**W5C4 verification status:** local verification pending.
+**W5C4 verification status:** Automated PASS.
+
+Final automated evidence:
+
+- full suite: 523 tests total;
+- 519 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS;
+- working tree clean.
+
+Additional regression evidence:
+
+- runtime chat-output acceptance test PASS after isolating its intended registration contract;
+- GoalManager terminal-event race regression PASS without increasing scenario timeouts;
+- cooperative-session scenario PASS after fixing stale completion ownership;
+- Workspace fallback remains silent;
+- clarification/success replies remain bounded and deterministic.
+
+W5C4 automated implementation is complete. The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
 Full-suite regression note:
 
