@@ -606,7 +606,7 @@ function normalizeSdkUsage(usage: Record<string, unknown>): GeminiInteractionUsa
   }
 }
 
-function normalizeUsage(usage: GeminiInteractionUsage | undefined): GeminiUsage | undefined {
+export function normalizeUsage(usage: GeminiInteractionUsage | undefined): GeminiUsage | undefined {
   if (!usage) return undefined
   const inputTokens = nonNegativeInteger(usage.total_input_tokens)
   const outputTokens = nonNegativeInteger(usage.total_output_tokens)
@@ -625,7 +625,7 @@ function normalizeUsage(usage: GeminiInteractionUsage | undefined): GeminiUsage 
   return { inputTokens, outputTokens, thoughtTokens, toolTokens, totalTokens }
 }
 
-function normalizeTransportError(error: unknown, signal: AbortSignal): GeminiAttemptResult {
+export function normalizeTransportError(error: unknown, signal: AbortSignal): GeminiAttemptResult {
   if (signal.aborted || isCancellationError(error)) return { kind: 'cancelled' }
   if (isTransportTimeout(error)) return { kind: 'timeout' }
 
@@ -714,7 +714,7 @@ function validateTimeout(value: number): void {
   }
 }
 
-function normalizeModel(value: string): string {
+export function normalizeModel(value: string): string {
   const model = value.trim()
   if (model.length < 1 || model.length > 256) {
     throw new RangeError('model must be between 1 and 256 characters')
