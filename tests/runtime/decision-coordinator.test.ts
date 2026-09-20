@@ -392,10 +392,13 @@ test('workspace clarification is visible to the player without starting gameplay
 test('workspace not_workspace result falls through to unchanged gameplay AI objective', async () => {
   const workspace =
     new FakeWorkspaceChatRouter()
+  const chatOutput =
+    new FakeChatOutput()
   const current = harness({
     workspaceChatRouter:
       workspace,
-    identityMode: 'online'
+    identityMode: 'online',
+    chatOutput
   })
   await ready(current.events)
   await observeTrustedBoss(
@@ -427,6 +430,10 @@ test('workspace not_workspace result falls through to unchanged gameplay AI obje
       .requests[0]
       ?.context.task?.objective,
     '跟我去山上'
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    []
   )
   current.coordinator.dispose()
 })
