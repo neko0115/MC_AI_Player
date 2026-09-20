@@ -578,6 +578,31 @@ implements WorkspaceRepository {
         SET value = ?
         WHERE key = ?
       `).run(
+        '2',
+        'schema_version'
+      )
+    })
+    migrate()
+  }
+
+  private migrateV2ToV3(): void {
+    const migrate = this.db.transaction(() => {
+      this.db.exec(`
+        ALTER TABLE workspace_regions
+        ADD COLUMN moxue_use_policy TEXT NOT NULL DEFAULT 'shared'
+          CHECK (moxue_use_policy IN (
+            'owner_only', 'shared', 'moxue_preferred'
+          ));
+
+        CREATE INDEX IF NOT EXISTS idx_workspace_world_use_policy
+          ON workspace_regions(world_key, moxue_use_policy);
+      `)
+
+      this.db.prepare(`
+        UPDATE workspace_schema_meta
+        SET value = ?
+        WHERE key = ?
+      `).run(
         WORKSPACE_SCHEMA_VERSION,
         'schema_version'
       )
