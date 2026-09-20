@@ -1,4 +1,6 @@
 import { z } from 'zod'
+
+export const WORKSPACE_CHAT_INTENT_CONTRACT_VERSION = 1
 import {
   WorkspaceConstraintsSchema,
   WorkspacePurposeSchema,
