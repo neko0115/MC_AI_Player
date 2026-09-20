@@ -510,14 +510,23 @@ implements WorkspaceChatInstructionRouter {
             context.selection
         })
 
-      case 'conversation':
+      case 'conversation': {
+        const workspaceId =
+          this.conversation.get(
+            context.actor
+          )
+        if (workspaceId === undefined) {
+          return {
+            kind: 'none',
+            reason: 'no_match'
+          }
+        }
         return this.resolver.resolve({
           ...base,
           conversationWorkspaceId:
-            this.conversation.get(
-              context.actor
-            )
+            workspaceId
         })
+      }
 
       case 'nearby':
         if (!context.playerPosition) {
@@ -532,14 +541,23 @@ implements WorkspaceChatInstructionRouter {
             context.playerPosition
         })
 
-      case 'recent':
+      case 'recent': {
+        const workspaceId =
+          this.recent.get(
+            context.actor
+          )
+        if (workspaceId === undefined) {
+          return {
+            kind: 'none',
+            reason: 'no_match'
+          }
+        }
         return this.resolver.resolve({
           ...base,
           recentWorkspaceId:
-            this.recent.get(
-              context.actor
-            )
+            workspaceId
         })
+      }
 
       default:
         return assertNever(reference)
