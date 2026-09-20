@@ -128,6 +128,7 @@ test('workspace contracts preserve custom labels without inventing behavior auth
     ),
     label: '快速熔爐',
     purpose: 'production',
+    moxueUsePolicy: 'shared',
     status: 'active',
     tags: ['smelting', 'high-throughput'],
     constraints: {
@@ -141,6 +142,7 @@ test('workspace contracts preserve custom labels without inventing behavior auth
 
   assert.equal(region.label, '快速熔爐')
   assert.equal(region.purpose, 'production')
+  assert.equal(region.moxueUsePolicy, 'shared')
   assert.deepEqual(region.tags, ['smelting', 'high-throughput'])
 })
 
