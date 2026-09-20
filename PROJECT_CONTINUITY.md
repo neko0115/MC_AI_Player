@@ -1049,16 +1049,78 @@ Verification note:
 - regression test now locks missing conversation/recent bindings to `clarify: missing_reference`;
 - rerun typecheck and W5C2 validation after `d6b1bd4` / `f100f9d`.
 
+##### W5C3 production Gemini Workspace semantic interpreter — implementation complete, verification pending
+
+Relevant commits:
+
+- `9d46509` — `refactor: share gemini transport normalization helpers`;
+- `8c793b6` — `feat: add routed gemini workspace intent interpreter`;
+- `46b1e17` — `feat: wire workspace semantics into gemini application stack`;
+- `5c32df9` / `779dc85` — trusted observed Minecraft identity seam/tests;
+- `994a327` / `94339a6` — require trusted online identity for Workspace chat routing;
+- `714d13f` — application test for cache-first Gemini Workspace semantics;
+- `0f14a66` — document the optional Workspace semantic learning secret.
+
+Production behavior:
+
+- Gemini stack now exposes both:
+  - gameplay `RoutedDecisionExecutor`;
+  - `RoutedGeminiWorkspaceIntentInterpreter`;
+- Workspace semantic interpretation uses the same `ProjectPool`, `SqliteQuotaLedger`, credential handles, provider error policy, project failover and telemetry path as gameplay routing;
+- semantic interpretation uses the routine model with low thinking and no reserve authorization;
+- provider output must make exactly one `submit_workspace_intent` function call;
+- returned function arguments are parsed by `WorkspaceChatIntentSchema`;
+- one malformed generation may repair/retry once;
+- credential-fatal failures disable that project for the process and continue through the pool;
+- quota/transient/configuration/content-blocked/cancel behavior reuses existing routed error policy;
+- provider failure is contained by the Workspace coordinator seam and falls back to the existing gameplay AI path instead of making addressed chat disappear.
+
+Natural-language policy:
+
+- production Gemini system instruction explicitly requires semantic interpretation rather than fixed phrase matching;
+- slang, shorthand, paraphrases, multiple languages and imperfect grammar may be interpreted;
+- general gameplay actions are kept separate from persistent Workspace metadata/management;
+- AI cannot invent coordinates, physical purge, storage authority, permissions or world mutation.
+
+Cache-first production wiring:
+
+- if `MC_WORKSPACE_SEMANTIC_MASTER_SECRET` is absent, Gemini Workspace semantic interpretation still works but does not learn locally;
+- if the secret is present and at least 32 UTF-8 bytes, main derives separated HMAC/export keys and opens `data/workspace-semantic-cache.sqlite3`;
+- `CacheFirstWorkspaceIntentInterpreter` checks learned semantics before provider calls;
+- application owns and closes the learned cache;
+- `.env.example` documents the variable name only; no secret is committed.
+
+Identity hardening:
+
+- Workspace actor identity must be online-mode current-session evidence;
+- `MinecraftIdentityRegistry.resolveObservedPlayerId()` requires:
+  - online identity mode;
+  - active current session;
+  - observed player name/UUID pair;
+  - matching chat UUID;
+- Workspace chat mutation does not trust a raw `playerId` field by itself;
+- offline / missing / mismatched identity falls through to the existing gameplay path instead of mutating durable Workspace metadata.
+
+Known live-UX limitation before FULL PASS:
+
+- `clarify` results are represented deterministically but there is not yet a typed Minecraft chat reply/output port in this branch;
+- before live Workspace chat acceptance, add a bounded reply seam so ambiguity/missing-selection messages are visible to the player;
+- do not claim full natural-language live support until this reply seam and live paraphrase tests pass.
+
+**W5C3 verification status:** local verification pending.
+
 **Next exact action:**
 
 1. fast-forward `feature/workspace-planner`;
-2. run focused learned cache + encrypted export tests;
+2. run focused Gemini semantic interpreter / identity / coordinator / main-Gemini / learned-cache tests;
 3. run `npm run typecheck`;
 4. run full `npm test`;
 5. confirm working tree clean;
-6. if green, mark W5C2 PASS;
-7. then implement the production Gemini-backed WorkspaceIntentInterpreter using existing ProjectPool/quota/failover;
-8. after Gemini semantic interpretation is green/live, add an explicit encrypted GitHub sync command/workflow rather than implicit runtime pushes.
+6. fix any static/regression failures before adding new behavior;
+7. if green, mark W5C3 PASS;
+8. add typed bounded Minecraft chat reply/output seam for `clarify` and successful Workspace acknowledgements;
+9. then perform controlled live natural-language paraphrase tests;
+10. explicit encrypted GitHub sync remains after live semantic behavior is stable.
 
 **Next exact action:**
 
