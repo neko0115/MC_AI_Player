@@ -64,6 +64,44 @@ export interface ControlCapabilityStatusPort {
   snapshot(): ControlCapabilityStatusSnapshot
 }
 
+export interface ControlWorkspaceSelectionQuery {
+  readonly dimension: string
+  readonly playerId: string
+}
+
+export interface ControlWorkspaceSelectionSnapshot {
+  readonly id: string
+  readonly generation: number
+  readonly worldKey: string
+  readonly dimension: string
+  readonly playerId: string
+  readonly playerName: string
+  readonly pointA: {
+    readonly x: number
+    readonly y: number
+    readonly z: number
+  }
+  readonly pointB: {
+    readonly x: number
+    readonly y: number
+    readonly z: number
+  }
+  readonly selectedAt: number
+}
+
+export interface ControlWorkspaceSelectionStatusSnapshot {
+  readonly state: 'current' | 'stale' | 'unavailable'
+  readonly lastSuccessAt: number | null
+  readonly lastErrorCode: string | null
+  readonly selection: ControlWorkspaceSelectionSnapshot | null
+}
+
+export interface ControlWorkspaceSelectionStatusPort {
+  snapshot(
+    query: ControlWorkspaceSelectionQuery
+  ): ControlWorkspaceSelectionStatusSnapshot
+}
+
 export interface ControlServerOptions {
   readonly host: string
   readonly port: number
@@ -75,6 +113,7 @@ export interface ControlServerOptions {
   readonly events: RuntimeEventSource
   readonly aiStatus?: ControlAiStatusPort
   readonly capabilityStatus?: ControlCapabilityStatusPort
+  readonly workspaceSelectionStatus?: ControlWorkspaceSelectionStatusPort
 }
 
 export interface ControlServerAddress {
@@ -101,6 +140,13 @@ const CAPABILITY_CONSTRAINT_ALLOWLIST = new Set([
 const StopRequestSchema = z
   .object({
     reason: z.string().trim().min(1).max(500).optional()
+  })
+  .strict()
+
+const WorkspaceSelectionStatusQuerySchema = z
+  .object({
+    dimension: z.string().trim().min(1).max(128),
+    playerId: z.string().trim().min(1).max(128)
   })
   .strict()
 
@@ -211,6 +257,29 @@ export class ControlServer {
       if (url.pathname === '/v1/status') {
         requireMethod(method, 'GET')
         writeJson(response, 200, this.statusPayload())
+        return
+      }
+
+      if (url.pathname === '/v1/workspace-selection') {
+        requireMethod(method, 'GET')
+        if (!this.options.workspaceSelectionStatus) {
+          throw new HttpRequestError(
+            503,
+            'workspace_selection_unavailable'
+          )
+        }
+        const query = parseWorkspaceSelectionStatusQuery(
+          url.searchParams
+        )
+        writeJson(
+          response,
+          200,
+          publicWorkspaceSelectionStatus(
+            this.options.workspaceSelectionStatus.snapshot(
+              query
+            )
+          )
+        )
         return
       }
 
@@ -505,6 +574,49 @@ async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Pro
 
 function requireMethod(actual: string, expected: string): void {
   if (actual !== expected) throw new HttpRequestError(405, 'method_not_allowed')
+}
+
+function parseWorkspaceSelectionStatusQuery(
+  params: URLSearchParams
+): ControlWorkspaceSelectionQuery {
+  const parsed = WorkspaceSelectionStatusQuerySchema.safeParse({
+    dimension: params.get('dimension'),
+    playerId: params.get('player_id')
+  })
+  if (!parsed.success) {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_selection_query'
+    )
+  }
+  return parsed.data
+}
+
+function publicWorkspaceSelectionStatus(
+  snapshot: ControlWorkspaceSelectionStatusSnapshot
+): unknown {
+  return {
+    sync_state: snapshot.state,
+    last_success_at: snapshot.lastSuccessAt,
+    last_error_code: snapshot.lastErrorCode,
+    selection: snapshot.selection
+      ? {
+          id: snapshot.selection.id,
+          generation: snapshot.selection.generation,
+          world_key: snapshot.selection.worldKey,
+          dimension: snapshot.selection.dimension,
+          player_id: snapshot.selection.playerId,
+          player_name: snapshot.selection.playerName,
+          point_a: {
+            ...snapshot.selection.pointA
+          },
+          point_b: {
+            ...snapshot.selection.pointB
+          },
+          selected_at: snapshot.selection.selectedAt
+        }
+      : null
+  }
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {

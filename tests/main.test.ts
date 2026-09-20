@@ -176,8 +176,22 @@ class FakeWorkspaceSelections implements ApplicationWorkspaceSelectionsPort {
     this.calls.push('workspace-selections.stop')
   }
 
-  latest() {
-    return null
+  latest(query: {
+    worldKey: string
+    dimension: string
+    playerId: string
+  }) {
+    return {
+      id: 'selection-live',
+      generation: 2,
+      worldKey: query.worldKey,
+      dimension: query.dimension,
+      playerId: query.playerId,
+      playerName: 'Boss',
+      pointA: { x: 1, y: 64, z: 2 },
+      pointB: { x: 8, y: 64, z: 9 },
+      selectedAt: 1200
+    }
   }
 
   status() {
@@ -528,6 +542,28 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
         }
       }]
     })
+    assert.deepEqual(
+      control.options.workspaceSelectionStatus?.snapshot({
+        dimension: 'overworld',
+        playerId: 'player-1'
+      }),
+      {
+        state: 'current',
+        lastSuccessAt: 1234,
+        lastErrorCode: null,
+        selection: {
+          id: 'selection-live',
+          generation: 2,
+          worldKey: 'localhost:25565',
+          dimension: 'overworld',
+          playerId: 'player-1',
+          playerName: 'Boss',
+          pointA: { x: 1, y: 64, z: 2 },
+          pointB: { x: 8, y: 64, z: 9 },
+          selectedAt: 1200
+        }
+      }
+    )
   } finally {
     current.recorder.releaseFirst()
     await current.application.close()

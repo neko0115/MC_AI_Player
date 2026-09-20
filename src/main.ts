@@ -37,6 +37,7 @@ import {
   ControlServer,
   type ControlAiStatusPort,
   type ControlCapabilityStatusPort,
+  type ControlWorkspaceSelectionStatusPort,
   type ControlServerAddress,
   type ControlServerOptions
 } from './api/control-server.js'
@@ -395,6 +396,14 @@ export function createApplication(
   const capabilityStatus: ControlCapabilityStatusPort | undefined = serverCapabilities
     ? createControlCapabilityStatus(serverCapabilities)
     : undefined
+  const workspaceSelectionStatus:
+    ControlWorkspaceSelectionStatusPort | undefined =
+      workspaceSelections
+        ? createControlWorkspaceSelectionStatus(
+            workspaceSelections,
+            worldKey
+          )
+        : undefined
   const createControlServer = dependencies.createControlServer ?? (options => new ControlServer(options))
   const controlServer = createControlServer({
     host: controlConfig.host,
@@ -408,7 +417,10 @@ export function createApplication(
     memory,
     events,
     ...(aiStatus ? { aiStatus } : {}),
-    ...(capabilityStatus ? { capabilityStatus } : {})
+    ...(capabilityStatus ? { capabilityStatus } : {}),
+    ...(workspaceSelectionStatus
+      ? { workspaceSelectionStatus }
+      : {})
   })
 
   const createAdminServer = dependencies.createAdminServer ?? (options => new AdminServer(options))
@@ -480,6 +492,40 @@ export function createApplication(
   }
 }
 
+
+function createControlWorkspaceSelectionStatus(
+  source: WorkspaceSelectionSource,
+  worldKey: string
+): ControlWorkspaceSelectionStatusPort {
+  return {
+    snapshot(query) {
+      const status = source.status()
+      const selection = source.latest({
+        worldKey,
+        dimension: query.dimension,
+        playerId: query.playerId
+      })
+      return {
+        state: status.state,
+        lastSuccessAt: status.lastSuccessAt,
+        lastErrorCode: status.lastErrorCode,
+        selection: selection
+          ? {
+              id: selection.id,
+              generation: selection.generation,
+              worldKey: selection.worldKey,
+              dimension: selection.dimension,
+              playerId: selection.playerId,
+              playerName: selection.playerName,
+              pointA: { ...selection.pointA },
+              pointB: { ...selection.pointB },
+              selectedAt: selection.selectedAt
+            }
+          : null
+      }
+    }
+  }
+}
 
 function createControlCapabilityStatus(
   source: ServerCapabilityStatusSource

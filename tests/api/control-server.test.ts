@@ -218,6 +218,100 @@ test('status exposes only sanitized capability sync state and semantic details',
   }
 })
 
+test('workspace selection endpoint exposes only bounded semantic selection state', async () => {
+  const current = await started({
+    workspaceSelectionStatus: {
+      snapshot: query => ({
+        state: 'current',
+        lastSuccessAt: 1234,
+        lastErrorCode: null,
+        selection: {
+          id: 'selection-2',
+          generation: 2,
+          worldKey: 'localhost:25565',
+          dimension: query.dimension,
+          playerId: query.playerId,
+          playerName: 'Boss',
+          pointA: { x: -202, y: 63, z: 271 },
+          pointB: { x: -210, y: 63, z: 263 },
+          selectedAt: 1200
+        }
+      })
+    }
+  })
+
+  try {
+    const response = await fetch(
+      current.address.baseUrl +
+        '/v1/workspace-selection' +
+        '?dimension=overworld' +
+        '&player_id=player-1'
+    )
+    assert.equal(response.status, 200)
+    assert.deepEqual(await json(response), {
+      sync_state: 'current',
+      last_success_at: 1234,
+      last_error_code: null,
+      selection: {
+        id: 'selection-2',
+        generation: 2,
+        world_key: 'localhost:25565',
+        dimension: 'overworld',
+        player_id: 'player-1',
+        player_name: 'Boss',
+        point_a: { x: -202, y: 63, z: 271 },
+        point_b: { x: -210, y: 63, z: 263 },
+        selected_at: 1200
+      }
+    })
+  } finally {
+    await current.server.close()
+  }
+})
+
+test('workspace selection endpoint fails closed for missing source or query scope', async () => {
+  const current = await started()
+  try {
+    const missingSource = await fetch(
+      current.address.baseUrl +
+        '/v1/workspace-selection' +
+        '?dimension=overworld' +
+        '&player_id=player-1'
+    )
+    assert.equal(missingSource.status, 503)
+    assert.deepEqual(
+      await json(missingSource),
+      { error: 'workspace_selection_unavailable' }
+    )
+  } finally {
+    await current.server.close()
+  }
+
+  const withSource = await started({
+    workspaceSelectionStatus: {
+      snapshot: () => ({
+        state: 'current',
+        lastSuccessAt: 1,
+        lastErrorCode: null,
+        selection: null
+      })
+    }
+  })
+  try {
+    const invalid = await fetch(
+      withSource.address.baseUrl +
+        '/v1/workspace-selection?dimension=overworld'
+    )
+    assert.equal(invalid.status, 400)
+    assert.deepEqual(
+      await json(invalid),
+      { error: 'invalid_workspace_selection_query' }
+    )
+  } finally {
+    await withSource.server.close()
+  }
+})
+
 test('non-loopback bind requires a bearer token and rejects invalid authorization', async () => {
   const missing = dependencies({ host: '0.0.0.0' })
   await assert.rejects(() => missing.server.start(), /bearer token/i)
