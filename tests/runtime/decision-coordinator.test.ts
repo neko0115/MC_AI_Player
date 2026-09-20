@@ -45,6 +45,17 @@ class FakeLogicalExecutor {
   }
 }
 
+class FakeChatOutput {
+  readonly messages: string[] = []
+
+  sendMessage(message: string) {
+    this.messages.push(message)
+    return {
+      status: 'sent' as const
+    }
+  }
+}
+
 class FakeWorkspaceChatRouter
 implements WorkspaceChatInstructionRouter {
   readonly requests:
@@ -89,6 +100,8 @@ function harness(options: {
     WorkspaceChatInstructionRouter
   readonly identityMode?:
     'online' | 'offline'
+  readonly chatOutput?:
+    FakeChatOutput
 } = {}) {
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: 32 })
@@ -135,6 +148,12 @@ function harness(options: {
       ? {
           workspaceChatRouter:
             options.workspaceChatRouter
+        }
+      : {}),
+    ...(options.chatOutput
+      ? {
+          chatOutput:
+            options.chatOutput
         }
       : {}),
     decisionGate: new DecisionGate({ safety: new SafetyPolicy(), events }),
@@ -259,10 +278,13 @@ async function startGoToGoal(
 test('addressed chat with authoritative player id is semantically routed before gameplay AI', async () => {
   const workspace =
     new FakeWorkspaceChatRouter()
+  const chatOutput =
+    new FakeChatOutput()
   const current = harness({
     workspaceChatRouter:
       workspace,
-    identityMode: 'online'
+    identityMode: 'online',
+    chatOutput
   })
   await ready(current.events)
   await observeTrustedBoss(
@@ -306,6 +328,59 @@ test('addressed chat with authoritative player id is semantically routed before 
     setTimeout(resolve, 5)
   )
 
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    0
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    ['好，我已記住這個區域。']
+  )
+  current.coordinator.dispose()
+})
+
+test('workspace clarification is visible to the player without starting gameplay AI', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const chatOutput =
+    new FakeChatOutput()
+  const current = harness({
+    workspaceChatRouter:
+      workspace,
+    identityMode: 'online',
+    chatOutput
+  })
+  await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    message:
+      '墨雪 這邊設一下'
+  })
+
+  await waitFor(() =>
+    workspace.requests.length === 1
+  )
+  workspace.resolveNext({
+    kind: 'clarify',
+    reason: 'missing_selection'
+  })
+
+  await waitFor(() =>
+    chatOutput.messages.length === 1
+  )
+  assert.equal(
+    chatOutput.messages[0],
+    '請先用墨雪設定棍框選區域，再告訴我這裡要設定成什麼。'
+  )
   assert.equal(
     current.logicalExecutor
       .requests.length,
