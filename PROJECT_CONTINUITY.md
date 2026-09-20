@@ -1120,18 +1120,70 @@ Final automated evidence:
 
 W5C3 production Gemini Workspace semantic interpretation is complete. The next required gate is a typed bounded Minecraft chat reply/output seam so clarification and acknowledgement are visible to players before live natural-language acceptance.
 
+##### W5C4 bounded Minecraft chat reply/output seam — implementation complete, verification pending
+
+Relevant commits:
+
+- `d6facc4` — `feat: add bounded minecraft workspace chat replies`;
+- `7fe1388` — `feat: register typed minecraft chat output port`;
+- `7c70eac` — `feat: provide bounded mineflayer chat output`;
+- `8b3bcac` — `feat: reply to workspace chat outcomes`;
+- `77fd540` — `test: cover visible workspace chat replies`;
+- `d23d459` — `feat: wire minecraft chat output into coordinator`;
+- `8d151ae` — `test: cover minecraft chat output runtime port`;
+- `c9d42fc` — `test: keep workspace fallback silent`;
+- `fca946c` — `test: prove default runtime chat output port`.
+
+Architecture:
+
+- added typed `minecraft.chat_output` runtime port;
+- default Mineflayer runtime owns the raw `bot.chat()` call behind `MineflayerChatOutput`;
+- Workspace/DecisionCoordinator never receives raw Mineflayer `Bot`;
+- legacy/custom runtime bundles without the chat-output port remain supported and simply omit visible replies.
+
+Output safety:
+
+- maximum message length = 256 characters;
+- empty messages fail closed;
+- CR/LF and control characters fail closed;
+- slash-prefixed output fails closed so this port cannot become a Minecraft command-execution channel;
+- bot-not-ready and send failures return bounded failure codes;
+- Workspace label text is sanitized/truncated before interpolation;
+- internal Workspace error codes are not exposed to players.
+
+Workspace UX:
+
+- successful create/rename/resize/purpose/use-policy/archive/restore/show/list operations produce deterministic acknowledgements;
+- `owner_only`, `shared` and `moxue_preferred` meaning is surfaced in relevant replies;
+- `missing_selection`, `missing_reference`, `ambiguous_reference`, `missing_semantics` and `ambiguous_intent` produce visible clarification prompts;
+- ambiguous candidate replies list at most three bounded labels;
+- `fallback` remains silent and continues to the existing gameplay AI path without duplicate Workspace chatter;
+- reply failure never rolls back an already successful Workspace metadata transition.
+
+Acceptance coverage:
+
+- direct chat-output validation;
+- command-like/control/multiline/oversized rejection;
+- bot-not-ready fail closed;
+- deterministic reply formatting and label sanitization;
+- DecisionCoordinator success/clarify visibility;
+- `not_workspace` fallback silence;
+- default Mineflayer runtime registers the chat-output port while preserving the historical enumerable bundle surface of only `adapter / gathering / inventory`.
+
+**W5C4 verification status:** local verification pending.
+
 **Next exact action:**
 
 1. fast-forward `feature/workspace-planner`;
-2. run focused Gemini semantic interpreter / identity / coordinator / main-Gemini / learned-cache tests;
+2. run focused chat-output/chat-reply/runtime-port/coordinator/Gemini semantic tests;
 3. run `npm run typecheck`;
 4. run full `npm test`;
 5. confirm working tree clean;
-6. fix any static/regression failures before adding new behavior;
-7. if green, mark W5C3 PASS;
-8. add typed bounded Minecraft chat reply/output seam for `clarify` and successful Workspace acknowledgements;
-9. then perform controlled live natural-language paraphrase tests;
-10. explicit encrypted GitHub sync remains after live semantic behavior is stable.
+6. if green, mark W5C4 automated PASS;
+7. prepare controlled Minecraft live validation with online trusted UUID identity, MoxueBridge selection, real Gemini semantic interpretation and varied paraphrases;
+8. verify first unseen phrasing uses Gemini and successful repeat phrasing is served by learned cache without another semantic provider attempt;
+9. verify owner_only/shared/moxue_preferred, ambiguity clarification, archive/restore and non-Workspace fallback;
+10. only after live semantic behavior is stable add explicit encrypted GitHub sync transport.
 
 **Next exact action:**
 
