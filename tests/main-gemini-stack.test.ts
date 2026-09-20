@@ -84,6 +84,12 @@ test('Gemini decision stack activates routing, recovers reserved quota, and owns
     assert.equal(snapshot.projects[0]?.projectKey, 'pool-a')
     assert.equal(snapshot.models.routine.name, 'gemini-3.5-flash-lite')
     assert.equal(snapshot.models.complex.name, 'gemini-3.8-flash')
+    assert.equal(
+      typeof stack
+        .workspaceIntentInterpreter
+        .interpret,
+      'function'
+    )
 
     const quota = stack.quotaLedger.adminSnapshot(2_000)
     const domain = quota

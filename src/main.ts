@@ -76,6 +76,18 @@ import {
   WorkspaceChatRouter
 } from './workspace/chat-router.js'
 import {
+  GeminiWorkspaceIntentTransport,
+  RoutedGeminiWorkspaceIntentInterpreter
+} from './workspace/gemini-intent-interpreter.js'
+import {
+  CacheFirstWorkspaceIntentInterpreter,
+  SqliteLearnedWorkspaceIntentCache,
+  type LearnedWorkspaceIntentCache
+} from './workspace/learned-intent-cache.js'
+import {
+  deriveWorkspaceSemanticKeys
+} from './workspace/learned-intent-export.js'
+import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
 } from './minecraft/runtime-bundle.js'
@@ -93,6 +105,8 @@ import { JsonlEventRecorder } from './telemetry/recorder.js'
 
 const DEFAULT_MEMORY_PATH = 'data/mc_memory.sqlite3'
 const DEFAULT_WORKSPACE_PATH = 'data/workspaces.sqlite3'
+const DEFAULT_WORKSPACE_SEMANTIC_CACHE_PATH =
+  'data/workspace-semantic-cache.sqlite3'
 const DEFAULT_QUOTA_PATH = 'data/ai-quota.sqlite3'
 const DEFAULT_EVENT_LOG_PATH = 'data/runtime-events.jsonl'
 const DEFAULT_EVENT_LOG_MAX_BYTES = 5 * 1024 * 1024
@@ -138,6 +152,8 @@ export interface GeminiDecisionStackOptions {
 
 export interface GeminiDecisionStack {
   readonly executor: LogicalDecisionExecutor
+  readonly workspaceIntentInterpreter:
+    WorkspaceIntentInterpreter
   readonly configManager: RoutingConfigManager
   readonly quotaLedger: SqliteQuotaLedger
   close(): void
@@ -176,9 +192,29 @@ export function createGeminiDecisionStack(
       events: options.events,
       now
     })
+    const workspaceTransport =
+      new GeminiWorkspaceIntentTransport({
+        resolveCredential:
+          handle =>
+            configManager.resolveCredential(
+              handle
+            )
+      })
+    const workspaceIntentInterpreter =
+      new RoutedGeminiWorkspaceIntentInterpreter({
+        pool,
+        ledger: quotaLedger,
+        transport:
+          workspaceTransport,
+        processInstanceId:
+          options.processInstanceId,
+        events: options.events,
+        now
+      })
 
     return {
       executor,
+      workspaceIntentInterpreter,
       configManager,
       quotaLedger,
       close() {
@@ -222,6 +258,8 @@ export interface ApplicationWorkspaceSelectionsPort extends WorkspaceSelectionSo
 
 export interface ApplicationGeminiDecisionStackPort {
   readonly executor: LogicalDecisionExecutor
+  readonly workspaceIntentInterpreter?:
+    WorkspaceIntentInterpreter
   readonly configManager: Pick<RoutingConfigManager, 'snapshot' | 'reload'>
   readonly quotaLedger: Pick<SqliteQuotaLedger, 'adminSnapshot'>
   close(): void
@@ -244,6 +282,10 @@ export interface ApplicationDependencies {
   ) => WorkspaceRepository
   readonly workspaceIntentInterpreter?:
     WorkspaceIntentInterpreter
+  readonly createLearnedWorkspaceIntentCache?: (
+    filename: string,
+    hmacKey: Buffer
+  ) => LearnedWorkspaceIntentCache
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
   readonly createLogicalDecisionExecutor?: (
@@ -316,25 +358,6 @@ export function createApplication(
         ? { selections: workspaceSelections }
         : {})
     })
-  const workspaceChatRouter =
-    dependencies.workspaceIntentInterpreter
-      ? new WorkspaceChatRouter({
-          worldKey,
-          interpreter:
-            dependencies.workspaceIntentInterpreter,
-          management:
-            workspaceManagement,
-          repository:
-            workspaceRepository,
-          ...(workspaceSelections
-            ? {
-                selections:
-                  workspaceSelections
-              }
-            : {})
-        })
-      : null
-
   const registry = new SkillRegistry()
   installSkillModules(
     registry,
@@ -394,6 +417,61 @@ export function createApplication(
     })
     logicalExecutor = geminiStack.executor
   }
+
+  const baseWorkspaceIntentInterpreter =
+    dependencies.workspaceIntentInterpreter ??
+    geminiStack?.workspaceIntentInterpreter ??
+    null
+
+  let learnedWorkspaceIntentCache:
+    LearnedWorkspaceIntentCache | null = null
+  let effectiveWorkspaceIntentInterpreter =
+    baseWorkspaceIntentInterpreter
+
+  const semanticMasterSecret =
+    env.MC_WORKSPACE_SEMANTIC_MASTER_SECRET
+  if (
+    effectiveWorkspaceIntentInterpreter &&
+    semanticMasterSecret !== undefined &&
+    semanticMasterSecret.trim().length > 0
+  ) {
+    const semanticKeys =
+      deriveWorkspaceSemanticKeys(
+        semanticMasterSecret
+      )
+    const createLearnedCache =
+      dependencies.createLearnedWorkspaceIntentCache ??
+      createDefaultLearnedWorkspaceIntentCache
+    learnedWorkspaceIntentCache =
+      createLearnedCache(
+        DEFAULT_WORKSPACE_SEMANTIC_CACHE_PATH,
+        semanticKeys.hmacKey
+      )
+    effectiveWorkspaceIntentInterpreter =
+      new CacheFirstWorkspaceIntentInterpreter(
+        learnedWorkspaceIntentCache,
+        effectiveWorkspaceIntentInterpreter
+      )
+  }
+
+  const workspaceChatRouter =
+    effectiveWorkspaceIntentInterpreter
+      ? new WorkspaceChatRouter({
+          worldKey,
+          interpreter:
+            effectiveWorkspaceIntentInterpreter,
+          management:
+            workspaceManagement,
+          repository:
+            workspaceRepository,
+          ...(workspaceSelections
+            ? {
+                selections:
+                  workspaceSelections
+              }
+            : {})
+        })
+      : null
 
   const manualAccess = geminiStack?.configManager.snapshot().manualAccess
     ?? DENY_ALL_MANUAL_ACCESS
@@ -544,6 +622,7 @@ export function createApplication(
       unsubscribeAdapter()
       await recorderTail
       geminiStack?.close()
+      learnedWorkspaceIntentCache?.close()
       workspaceRepository.close()
       memory.close()
       started = false
@@ -693,6 +772,17 @@ function createDefaultWorkspaceSelections(
   return createWorkspaceSelectionsFromConfig(
     config,
     worldKey
+  )
+}
+
+function createDefaultLearnedWorkspaceIntentCache(
+  filename: string,
+  hmacKey: Buffer
+): LearnedWorkspaceIntentCache {
+  ensureParentDirectory(filename)
+  return new SqliteLearnedWorkspaceIntentCache(
+    filename,
+    { hmacKey }
   )
 }
 

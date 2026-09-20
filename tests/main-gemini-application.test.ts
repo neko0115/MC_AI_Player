@@ -10,6 +10,9 @@ import type { MineflayerRuntimeBundle } from '../src/minecraft/runtime-bundle.js
 import type { ControlServerAddress, ControlServerOptions } from '../src/api/control-server.js'
 import type { AdminServerAddress, AdminServerOptions } from '../src/api/admin-server.js'
 import { createApplication } from '../src/main.js'
+import type {
+  WorkspaceIntentInterpreter
+} from '../src/workspace/chat-intent.js'
 
 class FakeAdapter implements MinecraftAdapter {
   constructor(private readonly calls: string[]) {}
@@ -102,8 +105,18 @@ test('Gemini application composes the routed stack, starts loopback Admin after 
       }
     }
   }
+  const workspaceIntentInterpreter:
+    WorkspaceIntentInterpreter = {
+      async interpret() {
+        return {
+          kind: 'not_workspace'
+        }
+      }
+    }
+
   const fakeStack = {
     executor: logicalExecutor,
+    workspaceIntentInterpreter,
     configManager: {
       snapshot() {
         return {
