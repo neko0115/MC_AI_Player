@@ -1184,6 +1184,8 @@ Full-suite regression note:
 - `f260efa` fixes the lifecycle by releasing active ownership immediately after terminal transition and before publishing the terminal event;
 - `5062a0d` adds a regression test that deliberately blocks `goal_completed` publication, starts a replacement goal during the block, releases the old completion, and proves the replacement remains active;
 - cooperative-session timeout budget was not increased and the scenario behavior was not weakened;
+- first typecheck of the new race regression exposed a test-only TypeScript narrowing issue: a Promise resolver assigned through a closure was inferred unusably at the later optional call;
+- `2201793` replaces that hand-rolled nullable resolver with Node 24 / ES2024 `Promise.withResolvers<void>()`, keeping the same deterministic blocked-publish regression without changing product behavior;
 - rerun GoalManager + cooperative-session + W5C4 focused tests, then typecheck/full suite.
 
 Verification note:
