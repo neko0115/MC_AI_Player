@@ -103,6 +103,15 @@ export const WorkspaceStatusSchema = z.enum([
 
 export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>
 
+export const WorkspaceUsePolicySchema = z.enum([
+  'owner_only',
+  'shared',
+  'moxue_preferred'
+])
+
+export type WorkspaceUsePolicy =
+  z.infer<typeof WorkspaceUsePolicySchema>
+
 export const WorkspaceConstraintsSchema = z
   .object({
     preserveExistingStructures: z.boolean().optional(),
@@ -147,6 +156,7 @@ export const WorkspaceRegionSchema = z
     bounds: WorkspaceBoundsSchema,
     label: WorkspaceLabelSchema,
     purpose: WorkspacePurposeSchema,
+    moxueUsePolicy: WorkspaceUsePolicySchema,
     status: WorkspaceStatusSchema,
     tags: z.array(WorkspaceTagSchema).max(32),
     constraints: WorkspaceConstraintsSchema,
@@ -167,6 +177,10 @@ export const WorkspaceRegionInputSchema = WorkspaceRegionSchema
     createdAt: true,
     updatedAt: true
   })
+  .extend({
+    moxueUsePolicy:
+      WorkspaceUsePolicySchema.default('shared')
+  })
   .strict()
 
 export type WorkspaceRegionInput =
@@ -177,6 +191,7 @@ export const WorkspaceSearchQuerySchema = z
     worldKey: z.string().trim().min(1).max(256),
     dimension: z.string().trim().min(1).max(128).optional(),
     purposes: z.array(WorkspacePurposeSchema).min(1).max(8).optional(),
+    usePolicies: z.array(WorkspaceUsePolicySchema).min(1).max(3).optional(),
     tags: z.array(WorkspaceTagSchema).min(1).max(32).optional(),
     ownerPrincipal: z.string().trim().min(1).max(128).optional(),
     intersects: WorkspaceBoundsSchema.optional(),
@@ -194,6 +209,7 @@ export const WorkspaceAuditActionSchema = z.enum([
   'renamed',
   'resized',
   'purpose_changed',
+  'use_policy_changed',
   'tags_changed',
   'constraints_changed',
   'archived',
