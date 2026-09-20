@@ -1028,7 +1028,18 @@ Important boundary:
 - the master secret is not stored in the export and must never be committed;
 - explicit GitHub transport/sync will be a later layer over this format.
 
-**W5C2 verification status:** local verification pending.
+**W5C2 verification status:** PASS.
+
+Final automated evidence:
+
+- full suite: 505 tests total;
+- 501 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS after the exact-optional binding fix;
+- working tree clean.
+
+W5C2 authenticated encrypted export/import is complete. The next implementation step is the production Gemini-backed WorkspaceIntentInterpreter using the existing ProjectPool/quota/failover infrastructure.
 
 Verification note:
 
