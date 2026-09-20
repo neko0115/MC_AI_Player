@@ -220,6 +220,98 @@ test('wrong export secret and ciphertext tampering fail authentication', () => {
   )
 })
 
+test('authenticated but malformed decrypted snapshot is rejected by schema validation', () => {
+  const keys =
+    deriveWorkspaceSemanticKeys(
+      MASTER_SECRET
+    )
+
+  const malformed = {
+    format:
+      'mc-ai-player.workspace-intent-cache.snapshot',
+    version: 1,
+    semanticContractVersion: 1,
+    exportedAt: 10,
+    records: [{
+      fingerprint: 'not-a-fingerprint'
+    }]
+  } as any
+
+  const envelope =
+    encryptWorkspaceIntentSnapshot(
+      malformed,
+      keys.exportKey,
+      {
+        randomBytesFn:
+          size => Buffer.alloc(
+            size,
+            5
+          )
+      }
+    )
+
+  assert.throws(
+    () =>
+      decryptWorkspaceIntentSnapshot(
+        envelope,
+        keys.exportKey
+      )
+  )
+})
+
+test('incompatible semantic contract records are skipped rather than coerced', () => {
+  const keys =
+    deriveWorkspaceSemanticKeys(
+      MASTER_SECRET
+    )
+  const target =
+    new SqliteLearnedWorkspaceIntentCache(
+      ':memory:',
+      { hmacKey: keys.hmacKey }
+    )
+
+  try {
+    const snapshot = {
+      format:
+        'mc-ai-player.workspace-intent-cache.snapshot' as const,
+      version: 1 as const,
+      semanticContractVersion: 999,
+      exportedAt: 10,
+      records: []
+    }
+
+    const envelope =
+      encryptWorkspaceIntentSnapshot(
+        snapshot,
+        keys.exportKey,
+        {
+          randomBytesFn:
+            size => Buffer.alloc(
+              size,
+              6
+            )
+        }
+      )
+
+    const result =
+      importEncryptedWorkspaceIntentCache(
+        target,
+        envelope,
+        keys.exportKey
+      )
+
+    assert.deepEqual(
+      result,
+      {
+        merged: 0,
+        skipped: 0
+      }
+    )
+  } finally {
+    target.close()
+  }
+})
+
 test('encrypted import preserves conflict semantics instead of choosing a winner', () => {
   const keys =
     deriveWorkspaceSemanticKeys(
