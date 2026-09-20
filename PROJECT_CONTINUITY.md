@@ -714,7 +714,50 @@ Safety/API invariants:
 - workspace management errors map to bounded public HTTP codes without raw internal exceptions;
 - application-root test proves Fake MoxueBridge selection -> real management service -> real in-memory SQLite repository -> ControlServer wiring.
 
-**W4C2 verification status:** local verification pending.
+**W4C2 verification status:** PASS.
+
+Final automated evidence:
+
+- full suite: 471 tests total;
+- 467 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
+
+W4C2 is complete.
+
+#### W5 natural-language Workspace chat binding — requirements accepted
+
+The chat layer must support both explicit commands and ordinary spoken shorthand.
+
+Examples that should resolve to the same deterministic create-from-selection operation:
+
+- `墨雪 幫我把這邊設定成農田`;
+- `墨雪 把這裡設成農田`;
+- `墨雪 這裡是農田`;
+- `墨雪 這農田`;
+- `墨雪 這邊農田`.
+
+Safety/ambiguity rule:
+
+- deictic shorthand such as `這農田` only becomes create-from-selection when a fresh trusted selection exists for the speaking player;
+- without a fresh trusted selection, do not guess coordinates or silently resolve a nearby workspace; ask for a setting-wand selection;
+- explicit management verbs such as rename/archive/restore take precedence over shorthand creation;
+- phrases that contain an execution directive such as lighting/building must not be misclassified as metadata creation.
+
+Purpose mapping remains generic and small:
+
+- farm/agriculture wording -> `farm`;
+- furnace/processing/production wording -> `production`;
+- storage wording -> `storage`;
+- build/construction wording -> `construction`;
+- lighting wording -> `lighting`;
+- protected wording -> `protected`;
+- transit/path wording -> `transit`;
+- unknown labels remain `custom`.
+
+The parser should handle common deterministic phrasing first and defer genuinely ambiguous semantics to the existing AI layer without granting it direct repository or world-mutation authority.
 
 **Next exact action:**
 
