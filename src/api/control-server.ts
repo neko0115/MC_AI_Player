@@ -203,6 +203,28 @@ const WorkspaceIdSchema = z
 
 const WorkspaceTagSchema = z.string().trim().min(1).max(64)
 
+const WorkspaceApiConstraintsSchema = z
+  .object({
+    preserve_existing_structures:
+      z.boolean().optional(),
+    temporary_infrastructure_allowed:
+      z.boolean().optional(),
+    protected:
+      z.boolean().optional(),
+    requested_spacing:
+      z.number().int().min(1).max(64).optional(),
+    lighting: z
+      .object({
+        block_light_min:
+          z.number().int().min(0).max(15),
+        spawn_safe_required:
+          z.boolean()
+      })
+      .strict()
+      .optional()
+  })
+  .strict()
+
 const WorkspaceCreateRequestSchema = z
   .object({
     actor_principal: WorkspaceActorSchema,
@@ -210,7 +232,7 @@ const WorkspaceCreateRequestSchema = z
     label: WorkspaceLabelSchema,
     purpose: WorkspacePurposeSchema,
     tags: z.array(WorkspaceTagSchema).max(32).optional(),
-    constraints: WorkspaceConstraintsSchema.optional()
+    constraints: WorkspaceApiConstraintsSchema.optional()
   })
   .strict()
 
@@ -238,7 +260,7 @@ const WorkspaceTagsRequestSchema = z
 const WorkspaceConstraintsRequestSchema = z
   .object({
     actor_principal: WorkspaceActorSchema,
-    constraints: WorkspaceConstraintsSchema
+    constraints: WorkspaceApiConstraintsSchema
   })
   .strict()
 
@@ -442,7 +464,9 @@ export class ControlServer {
                   ? {}
                   : {
                       constraints:
-                        parsed.data.constraints
+                        toWorkspaceConstraints(
+                          parsed.data.constraints
+                        )
                     })
               })
           writeJson(response, 201, {
@@ -623,7 +647,9 @@ export class ControlServer {
                 management.changeConstraints(
                   workspaceRoute.id,
                   parsed.data.actor_principal,
-                  parsed.data.constraints
+                  toWorkspaceConstraints(
+                    parsed.data.constraints
+                  )
                 )
               )
           })
@@ -1218,6 +1244,48 @@ function parseOptionalBoolean(
     400,
     errorCode
   )
+}
+
+function toWorkspaceConstraints(
+  value: z.infer<
+    typeof WorkspaceApiConstraintsSchema
+  >
+): WorkspaceConstraints {
+  return WorkspaceConstraintsSchema.parse({
+    ...(value.preserve_existing_structures === undefined
+      ? {}
+      : {
+          preserveExistingStructures:
+            value.preserve_existing_structures
+        }),
+    ...(value.temporary_infrastructure_allowed === undefined
+      ? {}
+      : {
+          temporaryInfrastructureAllowed:
+            value.temporary_infrastructure_allowed
+        }),
+    ...(value.protected === undefined
+      ? {}
+      : {
+          protected: value.protected
+        }),
+    ...(value.requested_spacing === undefined
+      ? {}
+      : {
+          requestedSpacing:
+            value.requested_spacing
+        }),
+    ...(value.lighting === undefined
+      ? {}
+      : {
+          lighting: {
+            blockLightMin:
+              value.lighting.block_light_min,
+            spawnSafeRequired:
+              value.lighting.spawn_safe_required
+          }
+        })
+  })
 }
 
 function publicWorkspaceRegion(
