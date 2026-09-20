@@ -22,10 +22,14 @@ export interface MinecraftManualAccessPolicy {
   readonly operatorAllowlistUuids: readonly string[]
 }
 
-export interface ResolveMinecraftChatInput {
+export interface ResolveMinecraftIdentityInput {
   readonly mode: MinecraftServerIdentityMode
   readonly player: string
   readonly playerId?: string
+}
+
+export interface ResolveMinecraftChatInput
+extends ResolveMinecraftIdentityInput {
   readonly policy: MinecraftManualAccessPolicy
 }
 
@@ -89,15 +93,46 @@ export class MinecraftIdentityRegistry {
     this.players.delete(name)
   }
 
+  resolveObservedPlayerId(
+    input: ResolveMinecraftIdentityInput
+  ): string | null {
+    if (
+      input.mode !== 'online' ||
+      !this.active
+    ) {
+      return null
+    }
+
+    const player =
+      normalizePlayerName(
+        input.player
+      )
+    const currentId =
+      normalizeMinecraftUuid(
+        input.playerId
+      )
+    if (!player || !currentId) {
+      return null
+    }
+
+    const cachedId =
+      this.players.get(player)
+    if (
+      !cachedId ||
+      cachedId !== currentId
+    ) {
+      return null
+    }
+
+    return currentId
+  }
+
   resolveChat(input: ResolveMinecraftChatInput): MinecraftPrincipal {
-    if (input.mode !== 'online' || !this.active) return UNTRUSTED
-
-    const player = normalizePlayerName(input.player)
-    const currentId = normalizeMinecraftUuid(input.playerId)
-    if (!player || !currentId) return UNTRUSTED
-
-    const cachedId = this.players.get(player)
-    if (!cachedId || cachedId !== currentId) return UNTRUSTED
+    const currentId =
+      this.resolveObservedPlayerId(
+        input
+      )
+    if (!currentId) return UNTRUSTED
 
     const ownerId = normalizeMinecraftUuid(input.policy.ownerUuid)
     if (ownerId && currentId === ownerId) {
