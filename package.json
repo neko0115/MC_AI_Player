@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "probe": "tsx scripts/probe-platform.ts",
     "fetch:test-server": "tsx scripts/fetch-test-server.ts",
-    "validate:gemini-live": "tsx scripts/validate-gemini-routing-live.ts"
+    "validate:gemini-live": "tsx scripts/validate-gemini-routing-live.ts",
+    "inspect:workspace-semantic-live": "tsx scripts/inspect-workspace-semantic-live.ts"
   },
   "dependencies": {
     "@google/genai": "2.21.0",
