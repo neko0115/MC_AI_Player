@@ -202,6 +202,7 @@ test('archive is user-facing delete semantics while ordinary search hides archiv
   const repo = new SqliteWorkspaceRepository(
     ':memory:',
     {
+      now: () => 500,
       nextId: () => 'workspace-1',
       nextAuditId: () =>
         `audit-${++auditId}`
