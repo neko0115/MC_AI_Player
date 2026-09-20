@@ -662,7 +662,18 @@ Behavior:
 - foreign-world workspace ids are hidden as not found;
 - lifecycle error codes are preserved through the management layer.
 
-**W4C1 verification status:** local verification pending.
+**W4C1 verification status:** PASS.
+
+Final automated evidence:
+
+- full suite: 467 tests total;
+- 463 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
+
+W4C1 is complete. W4C2 now owns application repository bootstrap and bounded Control API exposure.
 
 **Next exact action:**
 
