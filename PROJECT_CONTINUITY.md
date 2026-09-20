@@ -1189,7 +1189,61 @@ Additional regression evidence:
 - Workspace fallback remains silent;
 - clarification/success replies remain bounded and deterministic.
 
-W5C4 automated implementation is complete. The next gate is controlled Minecraft live validation before claiming FULL PASS.
+W5C4 automated implementation is complete.
+
+##### W5C5 controlled Minecraft live semantic validation — tooling ready, live run pending
+
+Evidence tooling commit:
+
+- `9c7e0c9` — `test: add workspace semantic live evidence inspector`.
+
+New command:
+
+```text
+npm run inspect:workspace-semantic-live -- --since-ms <epoch-ms> [expectations...]
+```
+
+Inspector behavior:
+
+- read-only; does not call Gemini, mutate Minecraft, or modify learned cache;
+- filters runtime events at/after `--since-ms`;
+- identifies Workspace semantic provider routes by `model_route.reasons` containing `workspace_semantic_interpretation`;
+- correlates `attempt_result` by semantic decision id;
+- reports model/project/thinking evidence;
+- reads learned-cache SQLite in read-only mode;
+- reports current-contract active/revoked record counts and conflicting fingerprint count;
+- can fail CI/operator validation when exact expectations are not met.
+
+Supported expectations:
+
+- `--expect-routes N`;
+- `--expect-attempts N`;
+- `--expect-active-learned-at-least N`.
+
+Primary cache live proof:
+
+1. choose a non-mutating explicit-reference utterance for an existing Workspace, for example asking to show one specifically named Workspace;
+2. record `t0` immediately before the first utterance;
+3. send the exact same utterance twice;
+4. first successful handling should miss cache, use exactly one Workspace semantic provider route, and learn the mapping;
+5. second handling should hit local cache and create no second Workspace semantic provider route;
+6. inspector over `since=t0` should therefore report exactly one semantic route and at least one active learned record.
+
+Do not use a repeated `create` utterance for the cache proof because repeating a valid create intent would legitimately create another durable Workspace. Prefer `show` for cache-hit proof.
+
+Live acceptance still requires:
+
+- trusted online-mode current-session player UUID identity;
+- fresh MoxueBridge setting-wand selection for create/resize cases;
+- real Gemini Workspace semantic interpretation;
+- visible chat acknowledgement/clarification;
+- owner_only / shared / moxue_preferred behavior;
+- ambiguity clarification;
+- archive/restore;
+- non-Workspace fallback;
+- cache miss -> provider -> successful learning -> repeated cache hit with no second semantic provider call.
+
+The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
 Full-suite regression note:
 
