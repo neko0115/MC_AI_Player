@@ -493,12 +493,25 @@ Regression fix:
 - generation increments exactly once when both fresh corners exist;
 - supports either A->B or B->A order without reusing an old corner.
 
-Remaining live gates:
+Live wand regression verification PASS after MoxueBridge `1516105`:
 
-- rebuild/redeploy MoxueBridge at `1516105` and rerun the four wand cases;
-- verify pending one-corner selection is absent from the endpoint;
-- verify a fresh completed A+B selection advances generation only once;
-- MC_AI_Player workspace selection client reaches `current` and resolves the same selection.
+- first fresh A+B selection -> generation 1 with correct overworld/player/coordinates;
+- starting a new selection with A only -> endpoint `selections = []`;
+- ordinary unnamed stick -> endpoint remains `selections = []`;
+- new fresh A+B selection -> generation 2, not 3/4, with only the new coordinates;
+- this proves old corners are not reused and incomplete pending selections are not externally exposed.
+
+**Paper setting-wand observation LIVE PASS.**
+
+Remaining W3 gate:
+
+- verify the running MC_AI_Player workspace selection client reaches `current` and resolves the same live selection.
+
+Next feature direction after W3:
+
+- Workspace lifecycle management: create/list/show/update/rename/retag/change purpose/change constraints/delete;
+- keep selection state and persistent workspace state separate;
+- review existing Project Autonomy / Construction draft/project lifecycle for consistency before exposing chat actions.
 
 Automated evidence:
 
