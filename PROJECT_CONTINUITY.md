@@ -532,7 +532,7 @@ W3 final automated verification PASS:
 
 Combined with the controlled live parity evidence above, W3 is now **FULL PASS**.
 
-#### W4 Workspace lifecycle management — implementation starting
+#### W4 Workspace lifecycle management — implementation in progress
 
 Locked behavior:
 
@@ -543,6 +543,42 @@ Locked behavior:
 - lifecycle mutations append safe audit transactionally;
 - hard purge remains a separate dependency-safe maintenance operation;
 - selection observation and durable workspace state remain separate.
+
+W4A commits:
+
+- `39dbdb5` — `feat: add audited workspace lifecycle`;
+- `0d9d57e` — `fix: clone workspace lifecycle update inputs`.
+
+W4A scope:
+
+- added workspace `active | archived` status;
+- ordinary repository search excludes archived rows unless `includeArchived=true`;
+- added transactionally persisted audit records;
+- create/update/status mutation and corresponding audit are one SQLite transaction;
+- added v1 -> v2 workspace SQLite migration preserving existing rows as `active`;
+- added `WorkspaceLifecycleService`;
+- create workspace from trusted selection;
+- rename;
+- replace bounds from a newer trusted selection;
+- change purpose;
+- replace tags;
+- change constraints;
+- archive;
+- restore;
+- v1 owner-only mutation is explicit and fail-closed;
+- cross-player and cross-world/dimension resize attempts fail closed;
+- low-level physical `delete()` remains maintenance-only and is not user-facing lifecycle behavior.
+
+**W4A verification status:** local verification pending.
+
+**Next exact action:**
+
+1. fast-forward the workspace worktree;
+2. run `npm test -- tests/workspace/geometry.test.ts tests/workspace/sqlite-repository.test.ts tests/workspace/lifecycle-service.test.ts`;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree clean;
+6. if green, mark W4A PASS and implement deterministic Workspace resolver before exposing lifecycle actions to chat/API.
 
 W4 lifecycle direction:
 
