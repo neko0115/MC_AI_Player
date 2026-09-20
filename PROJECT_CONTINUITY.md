@@ -569,7 +569,16 @@ W4A scope:
 - cross-player and cross-world/dimension resize attempts fail closed;
 - low-level physical `delete()` remains maintenance-only and is not user-facing lifecycle behavior.
 
-**W4A verification status:** first local run exposed a stale W0 test fixture only: `tests/workspace/geometry.test.ts` constructed `WorkspaceRegionSchema` without the new required `status` field. Production lifecycle/repository code was not implicated. Fixed by adding `status: 'active'` in the fixture. W4A verification must be rerun.
+**W4A verification status:** verification in progress.
+
+Regression findings and fixes:
+
+- stale W0 geometry fixture omitted required `status`; fixture corrected;
+- lifecycle archive/restore test then exposed a real audit ordering bug: multiple writes may share one millisecond, while `ORDER BY created_at DESC, event_id ASC` used a non-chronological identifier as tie-break;
+- repository now uses SQLite insertion order as the deterministic tie-break: `ORDER BY created_at DESC, rowid DESC`;
+- lifecycle regression test fixes `now` to one timestamp so create/archive/restore deliberately collide and still must return reverse insertion order.
+
+W4A verification must be rerun after these corrections.
 
 **Next exact action:**
 
