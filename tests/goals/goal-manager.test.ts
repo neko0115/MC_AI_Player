@@ -143,12 +143,10 @@ test('terminal event publication cannot clear a replacement goal started while o
   const events =
     new RuntimeEventBus()
 
-  let releaseCompletion:
-    (() => void) | null = null
-  const completionBlocked =
-    new Promise<void>(resolve => {
-      releaseCompletion = resolve
-    })
+  const {
+    promise: completionBlocked,
+    resolve: releaseCompletion
+  } = Promise.withResolvers<void>()
   let completionListenerEntered = false
 
   events.subscribe(async event => {
@@ -216,7 +214,7 @@ test('terminal event publication cannot clear a replacement goal started while o
     'running'
   )
 
-  releaseCompletion?.()
+  releaseCompletion()
   await completing
 
   assert.equal(
