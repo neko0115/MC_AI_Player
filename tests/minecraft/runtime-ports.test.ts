@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  MINECRAFT_CHAT_OUTPUT_PORT,
   RuntimePortRegistry,
   SURVIVAL_INVENTORY_PORT,
   defineRuntimePort,
@@ -32,6 +33,13 @@ test('runtime port registry fails closed for an unregistered token', () => {
   assert.throws(
     () => registry.require(port),
     /runtime port not registered: test.missing/
+  )
+})
+
+test('chat output is a typed bounded runtime capability token', () => {
+  assert.equal(
+    MINECRAFT_CHAT_OUTPUT_PORT.id,
+    'minecraft.chat_output'
   )
 })
 
