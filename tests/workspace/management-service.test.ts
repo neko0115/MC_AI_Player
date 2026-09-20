@@ -128,12 +128,18 @@ test('management create uses only current trusted selection and owner scope', ()
         actorPrincipal: 'player-1',
         label: '農田',
         purpose: 'farm',
+        moxueUsePolicy:
+          'owner_only',
         tags: ['crop']
       })
 
     assert.equal(
       created.ownerPrincipal,
       'player-1'
+    )
+    assert.equal(
+      created.moxueUsePolicy,
+      'owner_only'
     )
     assert.equal(
       created.sourceSelectionId,
@@ -290,6 +296,15 @@ test('management update and resize preserve lifecycle authority and use current 
         'production'
       ).purpose,
       'production'
+    )
+
+    assert.equal(
+      current.service.changeUsePolicy(
+        created.id,
+        'player-1',
+        'moxue_preferred'
+      ).moxueUsePolicy,
+      'moxue_preferred'
     )
 
     assert.deepEqual(
