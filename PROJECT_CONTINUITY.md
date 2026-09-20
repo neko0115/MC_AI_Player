@@ -871,9 +871,18 @@ Safety rules:
 - execution directives such as lighting/building must not be confused with metadata creation;
 - AI never receives repository/world-mutation authority.
 
-**Current verification gate:**
+**Current verification gate:** PASS.
 
-Run focused Workspace policy/chat tests, typecheck, then full suite. Do not wire production chat interception until these contracts/migrations are green.
+Automated evidence:
+
+- full suite: 477 tests total;
+- 473 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
+
+Workspace use-policy persistence/migrations and the semantic intent contract are now accepted. Production chat interception may begin.
 
 **Next exact action:**
 
