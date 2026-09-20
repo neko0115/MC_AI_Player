@@ -128,6 +128,7 @@ test('workspace contracts preserve custom labels without inventing behavior auth
     ),
     label: '快速熔爐',
     purpose: 'production',
+    status: 'active',
     tags: ['smelting', 'high-throughput'],
     constraints: {
       preserveExistingStructures: true
