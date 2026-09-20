@@ -220,6 +220,13 @@ implements LearnedWorkspaceIntentCache {
       !applicabilityMatches(
         applicability,
         normalized
+      ) ||
+      (
+        applicability === 'explicit' &&
+        !explicitReferenceIsStable(
+          parsed,
+          normalized.utterance
+        )
       )
     ) {
       return false
@@ -525,6 +532,34 @@ function cacheApplicability(
           return null
       }
   }
+}
+
+function explicitReferenceIsStable(
+  intent: WorkspaceChatIntent,
+  utterance: string
+): boolean {
+  if (
+    intent.kind === 'not_workspace' ||
+    intent.kind === 'clarify' ||
+    intent.kind === 'create' ||
+    intent.kind === 'list'
+  ) {
+    return false
+  }
+
+  if (
+    intent.target.kind !== 'explicit'
+  ) {
+    return false
+  }
+
+  return normalizeUtterance(
+    utterance
+  ).includes(
+    normalizeUtterance(
+      intent.target.value
+    )
+  )
 }
 
 function applicabilityMatches(
