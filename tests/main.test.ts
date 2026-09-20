@@ -593,6 +593,10 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
       workspace.sourceSelectionId,
       'selection-live'
     )
+    assert.equal(
+      workspace.moxueUsePolicy,
+      'shared'
+    )
     assert.deepEqual(
       workspace.bounds,
       {
