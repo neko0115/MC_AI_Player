@@ -673,7 +673,57 @@ Final automated evidence:
 - typecheck PASS in the requested validation sequence;
 - working tree clean.
 
-W4C1 is complete. W4C2 now owns application repository bootstrap and bounded Control API exposure.
+W4C1 is complete.
+
+##### W4C2 application bootstrap + bounded Control API — implementation complete, verification pending
+
+Commits:
+
+- `49459c3` — `feat: expose bounded workspace management api`;
+- `f6ed0ed` — `fix: normalize workspace api constraints wire format`;
+- `085d0e9` — `test: verify workspace constraints wire mapping`;
+- `f87a9a5` — `test: wire workspace management through application root`.
+
+Application behavior:
+
+- creates one durable `data/workspaces.sqlite3` repository;
+- repository is owned by application lifecycle and closes during shutdown;
+- `WorkspaceManagementService` is constructed with the application world key and trusted selection source when available;
+- management remains available for list/get/archive history even if MoxueBridge selection observation is disabled, while create/resize fail closed as selection unavailable.
+
+Control API:
+
+- `POST /v1/workspaces`;
+- `GET /v1/workspaces`;
+- `GET /v1/workspaces/:id`;
+- `POST /v1/workspaces/:id/rename`;
+- `POST /v1/workspaces/:id/resize`;
+- `POST /v1/workspaces/:id/purpose`;
+- `POST /v1/workspaces/:id/tags`;
+- `POST /v1/workspaces/:id/constraints`;
+- `POST /v1/workspaces/:id/archive`;
+- `POST /v1/workspaces/:id/restore`;
+- `GET /v1/workspaces/:id/audit`.
+
+Safety/API invariants:
+
+- create/resize accept no caller coordinates and therefore cannot bypass trusted setting-wand selection;
+- physical purge/delete is intentionally not exposed;
+- strict request schemas reject extra fields;
+- external wire constraints are snake_case and convert into validated domain constraints;
+- workspace management errors map to bounded public HTTP codes without raw internal exceptions;
+- application-root test proves Fake MoxueBridge selection -> real management service -> real in-memory SQLite repository -> ControlServer wiring.
+
+**W4C2 verification status:** local verification pending.
+
+**Next exact action:**
+
+1. fast-forward workspace worktree;
+2. run `npm test -- tests/workspace/management-service.test.ts tests/api/control-server-workspaces.test.ts tests/api/control-server.test.ts tests/main.test.ts`;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree clean;
+6. if green, mark W4C2 PASS and proceed to natural-language Minecraft chat binding over the same resolver/management service.
 
 **Next exact action:**
 
