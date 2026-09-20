@@ -884,14 +884,51 @@ Automated evidence:
 
 Workspace use-policy persistence/migrations and the semantic intent contract are now accepted. Production chat interception may begin.
 
+##### W5B semantic router + addressed-chat coordinator seam — implementation complete, verification pending
+
+Relevant commits:
+
+- `5cb92ee` / `95f4ab8` — restore-only archived Workspace resolution;
+- `d07accc` — normalize archived resolver option;
+- `9c74ead` — `feat: route semantic workspace chat intents`;
+- `0cd4c4b` — `feat: route addressed chat through workspace semantics`.
+
+Behavior:
+
+- `WorkspaceChatRouter` receives only structured `WorkspaceChatIntent`; it has no Chinese phrase/keyword table;
+- semantic `not_workspace` returns fallback to the existing gameplay AI path;
+- create/change-use-policy/rename/resize/purpose/tags/constraints/archive/restore/list/show flow through deterministic resolver + management service;
+- create/resize still require trusted current setting-wand selection;
+- ambiguous targets produce `clarify` rather than last-write-wins;
+- restore explicitly opts into archived resolution while ordinary resolver paths still exclude archived Workspaces;
+- conversation/recent Workspace bindings are per authoritative actor UUID;
+- DecisionCoordinator uses raw Minecraft player UUID as Workspace actor principal, matching MoxueBridge selection identity;
+- addressed chat with an authoritative player id is routed semantically before gameplay AI;
+- chat without authoritative player id preserves the legacy gameplay path and cannot mutate Workspace state;
+- Workspace semantic calls run on a separate serialized async tail and do not block the coordinator mailbox;
+- disconnect/emergency-stop/dispose abort outstanding Workspace semantic calls;
+- late results from a previous Minecraft session are discarded;
+- interpreter failure falls back to the existing gameplay AI path rather than making ordinary addressed chat disappear.
+
+Application wiring:
+
+- `ApplicationDependencies.workspaceIntentInterpreter` is currently optional;
+- when injected, main builds a real `WorkspaceChatRouter` over the same repository/management/selection source;
+- when absent, existing gameplay behavior is unchanged.
+
+**Important current limitation:** the production Gemini-backed `WorkspaceIntentInterpreter` is not wired yet. Do not claim live arbitrary-language Workspace chat support until that interpreter and live validation are complete.
+
+**Current verification gate:** pending.
+
 **Next exact action:**
 
 1. fast-forward `feature/workspace-planner`;
-2. run focused tests for contracts/geometry/sqlite/lifecycle/management/control-api/chat-intent/main;
+2. run focused tests for geometry/sqlite/lifecycle/management/resolver/chat-intent/chat-router/control-api/decision-coordinator/main;
 3. run `npm run typecheck`;
 4. run full `npm test`;
 5. confirm working tree clean;
-6. if green, implement the addressed-chat semantic coordinator seam so every addressed utterance can return `not_workspace` and fall through to the existing gameplay AI path without keyword prefiltering.
+6. if green, implement a production Gemini-backed WorkspaceIntentInterpreter that reuses the existing ProjectPool/quota/failover infrastructure rather than bypassing it with a separate unmanaged API key;
+7. then live-test varied natural-language paraphrases in Minecraft.
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
