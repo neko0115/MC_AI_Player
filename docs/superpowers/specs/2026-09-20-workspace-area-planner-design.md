@@ -154,7 +154,106 @@ Examples:
 
 This avoids turning every region label into an immediate mutation command.
 
-## 8. Lighting planner
+## 8. Workspace lifecycle management
+
+A completed wand selection is temporary observation state. A durable workspace is a separate managed entity.
+
+Workspace lifecycle must follow the same durable-state principles as Project Autonomy:
+
+```text
+temporary selection
+  -> create durable workspace
+  -> resolve workspace deterministically
+  -> authorize actor
+  -> update/archive/restore
+  -> append audit
+  -> later directives reference workspace id
+```
+
+### 8.1 Status
+
+Workspace status is explicit:
+
+- `active`
+- `archived`
+
+Ordinary user "delete" maps to `archived`, not physical row deletion.
+
+Archived workspaces:
+
+- are excluded from ordinary resolver/search results;
+- retain geometry, semantics, owner, provenance and audit history;
+- cannot receive new execution directives;
+- may be restored by an authorized owner/manager policy;
+- remain available for dependency/history inspection.
+
+Physical purge is a separate maintenance operation and must be dependency-safe once Projects/Lighting/Production can reference workspace IDs.
+
+### 8.2 Managed mutations
+
+The lifecycle service owns bounded operations:
+
+- create from a current trusted selection;
+- rename;
+- replace bounds from a new trusted selection;
+- change purpose;
+- replace/add/remove tags;
+- change reviewed constraints;
+- archive;
+- restore.
+
+Each operation writes one audit entry transactionally with the state mutation.
+
+### 8.3 Audit
+
+Audit records contain safe structured provenance:
+
+```text
+workspace id
+actor principal
+action
+safe summary
+timestamp
+source selection id when relevant
+```
+
+Do not store raw model reasoning or arbitrary chat history in audit rows.
+
+### 8.4 Resolver
+
+Workspace resolution is deterministic and ACL-filtered before semantic ranking.
+
+Preferred precedence:
+
+1. explicit workspace id/name;
+2. conversation-bound workspace;
+3. workspace matching the latest trusted selection/intersection;
+4. unique nearby authorized workspace;
+5. unique recent authorized workspace;
+6. otherwise ambiguous/none.
+
+Same-name ambiguity must not use last-write-wins. Ask one short disambiguation question.
+
+### 8.5 Ownership
+
+Initial Workspace v1 uses one authoritative owner principal. Persistent identity should converge on the same trusted UUID/session identity used by Project Autonomy.
+
+Selection player name is descriptive only; player id/UUID is the authority key.
+
+### 8.6 Management versus execution
+
+Workspace lifecycle operations change metadata only.
+
+They do not:
+
+- place/break blocks;
+- authorize mutation;
+- start lighting/building automatically;
+- bypass Project/SafetyPolicy permits.
+
+Execution directives reference active workspace IDs after lifecycle resolution.
+
+## 9. Lighting planner
 
 Lighting must be deterministic and terrain-aware.
 
@@ -198,7 +297,7 @@ No placement occurs until the confirmation policy allows it.
 
 If the user accepts the risk explicitly, record that override in the directive provenance.
 
-## 9. Large regions
+## 10. Large regions
 
 Large regions, including areas spanning 12+ chunks, are valid.
 
@@ -218,7 +317,7 @@ WorkspaceDirective
 
 This allows pause/resume, threat interruption and durable project integration.
 
-## 10. Overlap
+## 11. Overlap
 
 Regions may overlap.
 
@@ -231,7 +330,7 @@ The repository must support containment/intersection queries.
 
 Conflicting hard constraints fail closed or require explicit resolution.
 
-## 11. Conversational resolution
+## 12. Conversational resolution
 
 Decision context should expose bounded summaries of:
 
@@ -254,7 +353,7 @@ Player: 把剛才那區每隔 5 格點亮
 
 The AI resolves reference and intent. Deterministic code owns geometry, risk calculation, placement plan and mutation.
 
-## 12. No-X-ray / safety rules
+## 13. No-X-ray / safety rules
 
 - selection coordinates are user-provided observation, not hidden-world knowledge;
 - selection does not authorize arbitrary mutation by itself;
@@ -264,7 +363,7 @@ The AI resolves reference and intent. Deterministic code owns geometry, risk cal
 - unknown mod content does not become mutation-authoritative;
 - all region execution is bounded/checkpointed.
 
-## 13. Suggested module boundaries
+## 14. Suggested module boundaries
 
 ```text
 workspace/
@@ -284,7 +383,7 @@ minecraft/
   workspace-placement-runtime.ts (later)
 ```
 
-## 14. Phased implementation
+## 15. Phased implementation
 
 ### W0 — contracts and geometry
 
@@ -307,13 +406,30 @@ minecraft/
 - stale/unavailable fail-closed behavior;
 - Paper-side plugin contract documented separately if plugin source is not in this repo.
 
-### W3 — chat/context integration
+### W3 — Paper/Bridge selection transport
 
-- expose latest selection/workspace summaries to planner;
-- define/update workspace from natural-language intent;
-- deterministic reference resolution where possible.
+- Paper setting-wand observation;
+- authenticated read-only Bridge endpoint;
+- MC_AI selection source lifecycle;
+- live source probe.
 
-### W4 — lighting planner
+### W4 — workspace lifecycle management
+
+- active/archived status;
+- create/update/archive/restore service;
+- deterministic resolver;
+- transactionally appended audit log;
+- ordinary delete maps to archive;
+- dependency-safe physical purge remains maintenance-only.
+
+### W5 — chat/context binding
+
+- expose latest trusted selection and authorized workspace summaries;
+- resolve "這裡 / 剛才那區 / <workspace name>";
+- bind natural-language management requests to deterministic lifecycle operations;
+- do not execute build/light mutations merely because metadata changes.
+
+### W6 — lighting planner
 
 - requested spacing;
 - chunk-batched placement plan;
@@ -321,20 +437,20 @@ minecraft/
 - safer-spacing suggestion;
 - `requires_confirmation` state.
 
-### W5 — lighting execution
+### W7 — lighting execution
 
 - typed lighting/placement runtime port;
 - scoped `place_blocks` SafetyPolicy permit;
 - torch inventory/supply dependency;
 - bounded place/verify/checkpoint loop.
 
-### W6 — project integration
+### W8 — project integration
 
 - durable directives;
 - pause/resume;
 - integrate Production / Construction project DAG.
 
-## 15. Acceptance examples
+## 16. Acceptance examples
 
 1. Select 5 x 10 x 10 -> “這裡是快速熔爐”
    - exact bounds persisted;

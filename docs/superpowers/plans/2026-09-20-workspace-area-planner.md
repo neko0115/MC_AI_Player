@@ -61,14 +61,59 @@ Paper-side observation requirements:
 - timestamps;
 - no arbitrary mutation.
 
-## W3 — Workspace module and AI context
+## W3 — Paper/Bridge selection transport
 
-- add workspace summaries to decision context;
-- resolve “這裡 / 剛才那區 / <workspace name>”;
-- create/update workspace metadata through bounded deterministic action;
-- do not execute build/light mutations merely because a label is stored.
+- implement MoxueBridge setting-wand observation;
+- expose authenticated read-only selection snapshot;
+- consume it through fail-closed MC_AI selection source;
+- expose read-only Control API probe;
+- live verify Paper and MC_AI agree on the same selection.
 
-## W4 — Lighting plan
+Gate:
+
+```powershell
+npm test -- tests/workspace/selection-source.test.ts tests/minecraft/moxuebridge-workspace-selections.test.ts tests/api/control-server.test.ts tests/main.test.ts
+npm run typecheck
+npm test
+```
+
+## W4 — Workspace lifecycle management
+
+Create/modify:
+
+- `src/workspace/contracts.ts`
+- `src/workspace/repository.ts`
+- `src/workspace/sqlite-repository.ts`
+- `src/workspace/lifecycle-service.ts`
+- `src/workspace/resolver.ts`
+- tests under `tests/workspace/`
+
+Requirements:
+
+- add `active | archived` workspace status;
+- ordinary delete becomes archive;
+- restore archived workspace;
+- create from trusted selection;
+- rename;
+- replace bounds from a new trusted selection;
+- change purpose;
+- replace/add/remove tags;
+- update reviewed constraints;
+- append audit transactionally for every successful mutation;
+- resolver precedence: explicit -> conversation -> selection/intersection -> nearby -> recent -> ambiguous/none;
+- same-name ambiguity never uses last-write-wins;
+- archived workspaces excluded from ordinary resolution/execution;
+- hard purge remains separate maintenance-only behavior.
+
+## W5 — Chat/context binding
+
+- expose bounded latest-selection/workspace summaries to decision context;
+- resolve `這裡 / 剛才那區 / <workspace name>`;
+- map management intent to deterministic lifecycle operations;
+- ask one short clarification when resolver returns ambiguous;
+- metadata mutation does not imply world mutation.
+
+## W6 — Lighting plan
 
 Create pure planner tests first.
 
@@ -87,7 +132,7 @@ Outputs:
 - suggested spacing;
 - `ready | requires_confirmation | blocked`.
 
-## W5 — Lighting execution
+## W7 — Lighting execution
 
 Prerequisites:
 
@@ -103,14 +148,18 @@ Execution:
 - cancel/resume safely;
 - never place outside workspace/permit scope.
 
-## W6 — Live validation
+## W8 — Live/project integration
 
 Required scenarios:
 
 - 9 x 9 farm label persistence;
 - 5 x 10 x 10 production label persistence;
+- rename/resize/purpose/tag/constraint update;
+- archive/restore with audit history;
+- same-name ambiguity;
 - large multi-chunk selection;
 - safe spacing lighting;
 - unsafe spacing confirmation gate;
 - restart persistence;
-- protected-area conflict fail-closed.
+- protected-area conflict fail-closed;
+- later Project DAG references workspace id rather than copying untracked coordinates.

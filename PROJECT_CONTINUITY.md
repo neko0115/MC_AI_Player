@@ -454,7 +454,8 @@ Paper-side behavior:
 **MC_AI_Player**
 
 - `5a766f9` — `feat: consume bridge workspace selections`;
-- `c7d72e0` — `feat: manage workspace selection source lifecycle`.
+- `c7d72e0` — `feat: manage workspace selection source lifecycle`;
+- `798a627` — `feat: expose workspace selection sync status`.
 
 Client behavior:
 
@@ -505,13 +506,23 @@ Live wand regression verification PASS after MoxueBridge `1516105`:
 
 Remaining W3 gate:
 
-- verify the running MC_AI_Player workspace selection client reaches `current` and resolves the same live selection.
+- fast-forward MC_AI workspace worktree to `798a627` or later;
+- run focused Control/Bridge/Main tests, typecheck and full suite;
+- start MC_AI_Player against the live MoxueBridge;
+- query `GET /v1/workspace-selection?dimension=<dimension>&player_id=<uuid>`;
+- require `sync_state=current` and exact selection id/generation/A/B parity with the Bridge endpoint.
 
-Next feature direction after W3:
+W4 design is now locked but production implementation waits for the W3 live gate.
 
-- Workspace lifecycle management: create/list/show/update/rename/retag/change purpose/change constraints/delete;
-- keep selection state and persistent workspace state separate;
-- review existing Project Autonomy / Construction draft/project lifecycle for consistency before exposing chat actions.
+W4 lifecycle direction:
+
+- create/list/show/update/rename/resize/change purpose/retag/change constraints;
+- ordinary delete = archive;
+- restore supported;
+- every mutation appends safe audit transactionally;
+- deterministic resolver reuses Project Autonomy principles;
+- hard purge remains dependency-safe maintenance-only;
+- selection state and durable workspace state stay separate.
 
 Automated evidence:
 
