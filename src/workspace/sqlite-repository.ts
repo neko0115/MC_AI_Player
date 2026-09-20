@@ -9,6 +9,7 @@ import {
   WorkspaceRegionSchema,
   WorkspaceSearchQuerySchema,
   WorkspaceStatusSchema,
+  WorkspaceUsePolicySchema,
   type WorkspaceAuditInput,
   type WorkspaceAuditRecord,
   type WorkspaceBounds,
@@ -17,7 +18,8 @@ import {
   type WorkspaceRegion,
   type WorkspaceRegionInput,
   type WorkspaceSearchQuery,
-  type WorkspaceStatus
+  type WorkspaceStatus,
+  type WorkspaceUsePolicy
 } from './contracts.js'
 import type { WorkspaceRepository } from './repository.js'
 
@@ -58,6 +60,7 @@ interface WorkspaceRow {
   max_z: number
   label: string
   purpose: string
+  moxue_use_policy: string
   status: string
   constraints_json: string
   owner_principal: string
@@ -88,7 +91,7 @@ export interface SqliteWorkspaceRepositoryOptions {
 
 const require = createRequire(import.meta.url)
 const Database = require('better-sqlite3') as DatabaseConstructor
-const WORKSPACE_SCHEMA_VERSION = '2'
+const WORKSPACE_SCHEMA_VERSION = '3'
 const DEFAULT_SEARCH_LIMIT = 20
 const DEFAULT_AUDIT_LIMIT = 50
 
@@ -198,6 +201,7 @@ implements WorkspaceRepository {
             max_z = ?,
             label = ?,
             purpose = ?,
+            moxue_use_policy = ?,
             constraints_json = ?,
             owner_principal = ?,
             source_selection_id = ?,
@@ -214,6 +218,7 @@ implements WorkspaceRepository {
         normalized.bounds.max.z,
         normalized.label,
         normalized.purpose,
+        normalized.moxueUsePolicy,
         serializeConstraints(normalized.constraints),
         normalized.ownerPrincipal,
         normalized.sourceSelectionId,
@@ -299,6 +304,14 @@ implements WorkspaceRepository {
         `w.purpose IN (${purposes.map(() => '?').join(', ')})`
       )
       params.push(...purposes)
+    }
+
+    if (parsed.usePolicies !== undefined) {
+      const policies = [...new Set(parsed.usePolicies)]
+      where.push(
+        `w.moxue_use_policy IN (${policies.map(() => '?').join(', ')})`
+      )
+      params.push(...policies)
     }
 
     if (parsed.ownerPrincipal !== undefined) {
@@ -438,6 +451,12 @@ implements WorkspaceRepository {
 
     if (existing.value === '1') {
       this.migrateV1ToV2()
+      this.migrateV2ToV3()
+      return
+    }
+
+    if (existing.value === '2') {
+      this.migrateV2ToV3()
       return
     }
 
@@ -465,6 +484,10 @@ implements WorkspaceRepository {
         max_z INTEGER NOT NULL,
         label TEXT NOT NULL,
         purpose TEXT NOT NULL,
+        moxue_use_policy TEXT NOT NULL DEFAULT 'shared'
+          CHECK (moxue_use_policy IN (
+            'owner_only', 'shared', 'moxue_preferred'
+          )),
         status TEXT NOT NULL DEFAULT 'active'
           CHECK (status IN ('active', 'archived')),
         constraints_json TEXT NOT NULL,
@@ -503,6 +526,8 @@ implements WorkspaceRepository {
         ON workspace_regions(world_key, purpose);
       CREATE INDEX IF NOT EXISTS idx_workspace_world_status
         ON workspace_regions(world_key, status);
+      CREATE INDEX IF NOT EXISTS idx_workspace_world_use_policy
+        ON workspace_regions(world_key, moxue_use_policy);
       CREATE INDEX IF NOT EXISTS idx_workspace_owner
         ON workspace_regions(world_key, owner_principal);
       CREATE INDEX IF NOT EXISTS idx_workspace_bounds
@@ -573,7 +598,7 @@ implements WorkspaceRepository {
         id, world_key, dimension,
         min_x, min_y, min_z,
         max_x, max_y, max_z,
-        label, purpose, status,
+        label, purpose, moxue_use_policy, status,
         constraints_json,
         owner_principal, source_selection_id,
         created_at, updated_at
@@ -581,7 +606,7 @@ implements WorkspaceRepository {
         ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, ?,
         ?,
         ?, ?,
         ?, ?
@@ -598,6 +623,7 @@ implements WorkspaceRepository {
       input.bounds.max.z,
       input.label,
       input.purpose,
+      input.moxueUsePolicy,
       status,
       serializeConstraints(input.constraints),
       input.ownerPrincipal,
@@ -699,6 +725,10 @@ implements WorkspaceRepository {
       },
       label: row.label,
       purpose: WorkspacePurposeSchema.parse(row.purpose),
+      moxueUsePolicy:
+        WorkspaceUsePolicySchema.parse(
+          row.moxue_use_policy
+        ),
       status: WorkspaceStatusSchema.parse(row.status),
       tags,
       constraints: parseConstraints(row.constraints_json),
@@ -722,6 +752,7 @@ interface NormalizedWorkspaceInput {
   readonly bounds: WorkspaceBounds
   readonly label: string
   readonly purpose: WorkspacePurpose
+  readonly moxueUsePolicy: WorkspaceUsePolicy
   readonly tags: readonly string[]
   readonly constraints: WorkspaceConstraints
   readonly ownerPrincipal: string
@@ -750,6 +781,7 @@ function normalizeInput(
     },
     label: parsed.label.trim(),
     purpose: parsed.purpose,
+    moxueUsePolicy: parsed.moxueUsePolicy,
     tags: normalizeTags(parsed.tags),
     constraints: structuredClone(parsed.constraints),
     ownerPrincipal: parsed.ownerPrincipal.trim(),
@@ -856,6 +888,10 @@ function requireWorkspaceRow(
     max_z: requireInteger(value.max_z, 'max_z'),
     label: requireString(value.label, 'label'),
     purpose: requireString(value.purpose, 'purpose'),
+    moxue_use_policy: requireString(
+      value.moxue_use_policy,
+      'moxue_use_policy'
+    ),
     status: requireString(value.status, 'status'),
     constraints_json: requireString(
       value.constraints_json,
