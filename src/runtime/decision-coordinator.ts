@@ -41,6 +41,12 @@ import type {
   WorkspaceChatInstructionRouter,
   WorkspaceChatRouteResult
 } from '../workspace/chat-router.js'
+import {
+  formatWorkspaceChatReply
+} from '../workspace/chat-reply.js'
+import type {
+  MinecraftChatOutput
+} from '../minecraft/chat-output.js'
 
 export interface DecisionCoordinatorStatus {
   readonly coordinatorState: 'running' | 'stopped'
@@ -76,6 +82,7 @@ export interface DecisionCoordinatorOptions {
   readonly botUsername: string
   readonly logicalExecutor: LogicalDecisionExecutor
   readonly workspaceChatRouter?: WorkspaceChatInstructionRouter
+  readonly chatOutput?: MinecraftChatOutput
   readonly decisionGate: DecisionGate
   readonly contextBuilder: ContextBuilder
   readonly safetyConstraints: readonly string[]
@@ -548,6 +555,9 @@ export class DecisionCoordinator {
     }
 
     if (result.kind !== 'fallback') {
+      this.replyToWorkspaceResult(
+        result
+      )
       return
     }
 
@@ -567,6 +577,27 @@ export class DecisionCoordinator {
       input.baseComplexityEvidence
     )
     await this.acceptNewTask(task)
+  }
+
+  private replyToWorkspaceResult(
+    result: WorkspaceChatRouteResult
+  ): void {
+    const output =
+      this.options.chatOutput
+    if (!output) return
+
+    const message =
+      formatWorkspaceChatReply(
+        result
+      )
+    if (!message) return
+
+    try {
+      output.sendMessage(message)
+    } catch {
+      // Player feedback must not change already
+      // completed Workspace state transitions.
+    }
   }
 
   private abortWorkspaceChatRouting(
