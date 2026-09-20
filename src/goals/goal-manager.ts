@@ -135,13 +135,24 @@ export class GoalManager {
 
     if (result.status === 'succeeded') {
       this.transition(record, 'succeeded')
+    } else if (result.status === 'cancelled') {
+      this.transition(record, 'cancelled')
+    } else {
+      this.transition(record, 'failed')
+    }
+
+    // Release ownership before publishing the terminal event. Event listeners
+    // may synchronously/async submit a replacement goal while publish() is
+    // still in progress. A stale completion must never clear that newer goal.
+    this.activeGoalId = null
+
+    if (result.status === 'succeeded') {
       await this.events?.publish({
         type: 'goal_completed',
         at: this.now(),
         goalId: record.goalId
       })
     } else if (result.status === 'cancelled') {
-      this.transition(record, 'cancelled')
       await this.events?.publish({
         type: 'goal_cancelled',
         at: this.now(),
@@ -149,7 +160,6 @@ export class GoalManager {
         code: sanitizeCode(result.code, 'cancelled')
       })
     } else {
-      this.transition(record, 'failed')
       await this.events?.publish({
         type: 'goal_failed',
         at: this.now(),
@@ -158,7 +168,6 @@ export class GoalManager {
       })
     }
 
-    this.activeGoalId = null
     await this.startNextQueued()
   }
 
