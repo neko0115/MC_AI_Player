@@ -291,6 +291,10 @@ test('workspace data and audit survive repository restart', () => {
       assert.equal(restored.status, 'active')
       assert.equal(restored.label, '快速熔爐')
       assert.equal(restored.purpose, 'production')
+      assert.equal(
+        restored.moxueUsePolicy,
+        'shared'
+      )
       assert.deepEqual(
         restored.bounds,
         created.bounds
@@ -315,7 +319,7 @@ test('workspace data and audit survive repository restart', () => {
   }
 })
 
-test('v1 database migrates to active v2 workspace status without losing existing rows', () => {
+test('v1 database migrates through v3 with active shared defaults without losing existing rows', () => {
   const directory = mkdtempSync(
     join(tmpdir(), 'mc-ai-workspace-v1-')
   )
