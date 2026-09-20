@@ -10,6 +10,9 @@ import type {
   LearnedWorkspaceIntentImportResult,
   LearnedWorkspaceIntentSnapshot
 } from './learned-intent-cache.js'
+import {
+  parseLearnedWorkspaceIntentSnapshot
+} from './learned-intent-cache.js'
 
 const ENVELOPE_FORMAT =
   'mc-ai-player.workspace-intent-cache.encrypted'
@@ -237,8 +240,9 @@ export function decryptWorkspaceIntentSnapshot(
     )
   }
 
-  return snapshot as
-    LearnedWorkspaceIntentSnapshot
+  return parseLearnedWorkspaceIntentSnapshot(
+    snapshot
+  )
 }
 
 export function exportEncryptedWorkspaceIntentCache(
