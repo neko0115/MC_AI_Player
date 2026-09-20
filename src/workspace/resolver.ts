@@ -69,6 +69,8 @@ export class WorkspaceResolver {
     input: ResolveWorkspaceInput
   ): WorkspaceResolution {
     const scope = normalizeScope(input)
+    const includeArchived =
+      input.includeArchived === true
 
     if (input.explicitReference !== undefined) {
       return this.resolveExplicit(
