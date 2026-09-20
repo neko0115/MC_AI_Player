@@ -73,14 +73,15 @@ export class WorkspaceResolver {
     if (input.explicitReference !== undefined) {
       return this.resolveExplicit(
         scope,
-        input.explicitReference
+        input.explicitReference,
+        includeArchived
       )
     }
 
     const conversation = this.activeOwnedById(
       scope,
       input.conversationWorkspaceId,
-      input.includeArchived === true
+      includeArchived
     )
     if (conversation) {
       return resolved(
@@ -94,7 +95,7 @@ export class WorkspaceResolver {
       dimension: scope.dimension,
       ownerPrincipal: scope.actorPrincipal,
       includeArchived:
-        input.includeArchived === true,
+        includeArchived,
       limit: MAX_CANDIDATES
     })
 
@@ -146,7 +147,7 @@ export class WorkspaceResolver {
     const recent = this.activeOwnedById(
       scope,
       input.recentWorkspaceId,
-      input.includeArchived === true
+      includeArchived
     )
     if (recent) {
       return resolved(
@@ -163,7 +164,8 @@ export class WorkspaceResolver {
 
   private resolveExplicit(
     scope: NormalizedScope,
-    reference: string
+    reference: string,
+    includeArchived: boolean
   ): WorkspaceResolution {
     const normalizedReference =
       normalizeReference(reference)
@@ -179,7 +181,7 @@ export class WorkspaceResolver {
       this.ownedById(
         scope,
         normalizedReference,
-        input.includeArchived === true
+        includeArchived
       )
     if (direct) {
       return resolved(
@@ -193,7 +195,7 @@ export class WorkspaceResolver {
       dimension: scope.dimension,
       ownerPrincipal: scope.actorPrincipal,
       includeArchived:
-        input.includeArchived === true,
+        includeArchived,
       limit: MAX_CANDIDATES
     })
 
