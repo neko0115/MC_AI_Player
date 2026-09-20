@@ -987,7 +987,59 @@ Final automated evidence:
 - typecheck PASS in the requested validation sequence;
 - working tree clean.
 
-W5C1 is complete. W5C2 now owns authenticated encrypted export/import for learned semantics.
+W5C1 is complete.
+
+##### W5C2 authenticated encrypted export/import — implementation complete, verification pending
+
+Relevant commits:
+
+- `e8fd5bc` — `feat: add encrypted workspace semantic export`;
+- `83fe057` — `fix: validate complete learned cache rows and snapshots`;
+- `3d7d896` — `fix: validate decrypted workspace semantic snapshots`;
+- `14af635` — `test: harden encrypted workspace semantic imports`.
+
+Implemented:
+
+- versioned transfer snapshot for learned semantic records;
+- record-level export/import instead of copying the live SQLite file;
+- current semantic-contract records only are exported;
+- transfer records contain HMAC fingerprint, validated intent, intent hash, applicability, success/revocation metadata and timestamps;
+- no raw utterance is present in transfer records;
+- import revalidates snapshot schema, intent schema and intent hash;
+- incompatible semantic contract records are skipped rather than coerced;
+- merge is record-level and preserves learned conflicts instead of selecting a winner;
+- same mapping merges created/update/success metadata conservatively;
+- revocation tombstones survive export/import;
+- AES-256-GCM authenticated encryption;
+- 12-byte random nonce and 16-byte auth tag;
+- encrypted envelope has a strict version/algorithm schema;
+- wrong key or tampered ciphertext fails authentication;
+- decrypted plaintext is schema-validated before import;
+- encrypted payload is bounded to 16 MiB;
+- HKDF-SHA256 derives separate 32-byte keys for:
+  - HMAC semantic fingerprints;
+  - AES-256-GCM export encryption;
+- one master secret therefore does not reuse identical key material across both cryptographic purposes.
+
+Important boundary:
+
+- this implements the portable encrypted format only;
+- runtime does not automatically push or pull GitHub;
+- the master secret is not stored in the export and must never be committed;
+- explicit GitHub transport/sync will be a later layer over this format.
+
+**W5C2 verification status:** local verification pending.
+
+**Next exact action:**
+
+1. fast-forward `feature/workspace-planner`;
+2. run focused learned cache + encrypted export tests;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree clean;
+6. if green, mark W5C2 PASS;
+7. then implement the production Gemini-backed WorkspaceIntentInterpreter using existing ProjectPool/quota/failover;
+8. after Gemini semantic interpretation is green/live, add an explicit encrypted GitHub sync command/workflow rather than implicit runtime pushes.
 
 **Next exact action:**
 
