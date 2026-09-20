@@ -630,7 +630,7 @@ Final automated evidence:
 
 W4B is complete.
 
-#### W4C bounded Workspace management entrypoints — implementation starting
+#### W4C bounded Workspace management entrypoints — implementation in progress
 
 Direction:
 
@@ -639,6 +639,39 @@ Direction:
 - do not expose low-level physical purge;
 - keep chat binding as a thin semantic layer over the same lifecycle/resolver services;
 - no Minecraft world mutation is introduced by Workspace management.
+
+##### W4C1 WorkspaceManagementService — implementation complete, verification pending
+
+Commits:
+
+- `acd23e9` — `feat: add bounded workspace management service`;
+- `24d00ae` — `fix: preserve workspace lifecycle management errors`;
+- `6f73336` — `test: fail archived resize before selection lookup`.
+
+Behavior:
+
+- create uses only the current trusted selection for the authoritative actor/world/dimension;
+- stale, unavailable or missing selection fails closed;
+- arbitrary coordinates are not accepted by the management service;
+- list/get are fixed to application world + owner scope;
+- rename/purpose/tags/constraints delegate to audited lifecycle rules;
+- resize uses the current trusted selection, never caller-supplied bounds;
+- archived resize fails as `workspace_archived` before consulting the selection source;
+- archive/restore remain owner-scoped;
+- audit history is owner-scoped;
+- foreign-world workspace ids are hidden as not found;
+- lifecycle error codes are preserved through the management layer.
+
+**W4C1 verification status:** local verification pending.
+
+**Next exact action:**
+
+1. fast-forward workspace worktree;
+2. run `npm test -- tests/workspace/sqlite-repository.test.ts tests/workspace/lifecycle-service.test.ts tests/workspace/resolver.test.ts tests/workspace/management-service.test.ts`;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree clean;
+6. if green, wire WorkspaceRepository + WorkspaceManagementService into application lifecycle and Control API without exposing physical purge.
 
 **Next exact action:**
 
