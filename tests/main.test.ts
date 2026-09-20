@@ -571,6 +571,44 @@ test('enabled MoxueBridge capability source participates in lifecycle and AI con
         }
       }
     )
+
+    const workspace =
+      control.options.workspaceManagement
+        ?.create({
+          dimension: 'overworld',
+          actorPrincipal: 'player-1',
+          label: 'Live test farm',
+          purpose: 'farm'
+        })
+    assert.ok(workspace)
+    assert.equal(
+      workspace.worldKey,
+      'localhost:25565'
+    )
+    assert.equal(
+      workspace.ownerPrincipal,
+      'player-1'
+    )
+    assert.equal(
+      workspace.sourceSelectionId,
+      'selection-live'
+    )
+    assert.deepEqual(
+      workspace.bounds,
+      {
+        min: { x: 1, y: 64, z: 2 },
+        max: { x: 8, y: 64, z: 9 }
+      }
+    )
+    assert.deepEqual(
+      control.options.workspaceManagement
+        ?.list({
+          actorPrincipal: 'player-1',
+          dimension: 'overworld'
+        })
+        .map(item => item.id),
+      [workspace.id]
+    )
   } finally {
     current.recorder.releaseFirst()
     await current.application.close()
