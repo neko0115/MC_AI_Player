@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import {
   mkdtempSync,
   rmSync
@@ -15,6 +16,8 @@ import {
 import type {
   WorkspaceRegionInput
 } from '../../src/workspace/contracts.js'
+
+const require = createRequire(import.meta.url)
 
 function workspace(
   overrides: Partial<WorkspaceRegionInput> = {}
@@ -38,13 +41,16 @@ function workspace(
   }
 }
 
-test('workspace create round-trips exact geometry, semantics and provenance', () => {
+test('workspace create round-trips exact geometry, semantics, active status, provenance and audit', () => {
   let now = 100
+  let auditId = 0
   const repo = new SqliteWorkspaceRepository(
     ':memory:',
     {
       now: () => now++,
-      nextId: () => 'workspace-1'
+      nextId: () => 'workspace-1',
+      nextAuditId: () =>
+        `audit-${++auditId}`
     }
   )
 
@@ -52,6 +58,7 @@ test('workspace create round-trips exact geometry, semantics and provenance', ()
     const created = repo.create(workspace())
 
     assert.equal(created.id, 'workspace-1')
+    assert.equal(created.status, 'active')
     assert.equal(created.createdAt, 100)
     assert.equal(created.updatedAt, 100)
     assert.deepEqual(created.bounds, {
@@ -72,18 +79,25 @@ test('workspace create round-trips exact geometry, semantics and provenance', ()
       created.ownerPrincipal,
       'player-1'
     )
+    assert.equal(
+      repo.listAudit(created.id)[0]?.action,
+      'created'
+    )
   } finally {
     repo.close()
   }
 })
 
-test('workspace update preserves identity and creation time while replacing mutable metadata', () => {
+test('workspace update preserves identity/status/creation time while replacing mutable metadata and auditing', () => {
   let now = 100
+  let auditId = 0
   const repo = new SqliteWorkspaceRepository(
     ':memory:',
     {
       now: () => now++,
-      nextId: () => 'workspace-1'
+      nextId: () => 'workspace-1',
+      nextAuditId: () =>
+        `audit-${++auditId}`
     }
   )
 
@@ -105,6 +119,7 @@ test('workspace update preserves identity and creation time while replacing muta
 
     assert.ok(updated)
     assert.equal(updated.id, created.id)
+    assert.equal(updated.status, 'active')
     assert.equal(updated.createdAt, created.createdAt)
     assert.equal(updated.updatedAt, 101)
     assert.equal(updated.label, '東側農田')
@@ -117,6 +132,11 @@ test('workspace update preserves identity and creation time while replacing muta
     assert.equal(
       updated.sourceSelectionId,
       'selection-2'
+    )
+    assert.deepEqual(
+      repo.listAudit(created.id)
+        .map(entry => entry.action),
+      ['updated', 'created']
     )
   } finally {
     repo.close()
@@ -196,10 +216,13 @@ test('workspace search is isolated by world/dimension and supports tags, purpose
   }
 })
 
-test('workspace delete removes exactly one region and its tags', () => {
+test('low-level delete physically purges one workspace and cascades tags/audit for maintenance use', () => {
   const repo = new SqliteWorkspaceRepository(
     ':memory:',
-    { nextId: () => 'workspace-delete' }
+    {
+      nextId: () => 'workspace-delete',
+      nextAuditId: () => 'audit-delete'
+    }
   )
 
   try {
@@ -211,8 +234,13 @@ test('workspace delete removes exactly one region and its tags', () => {
       repo.search({
         worldKey: 'server:survival',
         tags: ['smelting'],
+        includeArchived: true,
         limit: 10
       }),
+      []
+    )
+    assert.deepEqual(
+      repo.listAudit(created.id),
       []
     )
   } finally {
@@ -220,7 +248,7 @@ test('workspace delete removes exactly one region and its tags', () => {
   }
 })
 
-test('workspace data survives repository restart', () => {
+test('workspace data and audit survive repository restart', () => {
   const directory = mkdtempSync(
     join(tmpdir(), 'mc-ai-workspaces-')
   )
@@ -234,6 +262,7 @@ test('workspace data survives repository restart', () => {
       filename,
       {
         nextId: () => 'workspace-persist',
+        nextAuditId: () => 'audit-persist',
         now: () => 123
       }
     )
@@ -245,6 +274,7 @@ test('workspace data survives repository restart', () => {
     try {
       const restored = reopened.get(created.id)
       assert.ok(restored)
+      assert.equal(restored.status, 'active')
       assert.equal(restored.label, '快速熔爐')
       assert.equal(restored.purpose, 'production')
       assert.deepEqual(
@@ -255,8 +285,125 @@ test('workspace data survives repository restart', () => {
         restored.sourceSelectionId,
         'selection-1'
       )
+      assert.equal(
+        reopened.listAudit(created.id)
+          .length,
+        1
+      )
     } finally {
       reopened.close()
+    }
+  } finally {
+    rmSync(directory, {
+      recursive: true,
+      force: true
+    })
+  }
+})
+
+test('v1 database migrates to active v2 workspace status without losing existing rows', () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), 'mc-ai-workspace-v1-')
+  )
+  const filename = join(
+    directory,
+    'workspaces.sqlite3'
+  )
+  const Database =
+    require('better-sqlite3') as new (
+      filename: string
+    ) => {
+      exec(sql: string): void
+      prepare(sql: string): {
+        run(...params: unknown[]): unknown
+      }
+      close(): void
+    }
+
+  try {
+    const db = new Database(filename)
+    db.exec(`
+      CREATE TABLE workspace_schema_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE workspace_regions (
+        id TEXT PRIMARY KEY,
+        world_key TEXT NOT NULL,
+        dimension TEXT NOT NULL,
+        min_x INTEGER NOT NULL,
+        min_y INTEGER NOT NULL,
+        min_z INTEGER NOT NULL,
+        max_x INTEGER NOT NULL,
+        max_y INTEGER NOT NULL,
+        max_z INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        constraints_json TEXT NOT NULL,
+        owner_principal TEXT NOT NULL,
+        source_selection_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE workspace_tags (
+        workspace_id TEXT NOT NULL
+          REFERENCES workspace_regions(id)
+          ON DELETE CASCADE,
+        tag TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, tag)
+      );
+    `)
+    db.prepare(
+      'INSERT INTO workspace_schema_meta (key, value) VALUES (?, ?)'
+    ).run('schema_version', '1')
+    db.prepare(`
+      INSERT INTO workspace_regions (
+        id, world_key, dimension,
+        min_x, min_y, min_z,
+        max_x, max_y, max_z,
+        label, purpose, constraints_json,
+        owner_principal, source_selection_id,
+        created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?
+      )
+    `).run(
+      'workspace-old',
+      'server:survival',
+      'overworld',
+      0, 64, 0,
+      8, 64, 8,
+      'Legacy farm',
+      'farm',
+      '{}',
+      'player-1',
+      'selection-old',
+      10,
+      10
+    )
+    db.close()
+
+    const repo =
+      new SqliteWorkspaceRepository(filename)
+    try {
+      const migrated =
+        repo.get('workspace-old')
+      assert.ok(migrated)
+      assert.equal(
+        migrated.status,
+        'active'
+      )
+      assert.equal(
+        migrated.label,
+        'Legacy farm'
+      )
+      assert.deepEqual(
+        repo.listAudit('workspace-old'),
+        []
+      )
+    } finally {
+      repo.close()
     }
   } finally {
     rmSync(directory, {

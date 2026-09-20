@@ -1,16 +1,23 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import {
+  WorkspaceAuditActionSchema,
+  WorkspaceAuditInputSchema,
+  WorkspaceAuditRecordSchema,
   WorkspacePurposeSchema,
   WorkspaceRegionInputSchema,
   WorkspaceRegionSchema,
   WorkspaceSearchQuerySchema,
+  WorkspaceStatusSchema,
+  type WorkspaceAuditInput,
+  type WorkspaceAuditRecord,
   type WorkspaceBounds,
   type WorkspaceConstraints,
   type WorkspacePurpose,
   type WorkspaceRegion,
   type WorkspaceRegionInput,
-  type WorkspaceSearchQuery
+  type WorkspaceSearchQuery,
+  type WorkspaceStatus
 } from './contracts.js'
 import type { WorkspaceRepository } from './repository.js'
 
@@ -51,11 +58,22 @@ interface WorkspaceRow {
   max_z: number
   label: string
   purpose: string
+  status: string
   constraints_json: string
   owner_principal: string
   source_selection_id: string | null
   created_at: number
   updated_at: number
+}
+
+interface AuditRow {
+  event_id: string
+  workspace_id: string
+  actor_principal: string
+  action: string
+  safe_summary: string
+  source_selection_id: string | null
+  created_at: number
 }
 
 interface TagRow {
@@ -65,18 +83,21 @@ interface TagRow {
 export interface SqliteWorkspaceRepositoryOptions {
   readonly now?: () => number
   readonly nextId?: () => string
+  readonly nextAuditId?: () => string
 }
 
 const require = createRequire(import.meta.url)
 const Database = require('better-sqlite3') as DatabaseConstructor
-const WORKSPACE_SCHEMA_VERSION = '1'
+const WORKSPACE_SCHEMA_VERSION = '2'
 const DEFAULT_SEARCH_LIMIT = 20
+const DEFAULT_AUDIT_LIMIT = 50
 
 export class SqliteWorkspaceRepository
 implements WorkspaceRepository {
   private readonly db: DatabaseLike
   private readonly now: () => number
   private readonly nextId: () => string
+  private readonly nextAuditId: () => string
   private closed = false
 
   constructor(
@@ -92,6 +113,7 @@ implements WorkspaceRepository {
 
     this.now = options.now ?? Date.now
     this.nextId = options.nextId ?? randomUUID
+    this.nextAuditId = options.nextAuditId ?? randomUUID
     this.db = new Database(filename)
 
     try {
@@ -104,20 +126,37 @@ implements WorkspaceRepository {
     }
   }
 
-  create(input: WorkspaceRegionInput): WorkspaceRegion {
+  create(
+    input: WorkspaceRegionInput,
+    audit?: WorkspaceAuditInput
+  ): WorkspaceRegion {
     this.assertOpen()
     const normalized = normalizeInput(input)
     const id = normalizeId(this.nextId())
     const timestamp = this.now()
+    const normalizedAudit = normalizeAudit(
+      audit ?? {
+        actorPrincipal: normalized.ownerPrincipal,
+        action: 'created',
+        safeSummary: 'Workspace created',
+        sourceSelectionId: normalized.sourceSelectionId
+      }
+    )
 
     const write = this.db.transaction(() => {
       this.insertRegion(
         id,
         normalized,
+        'active',
         timestamp,
         timestamp
       )
       this.replaceTags(id, normalized.tags)
+      this.insertAudit(
+        id,
+        normalizedAudit,
+        timestamp
+      )
     })
     write()
 
@@ -126,7 +165,8 @@ implements WorkspaceRepository {
 
   update(
     id: string,
-    input: WorkspaceRegionInput
+    input: WorkspaceRegionInput,
+    audit?: WorkspaceAuditInput
   ): WorkspaceRegion | null {
     this.assertOpen()
     const normalizedId = normalizeOptionalId(id)
@@ -136,6 +176,15 @@ implements WorkspaceRepository {
     if (!existing) return null
 
     const timestamp = this.now()
+    const normalizedAudit = normalizeAudit(
+      audit ?? {
+        actorPrincipal: existing.owner_principal,
+        action: 'updated',
+        safeSummary: 'Workspace updated',
+        sourceSelectionId: normalized.sourceSelectionId
+      }
+    )
+
     const write = this.db.transaction(() => {
       this.db.prepare(`
         UPDATE workspace_regions
@@ -173,6 +222,45 @@ implements WorkspaceRepository {
       )
 
       this.replaceTags(normalizedId, normalized.tags)
+      this.insertAudit(
+        normalizedId,
+        normalizedAudit,
+        timestamp
+      )
+    })
+    write()
+
+    return this.requireById(normalizedId)
+  }
+
+  setStatus(
+    id: string,
+    status: WorkspaceStatus,
+    audit: WorkspaceAuditInput
+  ): WorkspaceRegion | null {
+    this.assertOpen()
+    const normalizedId = normalizeOptionalId(id)
+    if (normalizedId === null) return null
+    const parsedStatus = WorkspaceStatusSchema.parse(status)
+    const normalizedAudit = normalizeAudit(audit)
+    if (!this.rowById(normalizedId)) return null
+
+    const timestamp = this.now()
+    const write = this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE workspace_regions
+        SET status = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        parsedStatus,
+        timestamp,
+        normalizedId
+      )
+      this.insertAudit(
+        normalizedId,
+        normalizedAudit,
+        timestamp
+      )
     })
     write()
 
@@ -194,6 +282,11 @@ implements WorkspaceRepository {
     const parsed = WorkspaceSearchQuerySchema.parse(query)
     const where: string[] = ['w.world_key = ?']
     const params: SqlValue[] = [parsed.worldKey.trim()]
+
+    if (!parsed.includeArchived) {
+      where.push('w.status = ?')
+      params.push('active')
+    }
 
     if (parsed.dimension !== undefined) {
       where.push('w.dimension = ?')
@@ -259,6 +352,36 @@ implements WorkspaceRepository {
       .map(row => this.hydrate(row))
   }
 
+  listAudit(
+    workspaceId: string,
+    limit = DEFAULT_AUDIT_LIMIT
+  ): WorkspaceAuditRecord[] {
+    this.assertOpen()
+    const normalizedId =
+      normalizeOptionalId(workspaceId)
+    if (normalizedId === null) return []
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      throw new RangeError(
+        'audit limit must be an integer between 1 and 100'
+      )
+    }
+
+    return this.db.prepare(`
+      SELECT *
+      FROM workspace_audit
+      WHERE workspace_id = ?
+      ORDER BY created_at DESC, event_id ASC
+      LIMIT ?
+    `)
+      .all(normalizedId, limit)
+      .map(requireAuditRow)
+      .map(hydrateAudit)
+  }
+
   delete(id: string): boolean {
     this.assertOpen()
     const normalizedId = normalizeOptionalId(id)
@@ -291,7 +414,45 @@ implements WorkspaceRepository {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `)
 
+    const existing = this.db
+      .prepare(
+        'SELECT value FROM workspace_schema_meta WHERE key = ?'
+      )
+      .get('schema_version') as
+        | { value?: unknown }
+        | undefined
+
+    if (existing === undefined) {
+      this.createV2Schema()
+      this.db.prepare(`
+        INSERT INTO workspace_schema_meta (key, value)
+        VALUES (?, ?)
+      `).run(
+        'schema_version',
+        WORKSPACE_SCHEMA_VERSION
+      )
+      return
+    }
+
+    if (existing.value === '1') {
+      this.migrateV1ToV2()
+      return
+    }
+
+    if (existing.value !== WORKSPACE_SCHEMA_VERSION) {
+      throw new Error(
+        'unsupported workspace schema version: ' +
+        String(existing.value)
+      )
+    }
+
+    this.createV2Schema()
+  }
+
+  private createV2Schema(): void {
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS workspace_regions (
         id TEXT PRIMARY KEY,
         world_key TEXT NOT NULL,
@@ -304,6 +465,8 @@ implements WorkspaceRepository {
         max_z INTEGER NOT NULL,
         label TEXT NOT NULL,
         purpose TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+          CHECK (status IN ('active', 'archived')),
         constraints_json TEXT NOT NULL,
         owner_principal TEXT NOT NULL,
         source_selection_id TEXT,
@@ -321,12 +484,25 @@ implements WorkspaceRepository {
         PRIMARY KEY (workspace_id, tag)
       );
 
+      CREATE TABLE IF NOT EXISTS workspace_audit (
+        event_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL
+          REFERENCES workspace_regions(id) ON DELETE CASCADE,
+        actor_principal TEXT NOT NULL,
+        action TEXT NOT NULL,
+        safe_summary TEXT NOT NULL,
+        source_selection_id TEXT,
+        created_at INTEGER NOT NULL CHECK (created_at >= 0)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_workspace_world
         ON workspace_regions(world_key);
       CREATE INDEX IF NOT EXISTS idx_workspace_world_dimension
         ON workspace_regions(world_key, dimension);
       CREATE INDEX IF NOT EXISTS idx_workspace_world_purpose
         ON workspace_regions(world_key, purpose);
+      CREATE INDEX IF NOT EXISTS idx_workspace_world_status
+        ON workspace_regions(world_key, status);
       CREATE INDEX IF NOT EXISTS idx_workspace_owner
         ON workspace_regions(world_key, owner_principal);
       CREATE INDEX IF NOT EXISTS idx_workspace_bounds
@@ -336,34 +512,59 @@ implements WorkspaceRepository {
         );
       CREATE INDEX IF NOT EXISTS idx_workspace_tags_tag
         ON workspace_tags(tag, workspace_id);
+      CREATE INDEX IF NOT EXISTS idx_workspace_audit_workspace
+        ON workspace_audit(
+          workspace_id,
+          created_at DESC
+        );
     `)
+  }
 
-    const existing = this.db
-      .prepare(
-        'SELECT value FROM workspace_schema_meta WHERE key = ?'
-      )
-      .get('schema_version') as
-        | { value?: unknown }
-        | undefined
+  private migrateV1ToV2(): void {
+    const migrate = this.db.transaction(() => {
+      this.db.exec(`
+        ALTER TABLE workspace_regions
+        ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
+          CHECK (status IN ('active', 'archived'));
 
-    if (existing === undefined) {
+        CREATE TABLE IF NOT EXISTS workspace_audit (
+          event_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL
+            REFERENCES workspace_regions(id) ON DELETE CASCADE,
+          actor_principal TEXT NOT NULL,
+          action TEXT NOT NULL,
+          safe_summary TEXT NOT NULL,
+          source_selection_id TEXT,
+          created_at INTEGER NOT NULL CHECK (created_at >= 0)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workspace_world_status
+          ON workspace_regions(world_key, status);
+
+        CREATE INDEX IF NOT EXISTS idx_workspace_audit_workspace
+          ON workspace_audit(
+            workspace_id,
+            created_at DESC
+          );
+      `)
+
       this.db.prepare(`
-        INSERT INTO workspace_schema_meta (key, value)
-        VALUES (?, ?)
-      `).run('schema_version', WORKSPACE_SCHEMA_VERSION)
-    } else if (
-      existing.value !== WORKSPACE_SCHEMA_VERSION
-    ) {
-      throw new Error(
-        'unsupported workspace schema version: ' +
-        String(existing.value)
+        UPDATE workspace_schema_meta
+        SET value = ?
+        WHERE key = ?
+      `).run(
+        WORKSPACE_SCHEMA_VERSION,
+        'schema_version'
       )
-    }
+    })
+    migrate()
+    this.createV2Schema()
   }
 
   private insertRegion(
     id: string,
     input: NormalizedWorkspaceInput,
+    status: WorkspaceStatus,
     createdAt: number,
     updatedAt: number
   ): void {
@@ -372,7 +573,8 @@ implements WorkspaceRepository {
         id, world_key, dimension,
         min_x, min_y, min_z,
         max_x, max_y, max_z,
-        label, purpose, constraints_json,
+        label, purpose, status,
+        constraints_json,
         owner_principal, source_selection_id,
         created_at, updated_at
       ) VALUES (
@@ -380,6 +582,7 @@ implements WorkspaceRepository {
         ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
+        ?,
         ?, ?,
         ?, ?
       )
@@ -395,6 +598,7 @@ implements WorkspaceRepository {
       input.bounds.max.z,
       input.label,
       input.purpose,
+      status,
       serializeConstraints(input.constraints),
       input.ownerPrincipal,
       input.sourceSelectionId,
@@ -418,6 +622,32 @@ implements WorkspaceRepository {
     for (const tag of tags) {
       insert.run(id, tag)
     }
+  }
+
+  private insertAudit(
+    workspaceId: string,
+    audit: NormalizedAuditInput,
+    createdAt: number
+  ): void {
+    this.db.prepare(`
+      INSERT INTO workspace_audit (
+        event_id,
+        workspace_id,
+        actor_principal,
+        action,
+        safe_summary,
+        source_selection_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      normalizeId(this.nextAuditId()),
+      workspaceId,
+      audit.actorPrincipal,
+      audit.action,
+      audit.safeSummary,
+      audit.sourceSelectionId,
+      createdAt
+    )
   }
 
   private rowById(id: string): WorkspaceRow | null {
@@ -469,6 +699,7 @@ implements WorkspaceRepository {
       },
       label: row.label,
       purpose: WorkspacePurposeSchema.parse(row.purpose),
+      status: WorkspaceStatusSchema.parse(row.status),
       tags,
       constraints: parseConstraints(row.constraints_json),
       ownerPrincipal: row.owner_principal,
@@ -497,6 +728,14 @@ interface NormalizedWorkspaceInput {
   readonly sourceSelectionId: string | null
 }
 
+interface NormalizedAuditInput {
+  readonly actorPrincipal: string
+  readonly action:
+    ReturnType<typeof WorkspaceAuditActionSchema.parse>
+  readonly safeSummary: string
+  readonly sourceSelectionId: string | null
+}
+
 function normalizeInput(
   input: WorkspaceRegionInput
 ): NormalizedWorkspaceInput {
@@ -518,6 +757,19 @@ function normalizeInput(
       parsed.sourceSelectionId === null
         ? null
         : parsed.sourceSelectionId.trim()
+  }
+}
+
+function normalizeAudit(
+  input: WorkspaceAuditInput
+): NormalizedAuditInput {
+  const parsed = WorkspaceAuditInputSchema.parse(input)
+  return {
+    actorPrincipal: parsed.actorPrincipal.trim(),
+    action: parsed.action,
+    safeSummary: parsed.safeSummary.trim(),
+    sourceSelectionId:
+      parsed.sourceSelectionId ?? null
   }
 }
 
@@ -576,7 +828,9 @@ function normalizeOptionalId(
 function normalizeId(value: string): string {
   const normalized = normalizeOptionalId(value)
   if (normalized === null) {
-    throw new Error('workspace id generator returned invalid id')
+    throw new Error(
+      'workspace id generator returned invalid id'
+    )
   }
   return normalized
 }
@@ -602,6 +856,7 @@ function requireWorkspaceRow(
     max_z: requireInteger(value.max_z, 'max_z'),
     label: requireString(value.label, 'label'),
     purpose: requireString(value.purpose, 'purpose'),
+    status: requireString(value.status, 'status'),
     constraints_json: requireString(
       value.constraints_json,
       'constraints_json'
@@ -623,6 +878,61 @@ function requireWorkspaceRow(
       'updated_at'
     )
   }
+}
+
+function requireAuditRow(
+  value: unknown
+): AuditRow {
+  if (!isObject(value)) {
+    throw new Error(
+      'invalid workspace audit row returned by sqlite'
+    )
+  }
+
+  return {
+    event_id: requireString(
+      value.event_id,
+      'event_id'
+    ),
+    workspace_id: requireString(
+      value.workspace_id,
+      'workspace_id'
+    ),
+    actor_principal: requireString(
+      value.actor_principal,
+      'actor_principal'
+    ),
+    action: requireString(
+      value.action,
+      'action'
+    ),
+    safe_summary: requireString(
+      value.safe_summary,
+      'safe_summary'
+    ),
+    source_selection_id: nullableString(
+      value.source_selection_id,
+      'source_selection_id'
+    ),
+    created_at: requireNonNegativeInteger(
+      value.created_at,
+      'created_at'
+    )
+  }
+}
+
+function hydrateAudit(
+  row: AuditRow
+): WorkspaceAuditRecord {
+  return WorkspaceAuditRecordSchema.parse({
+    eventId: row.event_id,
+    workspaceId: row.workspace_id,
+    actorPrincipal: row.actor_principal,
+    action: WorkspaceAuditActionSchema.parse(row.action),
+    safeSummary: row.safe_summary,
+    sourceSelectionId: row.source_selection_id,
+    createdAt: row.created_at
+  })
 }
 
 function requireTagRow(value: unknown): TagRow {

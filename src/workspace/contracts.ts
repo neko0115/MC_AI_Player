@@ -96,6 +96,13 @@ export const WorkspacePurposeSchema = z.enum([
 
 export type WorkspacePurpose = z.infer<typeof WorkspacePurposeSchema>
 
+export const WorkspaceStatusSchema = z.enum([
+  'active',
+  'archived'
+])
+
+export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>
+
 export const WorkspaceConstraintsSchema = z
   .object({
     preserveExistingStructures: z.boolean().optional(),
@@ -140,6 +147,7 @@ export const WorkspaceRegionSchema = z
     bounds: WorkspaceBoundsSchema,
     label: WorkspaceLabelSchema,
     purpose: WorkspacePurposeSchema,
+    status: WorkspaceStatusSchema,
     tags: z.array(WorkspaceTagSchema).max(32),
     constraints: WorkspaceConstraintsSchema,
     ownerPrincipal: z.string().trim().min(1).max(128),
@@ -152,10 +160,10 @@ export const WorkspaceRegionSchema = z
 export type WorkspaceRegion =
   z.infer<typeof WorkspaceRegionSchema>
 
-
 export const WorkspaceRegionInputSchema = WorkspaceRegionSchema
   .omit({
     id: true,
+    status: true,
     createdAt: true,
     updatedAt: true
   })
@@ -172,6 +180,7 @@ export const WorkspaceSearchQuerySchema = z
     tags: z.array(WorkspaceTagSchema).min(1).max(32).optional(),
     ownerPrincipal: z.string().trim().min(1).max(128).optional(),
     intersects: WorkspaceBoundsSchema.optional(),
+    includeArchived: z.boolean().optional(),
     limit: z.number().int().min(1).max(100).optional()
   })
   .strict()
@@ -179,6 +188,44 @@ export const WorkspaceSearchQuerySchema = z
 export type WorkspaceSearchQuery =
   z.input<typeof WorkspaceSearchQuerySchema>
 
+export const WorkspaceAuditActionSchema = z.enum([
+  'created',
+  'updated',
+  'renamed',
+  'resized',
+  'purpose_changed',
+  'tags_changed',
+  'constraints_changed',
+  'archived',
+  'restored'
+])
+
+export type WorkspaceAuditAction =
+  z.infer<typeof WorkspaceAuditActionSchema>
+
+export const WorkspaceAuditInputSchema = z
+  .object({
+    actorPrincipal: z.string().trim().min(1).max(128),
+    action: WorkspaceAuditActionSchema,
+    safeSummary: z.string().trim().min(1).max(500),
+    sourceSelectionId: WorkspaceIdentifierSchema.nullable().optional()
+  })
+  .strict()
+
+export type WorkspaceAuditInput =
+  z.input<typeof WorkspaceAuditInputSchema>
+
+export const WorkspaceAuditRecordSchema = WorkspaceAuditInputSchema
+  .extend({
+    eventId: WorkspaceIdentifierSchema,
+    workspaceId: WorkspaceIdentifierSchema,
+    sourceSelectionId: WorkspaceIdentifierSchema.nullable(),
+    createdAt: z.number().int().nonnegative()
+  })
+  .strict()
+
+export type WorkspaceAuditRecord =
+  z.infer<typeof WorkspaceAuditRecordSchema>
 
 export const WorkspaceSelectionSnapshotSchema = z
   .object({
