@@ -31,6 +31,7 @@ export type WorkspaceResolution =
       readonly kind: 'ambiguous'
       readonly reason:
         | 'explicit'
+        | 'selection_source'
         | 'selection_intersection'
         | 'nearby'
       readonly candidates: readonly WorkspaceRegion[]
@@ -328,7 +329,7 @@ function resolveBySelection(
 
   if (exact.length > 1) {
     return ambiguous(
-      'selection_intersection',
+      'selection_source',
       exact
     )
   }
@@ -441,6 +442,7 @@ function resolved(
 function ambiguous(
   reason:
     | 'explicit'
+    | 'selection_source'
     | 'selection_intersection'
     | 'nearby',
   candidates: readonly WorkspaceRegion[]
