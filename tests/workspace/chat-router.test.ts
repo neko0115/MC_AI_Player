@@ -25,6 +25,11 @@ class FakeInterpreter
 implements WorkspaceIntentInterpreter {
   readonly contexts:
     WorkspaceSemanticContext[] = []
+  readonly learned:
+    Array<{
+      context: WorkspaceSemanticContext
+      intent: WorkspaceChatIntent
+    }> = []
   intent:
     WorkspaceChatIntent = {
       kind: 'not_workspace'
@@ -40,6 +45,18 @@ implements WorkspaceIntentInterpreter {
     return structuredClone(
       this.intent
     )
+  }
+
+  learnSuccessful(
+    context: WorkspaceSemanticContext,
+    intent: WorkspaceChatIntent
+  ): void {
+    this.learned.push({
+      context:
+        structuredClone(context),
+      intent:
+        structuredClone(intent)
+    })
   }
 }
 
@@ -192,6 +209,16 @@ test('router preserves arbitrary natural language and lets semantic intent creat
         'farm'
       )
     }
+    assert.equal(
+      current.interpreter
+        .learned.length,
+      1
+    )
+    assert.equal(
+      current.interpreter
+        .learned[0]?.intent.kind,
+      'create'
+    )
   } finally {
     current.repository.close()
   }
@@ -227,6 +254,11 @@ test('not_workspace falls through without creating or mutating workspace state',
         includeArchived: true
       }),
       []
+    )
+    assert.equal(
+      current.interpreter
+        .learned.length,
+      0
     )
   } finally {
     current.repository.close()
@@ -319,6 +351,11 @@ test('router asks for selection instead of guessing when semantic create has no 
         kind: 'clarify',
         reason: 'missing_selection'
       }
+    )
+    assert.equal(
+      current.interpreter
+        .learned.length,
+      0
     )
   } finally {
     current.repository.close()
