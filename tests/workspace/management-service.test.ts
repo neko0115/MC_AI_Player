@@ -388,6 +388,39 @@ test('management archive restore get and audit remain owner scoped', () => {
   }
 })
 
+test('archived resize fails before consulting current selection', () => {
+  const current = setup()
+  try {
+    const created =
+      current.service.create({
+        dimension: 'overworld',
+        actorPrincipal: 'player-1',
+        label: '農田',
+        purpose: 'farm'
+      })
+
+    current.service.archive(
+      created.id,
+      'player-1'
+    )
+
+    current.selections.state =
+      'unavailable'
+
+    expectCode(
+      () =>
+        current.service
+          .resizeFromCurrentSelection(
+            created.id,
+            'player-1'
+          ),
+      'workspace_archived'
+    )
+  } finally {
+    current.repo.close()
+  }
+})
+
 test('management rejects workspace ids from another world even when owner matches', () => {
   const current = setup()
   try {
