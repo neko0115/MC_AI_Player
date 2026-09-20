@@ -485,6 +485,43 @@ test('ambiguous explicit target produces clarification instead of last-write-win
   }
 })
 
+test('missing conversation or recent binding clarifies instead of passing explicit undefined into resolver', async () => {
+  const current = setup()
+  try {
+    for (const target of [
+      { kind: 'conversation' as const },
+      { kind: 'recent' as const }
+    ]) {
+      current.interpreter.intent = {
+        kind: 'show',
+        target
+      }
+
+      const result =
+        await current.router.route(
+          {
+            utterance:
+              '剛才那個給我看一下',
+            actorPrincipal:
+              'player-1',
+            dimension: 'overworld'
+          },
+          new AbortController().signal
+        )
+
+      assert.deepEqual(
+        result,
+        {
+          kind: 'clarify',
+          reason: 'missing_reference'
+        }
+      )
+    }
+  } finally {
+    current.repository.close()
+  }
+})
+
 test('archived workspace can be restored through explicit or recent semantic reference only when restore opts in', async () => {
   const current = setup()
   try {
