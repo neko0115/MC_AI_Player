@@ -466,7 +466,22 @@ Client behavior:
 - selection source participates in application start/stop;
 - selection data is intentionally NOT in AI context yet.
 
-**W3 verification status:** automated cross-repository verification PASS; live Paper validation pending.
+**W3 verification status:** automated cross-repository verification PASS; live Paper validation in progress.
+
+Live evidence completed:
+
+- deployed rebuilt MoxueBridge JAR to Paper and restarted the server;
+- authenticated `GET /api/v1/workspace-selections` returned HTTP success with semantic snapshot:
+  - `version = 1`;
+  - finite `generated_at`;
+  - initial `selections = []`;
+- this proves the new plugin build is loaded and the authenticated read-only workspace-selection endpoint is active.
+
+Remaining live gates:
+
+- in-game `墨雪設定棍` A/B selection;
+- endpoint returns the expected player/dimension/coordinates;
+- MC_AI_Player workspace selection client reaches `current` and resolves the same selection.
 
 Automated evidence:
 
