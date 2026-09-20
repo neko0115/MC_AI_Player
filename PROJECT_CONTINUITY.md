@@ -617,16 +617,28 @@ Safety behavior:
 - current v1 resolver authorization is owner-only;
 - resolver does not mutate workspace state or Minecraft world state.
 
-**W4B verification status:** local verification pending.
+**W4B verification status:** PASS.
 
-**Next exact action:**
+Final automated evidence:
 
-1. fast-forward workspace worktree;
-2. run `npm test -- tests/workspace/sqlite-repository.test.ts tests/workspace/lifecycle-service.test.ts tests/workspace/resolver.test.ts`;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. confirm working tree clean;
-6. if green, mark W4B PASS and proceed to bounded Workspace management API/chat binding.
+- full suite: 461 tests total;
+- 457 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
+
+W4B is complete.
+
+#### W4C bounded Workspace management entrypoints — implementation starting
+
+Direction:
+
+- expose deterministic management operations through the authenticated/loopback Control API first;
+- do not let API callers bypass lifecycle ownership, archive, scope, or trusted-selection checks;
+- do not expose low-level physical purge;
+- keep chat binding as a thin semantic layer over the same lifecycle/resolver services;
+- no Minecraft world mutation is introduced by Workspace management.
 
 **Next exact action:**
 
