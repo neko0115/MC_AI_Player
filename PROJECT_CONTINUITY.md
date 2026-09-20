@@ -466,7 +466,14 @@ Client behavior:
 - selection source participates in application start/stop;
 - selection data is intentionally NOT in AI context yet.
 
-**W3 verification status:** pending local verification in both repositories.
+**W3 verification status:** automated cross-repository verification PASS; live Paper validation pending.
+
+Automated evidence:
+
+- MC_AI_Player full suite: 445 tests total, 441 passed, 0 failed, 4 skipped; working tree clean;
+- MoxueBridge `.\\gradlew.bat clean test build`: BUILD SUCCESSFUL; working tree clean;
+- MC_AI workspace selection transport/lifecycle tests PASS as part of the full suite;
+- MoxueBridge workspace selection store/API tests PASS as part of Gradle build.
 
 **Next exact action:**
 
