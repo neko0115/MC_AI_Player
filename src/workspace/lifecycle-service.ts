@@ -371,8 +371,15 @@ function toInput(
       overrides.dimension ??
       workspace.dimension,
     bounds:
-      overrides.bounds ??
-      workspace.bounds,
+      overrides.bounds
+        ? {
+            min: { ...overrides.bounds.min },
+            max: { ...overrides.bounds.max }
+          }
+        : {
+            min: { ...workspace.bounds.min },
+            max: { ...workspace.bounds.max }
+          },
     label:
       overrides.label ??
       workspace.label,
@@ -380,11 +387,14 @@ function toInput(
       overrides.purpose ??
       workspace.purpose,
     tags:
-      overrides.tags ??
-      workspace.tags,
+      overrides.tags
+        ? [...overrides.tags]
+        : [...workspace.tags],
     constraints:
-      overrides.constraints ??
-      workspace.constraints,
+      structuredClone(
+        overrides.constraints ??
+        workspace.constraints
+      ),
     ownerPrincipal:
       overrides.ownerPrincipal ??
       workspace.ownerPrincipal,
