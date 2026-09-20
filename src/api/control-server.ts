@@ -15,10 +15,12 @@ import type { WorldStateSnapshot } from '../state/world-state.js'
 import {
   WorkspaceConstraintsSchema,
   WorkspacePurposeSchema,
+  WorkspaceUsePolicySchema,
   type WorkspaceAuditRecord,
   type WorkspaceConstraints,
   type WorkspacePurpose,
-  type WorkspaceRegion
+  type WorkspaceRegion,
+  type WorkspaceUsePolicy
 } from '../workspace/contracts.js'
 import {
   WorkspaceManagementError
@@ -119,6 +121,7 @@ export interface ControlWorkspaceManagementPort {
     readonly actorPrincipal: string
     readonly label: string
     readonly purpose: WorkspacePurpose
+    readonly moxueUsePolicy?: WorkspaceUsePolicy
     readonly tags?: readonly string[]
     readonly constraints?: WorkspaceConstraints
   }): WorkspaceRegion
@@ -131,6 +134,11 @@ export interface ControlWorkspaceManagementPort {
   rename(workspaceId: string, actorPrincipal: string, label: string): WorkspaceRegion
   resizeFromCurrentSelection(workspaceId: string, actorPrincipal: string): WorkspaceRegion
   changePurpose(workspaceId: string, actorPrincipal: string, purpose: WorkspacePurpose): WorkspaceRegion
+  changeUsePolicy(
+    workspaceId: string,
+    actorPrincipal: string,
+    policy: WorkspaceUsePolicy
+  ): WorkspaceRegion
   replaceTags(workspaceId: string, actorPrincipal: string, tags: readonly string[]): WorkspaceRegion
   changeConstraints(
     workspaceId: string,
@@ -231,6 +239,8 @@ const WorkspaceCreateRequestSchema = z
     dimension: WorkspaceDimensionSchema,
     label: WorkspaceLabelSchema,
     purpose: WorkspacePurposeSchema,
+    moxue_use_policy:
+      WorkspaceUsePolicySchema.optional(),
     tags: z.array(WorkspaceTagSchema).max(32).optional(),
     constraints: WorkspaceApiConstraintsSchema.optional()
   })
@@ -247,6 +257,13 @@ const WorkspacePurposeRequestSchema = z
   .object({
     actor_principal: WorkspaceActorSchema,
     purpose: WorkspacePurposeSchema
+  })
+  .strict()
+
+const WorkspaceUsePolicyRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema,
+    moxue_use_policy: WorkspaceUsePolicySchema
   })
   .strict()
 
@@ -454,6 +471,12 @@ export class ControlServer {
                   parsed.data.label,
                 purpose:
                   parsed.data.purpose,
+                ...(parsed.data.moxue_use_policy === undefined
+                  ? {}
+                  : {
+                      moxueUsePolicy:
+                        parsed.data.moxue_use_policy
+                    }),
                 ...(parsed.data.tags === undefined
                   ? {}
                   : {
@@ -602,6 +625,29 @@ export class ControlServer {
                   workspaceRoute.id,
                   parsed.data.actor_principal,
                   parsed.data.purpose
+                )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'use-policy') {
+          const parsed =
+            WorkspaceUsePolicyRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.changeUsePolicy(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal,
+                  parsed.data.moxue_use_policy
                 )
               )
           })
@@ -1052,6 +1098,7 @@ type WorkspaceRouteAction =
   | 'rename'
   | 'resize'
   | 'purpose'
+  | 'use-policy'
   | 'tags'
   | 'constraints'
   | 'archive'
@@ -1106,6 +1153,7 @@ function parseWorkspaceRoute(
       'rename',
       'resize',
       'purpose',
+      'use-policy',
       'tags',
       'constraints',
       'archive',
@@ -1301,6 +1349,8 @@ function publicWorkspaceRegion(
     },
     label: workspace.label,
     purpose: workspace.purpose,
+    moxue_use_policy:
+      workspace.moxueUsePolicy,
     status: workspace.status,
     tags: [...workspace.tags],
     constraints:
