@@ -136,6 +136,101 @@ test('late success from a cancelled goal cannot resurrect it or replace the curr
   assert.equal(manager.getGoal(currentGoal.goalId)?.status, 'running')
 })
 
+test('terminal event publication cannot clear a replacement goal started while old completion is still publishing', async () => {
+  let nextId = 1
+  const controller =
+    new FakeSkillController()
+  const events =
+    new RuntimeEventBus()
+
+  let releaseCompletion:
+    (() => void) | null = null
+  const completionBlocked =
+    new Promise<void>(resolve => {
+      releaseCompletion = resolve
+    })
+  let completionListenerEntered = false
+
+  events.subscribe(async event => {
+    if (event.type !== 'goal_completed') return
+    completionListenerEntered = true
+    await completionBlocked
+  })
+
+  const manager = new GoalManager({
+    skillController: controller,
+    events,
+    nextGoalId: () =>
+      `goal-${nextId++}`,
+    now: (() => {
+      let value = 100
+      return () => value++
+    })()
+  })
+
+  const oldGoal =
+    await manager.submit(
+      gatherGoal,
+      'ai'
+    )
+
+  const completing =
+    manager.completeGoal(
+      oldGoal.goalId,
+      {
+        status: 'succeeded',
+        code: 'done'
+      }
+    )
+
+  while (!completionListenerEntered) {
+    await new Promise(resolve =>
+      setTimeout(resolve, 0)
+    )
+  }
+
+  assert.equal(
+    manager.getGoal(oldGoal.goalId)
+      ?.status,
+    'succeeded'
+  )
+  assert.equal(
+    manager.activeGoal(),
+    null
+  )
+
+  const replacement =
+    await manager.submit(
+      followGoal,
+      'player'
+    )
+
+  assert.equal(
+    manager.activeGoal()?.goalId,
+    replacement.goalId
+  )
+  assert.equal(
+    manager.getGoal(
+      replacement.goalId
+    )?.status,
+    'running'
+  )
+
+  releaseCompletion?.()
+  await completing
+
+  assert.equal(
+    manager.activeGoal()?.goalId,
+    replacement.goalId
+  )
+  assert.equal(
+    manager.getGoal(
+      replacement.goalId
+    )?.status,
+    'running'
+  )
+})
+
 test('only the active running goal can transition to succeeded and emit completion events', async () => {
   const { manager, seenEvents } = createManager()
 
