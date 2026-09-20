@@ -37,6 +37,10 @@ import {
   type ManualRouteGrant
 } from './ai-task.js'
 import { TriggerClassifier } from './trigger-classifier.js'
+import type {
+  WorkspaceChatInstructionRouter,
+  WorkspaceChatRouteResult
+} from '../workspace/chat-router.js'
 
 export interface DecisionCoordinatorStatus {
   readonly coordinatorState: 'running' | 'stopped'
@@ -71,6 +75,7 @@ export interface DecisionCoordinatorOptions {
   readonly worldKey: string
   readonly botUsername: string
   readonly logicalExecutor: LogicalDecisionExecutor
+  readonly workspaceChatRouter?: WorkspaceChatInstructionRouter
   readonly decisionGate: DecisionGate
   readonly contextBuilder: ContextBuilder
   readonly safetyConstraints: readonly string[]
@@ -104,6 +109,10 @@ export class DecisionCoordinator {
   private recoveryTimer: ReturnType<typeof setTimeout> | null = null
   private recoveryRetryAt: number | null = null
   private pendingResumeTimer: ReturnType<typeof setTimeout> | null = null
+  private workspaceChatTail: Promise<void> = Promise.resolve()
+  private workspaceChatSequence = 0
+  private readonly workspaceChatAborts =
+    new Map<number, AbortController>()
 
   constructor(private readonly options: DecisionCoordinatorOptions) {
     this.classifier = new TriggerClassifier({ botUsername: options.botUsername })
@@ -126,6 +135,7 @@ export class DecisionCoordinator {
     this.unsubscribe?.()
     this.unsubscribe = null
     this.invalidateInFlightDecision('coordinator_disposed')
+    this.abortWorkspaceChatRouting('coordinator_disposed')
     this.clearRecoveryTimer(true)
     this.clearPendingResumeTimer()
     this.invalidateManualGrants()
@@ -259,6 +269,7 @@ export class DecisionCoordinator {
       this.options.identity.endSession()
       this.invalidateMinecraftManualGrants()
       this.invalidateInFlightDecision('minecraft_disconnected')
+      this.abortWorkspaceChatRouting('minecraft_disconnected')
       this.clearRecoveryTimer(false)
       this.clearPendingResumeTimer()
       const task = this.activeTask
@@ -277,6 +288,7 @@ export class DecisionCoordinator {
 
     if (event.type === 'emergency_stop') {
       this.invalidateInFlightDecision('emergency_stop')
+      this.abortWorkspaceChatRouting('emergency_stop')
       this.clearRecoveryTimer(true)
       this.clearPendingResumeTimer()
       if (this.activeTask) this.markTaskSuperseded(this.activeTask, 'emergency_stop')
@@ -373,14 +385,186 @@ export class DecisionCoordinator {
       policy: this.options.manualAccess
     })
 
+    const sessionGeneration =
+      this.currentMinecraftSessionGeneration()
+
+    if (
+      this.options.workspaceChatRouter &&
+      classification.playerId !== undefined &&
+      classification.playerId.trim().length > 0
+    ) {
+      this.startWorkspaceChatRouting(
+        {
+          instruction:
+            classification.instruction,
+          player:
+            classification.player,
+          actorPrincipal:
+            classification.playerId.trim(),
+          principalKind:
+            principal.kind,
+          sessionGeneration,
+          baseComplexityEvidence:
+            classification.baseComplexityEvidence
+        }
+      )
+      return
+    }
+
+    await this.acceptGameplayInstruction({
+      instruction:
+        classification.instruction,
+      principalKind:
+        principal.kind,
+      sessionGeneration,
+      baseComplexityEvidence:
+        classification.baseComplexityEvidence
+    })
+  }
+
+  private startWorkspaceChatRouting(
+    pending: PendingWorkspaceChat
+  ): void {
+    const router =
+      this.options.workspaceChatRouter
+    if (!router) return
+
+    const sequence =
+      ++this.workspaceChatSequence
+    const abort =
+      new AbortController()
+    this.workspaceChatAborts.set(
+      sequence,
+      abort
+    )
+
+    const state =
+      this.options.state.snapshot()
+    const player =
+      state.nearbyPlayers.find(
+        candidate =>
+          candidate.id ===
+            pending.actorPrincipal ||
+          candidate.name ===
+            pending.player
+      )
+
+    const request = {
+      utterance:
+        pending.instruction,
+      actorPrincipal:
+        pending.actorPrincipal,
+      dimension:
+        state.dimension,
+      playerPosition:
+        player?.position ?? null
+    }
+
+    this.workspaceChatTail =
+      this.workspaceChatTail
+        .then(async () => {
+          if (
+            abort.signal.aborted ||
+            !this.running
+          ) {
+            return
+          }
+
+          let result:
+            WorkspaceChatRouteResult
+          try {
+            result =
+              await router.route(
+                request,
+                abort.signal
+              )
+          } catch {
+            result = {
+              kind: 'fallback'
+            }
+          }
+
+          this.enqueueWorkspaceChatResult(
+            sequence,
+            pending,
+            result
+          )
+        })
+        .catch(() => {
+          // Workspace semantic routing is isolated from
+          // later addressed-chat requests.
+        })
+  }
+
+  private enqueueWorkspaceChatResult(
+    sequence: number,
+    pending: PendingWorkspaceChat,
+    result: WorkspaceChatRouteResult
+  ): void {
+    this.mailboxTail =
+      this.mailboxTail
+        .then(() =>
+          this.handleWorkspaceChatResult(
+            sequence,
+            pending,
+            result
+          )
+        )
+        .catch(() => {
+          // One failed Workspace result must not poison
+          // later coordinator transitions.
+        })
+  }
+
+  private async handleWorkspaceChatResult(
+    sequence: number,
+    pending: PendingWorkspaceChat,
+    result: WorkspaceChatRouteResult
+  ): Promise<void> {
+    this.workspaceChatAborts.delete(
+      sequence
+    )
+
+    if (
+      !this.running ||
+      pending.sessionGeneration !==
+        this.currentMinecraftSessionGeneration()
+    ) {
+      return
+    }
+
+    if (result.kind !== 'fallback') {
+      return
+    }
+
+    await this.acceptGameplayInstruction(
+      pending
+    )
+  }
+
+  private async acceptGameplayInstruction(
+    input: PendingGameplayInstruction
+  ): Promise<void> {
     const task = this.createTask(
-      classification.instruction,
+      input.instruction,
       'minecraft',
-      principal.kind,
-      this.currentMinecraftSessionGeneration(),
-      classification.baseComplexityEvidence
+      input.principalKind,
+      input.sessionGeneration,
+      input.baseComplexityEvidence
     )
     await this.acceptNewTask(task)
+  }
+
+  private abortWorkspaceChatRouting(
+    reason: string
+  ): void {
+    for (
+      const controller of
+      this.workspaceChatAborts.values()
+    ) {
+      controller.abort(reason)
+    }
+    this.workspaceChatAborts.clear()
   }
 
   private dispatchActiveTask(force = false): void {
@@ -915,6 +1099,22 @@ export class DecisionCoordinator {
     const generation = this.options.identity.currentSessionGeneration()
     return generation > 0 ? generation : null
   }
+}
+
+interface PendingGameplayInstruction {
+  readonly instruction: string
+  readonly principalKind:
+    AiTask['principalKind']
+  readonly sessionGeneration:
+    number | null
+  readonly baseComplexityEvidence:
+    ComplexityEvidence
+}
+
+interface PendingWorkspaceChat
+extends PendingGameplayInstruction {
+  readonly player: string
+  readonly actorPrincipal: string
 }
 
 function isPrivilegedMinecraftPrincipal(

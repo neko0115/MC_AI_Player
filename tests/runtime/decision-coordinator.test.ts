@@ -14,6 +14,11 @@ import { SafetyPolicy } from '../../src/safety/policy.js'
 import { SkillRegistry } from '../../src/skills/registry.js'
 import { WorldStateCache } from '../../src/state/world-state-cache.js'
 import { RuntimeEventBus } from '../../src/telemetry/event-bus.js'
+import type {
+  WorkspaceChatInstructionRouter,
+  WorkspaceChatRouteInput,
+  WorkspaceChatRouteResult
+} from '../../src/workspace/chat-router.js'
 
 class EmptyMemory implements MinecraftMemoryRepository {
   remember(): never { throw new Error('not used') }
@@ -40,7 +45,49 @@ class FakeLogicalExecutor {
   }
 }
 
-function harness() {
+class FakeWorkspaceChatRouter
+implements WorkspaceChatInstructionRouter {
+  readonly requests:
+    WorkspaceChatRouteInput[] = []
+  readonly signals:
+    AbortSignal[] = []
+  private readonly pending:
+    Array<
+      (result: WorkspaceChatRouteResult) =>
+        void
+    > = []
+
+  route(
+    input: WorkspaceChatRouteInput,
+    signal: AbortSignal
+  ): Promise<WorkspaceChatRouteResult> {
+    this.requests.push(
+      structuredClone(input)
+    )
+    this.signals.push(signal)
+    return new Promise(resolve =>
+      this.pending.push(resolve)
+    )
+  }
+
+  resolveNext(
+    result: WorkspaceChatRouteResult
+  ): void {
+    const resolve =
+      this.pending.shift()
+    if (!resolve) {
+      throw new Error(
+        'no pending workspace route'
+      )
+    }
+    resolve(structuredClone(result))
+  }
+}
+
+function harness(options: {
+  readonly workspaceChatRouter?:
+    WorkspaceChatInstructionRouter
+} = {}) {
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: 32 })
   events.subscribe(event => state.apply(event))
@@ -80,6 +127,12 @@ function harness() {
     worldKey: 'test-world',
     botUsername: 'Moxue_Test',
     logicalExecutor,
+    ...(options.workspaceChatRouter
+      ? {
+          workspaceChatRouter:
+            options.workspaceChatRouter
+        }
+      : {}),
     decisionGate: new DecisionGate({ safety: new SafetyPolicy(), events }),
     contextBuilder: new ContextBuilder(),
     safetyConstraints: ['PvP is disabled.'],
@@ -179,6 +232,209 @@ async function startGoToGoal(
   assert.ok(goalId)
   return goalId
 }
+
+test('addressed chat with authoritative player id is semantically routed before gameplay AI', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const current = harness({
+    workspaceChatRouter:
+      workspace
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    playerId: 'player-uuid',
+    message:
+      '墨雪 這塊以後我自己留著種，你不要拿'
+  })
+
+  await waitFor(() =>
+    workspace.requests.length === 1
+  )
+  assert.equal(
+    workspace.requests[0]
+      ?.utterance,
+    '這塊以後我自己留著種，你不要拿'
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    0
+  )
+
+  workspace.resolveNext({
+    kind: 'handled',
+    operation: 'create'
+  })
+  await new Promise(resolve =>
+    setTimeout(resolve, 5)
+  )
+
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    0
+  )
+  current.coordinator.dispose()
+})
+
+test('workspace not_workspace result falls through to unchanged gameplay AI objective', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const current = harness({
+    workspaceChatRouter:
+      workspace
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    playerId: 'player-uuid',
+    message: '墨雪 跟我去山上'
+  })
+
+  await waitFor(() =>
+    workspace.requests.length === 1
+  )
+  workspace.resolveNext({
+    kind: 'fallback'
+  })
+
+  await waitFor(() =>
+    current.logicalExecutor
+      .requests.length === 1
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests[0]
+      ?.context.task?.objective,
+    '跟我去山上'
+  )
+  current.coordinator.dispose()
+})
+
+test('workspace semantic routing stays off the coordinator mailbox while state events continue', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const current = harness({
+    workspaceChatRouter:
+      workspace
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    playerId: 'player-uuid',
+    message: '墨雪 隨便一種很難理解的說法'
+  })
+  await waitFor(() =>
+    workspace.requests.length === 1
+  )
+
+  await current.events.publish({
+    type: 'position_changed',
+    at: 4,
+    position: {
+      x: 9,
+      y: 64,
+      z: 9
+    }
+  })
+
+  await waitFor(() =>
+    current.state.snapshot()
+      .position?.x === 9
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    0
+  )
+
+  workspace.resolveNext({
+    kind: 'handled',
+    operation: 'show'
+  })
+  current.coordinator.dispose()
+})
+
+test('disconnect aborts pending workspace semantic route and late result cannot create gameplay work', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const current = harness({
+    workspaceChatRouter:
+      workspace
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    playerId: 'player-uuid',
+    message: '墨雪 這個先記一下'
+  })
+  await waitFor(() =>
+    workspace.signals.length === 1
+  )
+
+  await current.events.publish({
+    type: 'disconnected',
+    at: 4,
+    reason: 'test'
+  })
+  await waitFor(() =>
+    workspace.signals[0]
+      ?.aborted === true
+  )
+
+  workspace.resolveNext({
+    kind: 'fallback'
+  })
+  await new Promise(resolve =>
+    setTimeout(resolve, 5)
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    0
+  )
+  current.coordinator.dispose()
+})
+
+test('chat without authoritative player id preserves legacy gameplay path instead of mutating workspace state', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const current = harness({
+    workspaceChatRouter:
+      workspace
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    message: '墨雪 原地待命'
+  })
+
+  await waitFor(() =>
+    current.logicalExecutor
+      .requests.length === 1
+  )
+  assert.equal(
+    workspace.requests.length,
+    0
+  )
+  current.coordinator.dispose()
+})
 
 test('addressed chat enqueues AI work without blocking RuntimeEventBus on an unresolved provider call', async () => {
   const current = harness()

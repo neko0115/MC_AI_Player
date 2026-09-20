@@ -9,6 +9,9 @@ import type { MinecraftMemoryRepository, MemorySearchQuery, MinecraftMemory } fr
 import {
   SqliteWorkspaceRepository
 } from '../src/workspace/sqlite-repository.js'
+import type {
+  WorkspaceIntentInterpreter
+} from '../src/workspace/chat-intent.js'
 import type { ProviderCapabilities, DecisionProvider } from '../src/agent/provider.js'
 import type {
   LogicalDecisionExecutor,
@@ -380,6 +383,7 @@ function harness(options: {
   readonly serverCapabilities?: ApplicationServerCapabilitiesPort
   readonly resourceProfiles?: ApplicationResourceProfilesPort
   readonly workspaceSelections?: ApplicationWorkspaceSelectionsPort
+  readonly workspaceIntentInterpreter?: WorkspaceIntentInterpreter
 } = {}) {
   const calls: string[] = []
   const adapter = new FakeAdapter(calls)
@@ -409,6 +413,12 @@ function harness(options: {
       new SqliteWorkspaceRepository(
         ':memory:'
       ),
+    ...(options.workspaceIntentInterpreter
+      ? {
+          workspaceIntentInterpreter:
+            options.workspaceIntentInterpreter
+        }
+      : {}),
     createRecorder: () => recorder,
     createLogicalDecisionExecutor: () => logicalExecutor,
     ...(options.serverCapabilities

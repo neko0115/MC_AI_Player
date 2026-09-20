@@ -69,6 +69,12 @@ import {
 import {
   WorkspaceManagementService
 } from './workspace/management-service.js'
+import type {
+  WorkspaceIntentInterpreter
+} from './workspace/chat-intent.js'
+import {
+  WorkspaceChatRouter
+} from './workspace/chat-router.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
@@ -236,6 +242,8 @@ export interface ApplicationDependencies {
   readonly createWorkspaceRepository?: (
     filename: string
   ) => WorkspaceRepository
+  readonly workspaceIntentInterpreter?:
+    WorkspaceIntentInterpreter
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
   readonly createLogicalDecisionExecutor?: (
@@ -308,6 +316,24 @@ export function createApplication(
         ? { selections: workspaceSelections }
         : {})
     })
+  const workspaceChatRouter =
+    dependencies.workspaceIntentInterpreter
+      ? new WorkspaceChatRouter({
+          worldKey,
+          interpreter:
+            dependencies.workspaceIntentInterpreter,
+          management:
+            workspaceManagement,
+          repository:
+            workspaceRepository,
+          ...(workspaceSelections
+            ? {
+                selections:
+                  workspaceSelections
+              }
+            : {})
+        })
+      : null
 
   const registry = new SkillRegistry()
   installSkillModules(
@@ -386,6 +412,9 @@ export function createApplication(
     worldKey,
     botUsername: minecraftConfig.username,
     logicalExecutor,
+    ...(workspaceChatRouter
+      ? { workspaceChatRouter }
+      : {}),
     decisionGate: new DecisionGate({ safety, events }),
     contextBuilder: new ContextBuilder(),
     safetyConstraints: DECISION_SAFETY_CONSTRAINTS,
