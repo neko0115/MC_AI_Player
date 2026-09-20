@@ -976,7 +976,18 @@ Privacy/sync boundary:
 - encryption key must come from a local/environment secret and must never be committed;
 - runtime will not automatically push to GitHub.
 
-**W5C1 verification status:** local verification pending.
+**W5C1 verification status:** PASS.
+
+Final automated evidence:
+
+- full suite: 497 tests total;
+- 493 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
+
+W5C1 is complete. W5C2 now owns authenticated encrypted export/import for learned semantics.
 
 **Next exact action:**
 
