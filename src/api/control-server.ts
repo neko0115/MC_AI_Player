@@ -12,6 +12,17 @@ import {
   type MinecraftMemoryType
 } from '../memory/repository.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
+import {
+  WorkspaceConstraintsSchema,
+  WorkspacePurposeSchema,
+  type WorkspaceAuditRecord,
+  type WorkspaceConstraints,
+  type WorkspacePurpose,
+  type WorkspaceRegion
+} from '../workspace/contracts.js'
+import {
+  WorkspaceManagementError
+} from '../workspace/management-service.js'
 
 export interface ControlGoalPort {
   submit(request: GoalRequest, source: GoalSource): Promise<GoalRecord>
@@ -102,6 +113,35 @@ export interface ControlWorkspaceSelectionStatusPort {
   ): ControlWorkspaceSelectionStatusSnapshot
 }
 
+export interface ControlWorkspaceManagementPort {
+  create(request: {
+    readonly dimension: string
+    readonly actorPrincipal: string
+    readonly label: string
+    readonly purpose: WorkspacePurpose
+    readonly tags?: readonly string[]
+    readonly constraints?: WorkspaceConstraints
+  }): WorkspaceRegion
+  list(request: {
+    readonly dimension?: string
+    readonly actorPrincipal: string
+    readonly includeArchived?: boolean
+  }): WorkspaceRegion[]
+  get(workspaceId: string, actorPrincipal: string): WorkspaceRegion
+  rename(workspaceId: string, actorPrincipal: string, label: string): WorkspaceRegion
+  resizeFromCurrentSelection(workspaceId: string, actorPrincipal: string): WorkspaceRegion
+  changePurpose(workspaceId: string, actorPrincipal: string, purpose: WorkspacePurpose): WorkspaceRegion
+  replaceTags(workspaceId: string, actorPrincipal: string, tags: readonly string[]): WorkspaceRegion
+  changeConstraints(
+    workspaceId: string,
+    actorPrincipal: string,
+    constraints: WorkspaceConstraints
+  ): WorkspaceRegion
+  archive(workspaceId: string, actorPrincipal: string): WorkspaceRegion
+  restore(workspaceId: string, actorPrincipal: string): WorkspaceRegion
+  audit(workspaceId: string, actorPrincipal: string, limit?: number): WorkspaceAuditRecord[]
+}
+
 export interface ControlServerOptions {
   readonly host: string
   readonly port: number
@@ -114,6 +154,7 @@ export interface ControlServerOptions {
   readonly aiStatus?: ControlAiStatusPort
   readonly capabilityStatus?: ControlCapabilityStatusPort
   readonly workspaceSelectionStatus?: ControlWorkspaceSelectionStatusPort
+  readonly workspaceManagement?: ControlWorkspaceManagementPort
 }
 
 export interface ControlServerAddress {
@@ -147,6 +188,63 @@ const WorkspaceSelectionStatusQuerySchema = z
   .object({
     dimension: z.string().trim().min(1).max(128),
     playerId: z.string().trim().min(1).max(128)
+  })
+  .strict()
+
+const WorkspaceActorSchema = z.string().trim().min(1).max(128)
+const WorkspaceDimensionSchema = z.string().trim().min(1).max(128)
+const WorkspaceLabelSchema = z.string().trim().min(1).max(128)
+const WorkspaceIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[a-z0-9_.:-]+$/)
+
+const WorkspaceTagSchema = z.string().trim().min(1).max(64)
+
+const WorkspaceCreateRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema,
+    dimension: WorkspaceDimensionSchema,
+    label: WorkspaceLabelSchema,
+    purpose: WorkspacePurposeSchema,
+    tags: z.array(WorkspaceTagSchema).max(32).optional(),
+    constraints: WorkspaceConstraintsSchema.optional()
+  })
+  .strict()
+
+const WorkspaceRenameRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema,
+    label: WorkspaceLabelSchema
+  })
+  .strict()
+
+const WorkspacePurposeRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema,
+    purpose: WorkspacePurposeSchema
+  })
+  .strict()
+
+const WorkspaceTagsRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema,
+    tags: z.array(WorkspaceTagSchema).max(32)
+  })
+  .strict()
+
+const WorkspaceConstraintsRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema,
+    constraints: WorkspaceConstraintsSchema
+  })
+  .strict()
+
+const WorkspaceActorRequestSchema = z
+  .object({
+    actor_principal: WorkspaceActorSchema
   })
   .strict()
 
@@ -283,6 +381,292 @@ export class ControlServer {
         return
       }
 
+      if (url.pathname === '/v1/workspaces') {
+        if (!this.options.workspaceManagement) {
+          throw new HttpRequestError(
+            503,
+            'workspace_management_unavailable'
+          )
+        }
+
+        if (method === 'GET') {
+          const query =
+            parseWorkspaceListQuery(
+              url.searchParams
+            )
+          const workspaces =
+            this.options.workspaceManagement
+              .list(query)
+          writeJson(response, 200, {
+            workspaces:
+              workspaces.map(
+                publicWorkspaceRegion
+              )
+          })
+          return
+        }
+
+        if (method === 'POST') {
+          const body = await readJsonBody(
+            request,
+            this.maxBodyBytes
+          )
+          const parsed =
+            WorkspaceCreateRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+
+          const workspace =
+            this.options.workspaceManagement
+              .create({
+                dimension:
+                  parsed.data.dimension,
+                actorPrincipal:
+                  parsed.data.actor_principal,
+                label:
+                  parsed.data.label,
+                purpose:
+                  parsed.data.purpose,
+                ...(parsed.data.tags === undefined
+                  ? {}
+                  : {
+                      tags:
+                        parsed.data.tags
+                    }),
+                ...(parsed.data.constraints === undefined
+                  ? {}
+                  : {
+                      constraints:
+                        parsed.data.constraints
+                    })
+              })
+          writeJson(response, 201, {
+            workspace:
+              publicWorkspaceRegion(
+                workspace
+              )
+          })
+          return
+        }
+
+        throw new HttpRequestError(
+          405,
+          'method_not_allowed'
+        )
+      }
+
+      const workspaceRoute =
+        parseWorkspaceRoute(url.pathname)
+      if (workspaceRoute) {
+        const management =
+          this.options.workspaceManagement
+        if (!management) {
+          throw new HttpRequestError(
+            503,
+            'workspace_management_unavailable'
+          )
+        }
+
+        if (workspaceRoute.action === null) {
+          requireMethod(method, 'GET')
+          const actor =
+            parseWorkspaceActorQuery(
+              url.searchParams
+            )
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.get(
+                  workspaceRoute.id,
+                  actor
+                )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'audit') {
+          requireMethod(method, 'GET')
+          const query =
+            parseWorkspaceAuditQuery(
+              url.searchParams
+            )
+          writeJson(response, 200, {
+            audit:
+              management.audit(
+                workspaceRoute.id,
+                query.actorPrincipal,
+                query.limit
+              ).map(
+                publicWorkspaceAudit
+              )
+          })
+          return
+        }
+
+        requireMethod(method, 'POST')
+        const body = await readJsonBody(
+          request,
+          this.maxBodyBytes
+        )
+
+        if (workspaceRoute.action === 'rename') {
+          const parsed =
+            WorkspaceRenameRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.rename(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal,
+                  parsed.data.label
+                )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'resize') {
+          const parsed =
+            WorkspaceActorRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management
+                  .resizeFromCurrentSelection(
+                    workspaceRoute.id,
+                    parsed.data.actor_principal
+                  )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'purpose') {
+          const parsed =
+            WorkspacePurposeRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.changePurpose(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal,
+                  parsed.data.purpose
+                )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'tags') {
+          const parsed =
+            WorkspaceTagsRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.replaceTags(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal,
+                  parsed.data.tags
+                )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'constraints') {
+          const parsed =
+            WorkspaceConstraintsRequestSchema
+              .safeParse(body)
+          if (!parsed.success) {
+            throw new HttpRequestError(
+              400,
+              'invalid_workspace_request'
+            )
+          }
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.changeConstraints(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal,
+                  parsed.data.constraints
+                )
+              )
+          })
+          return
+        }
+
+        const parsed =
+          WorkspaceActorRequestSchema
+            .safeParse(body)
+        if (!parsed.success) {
+          throw new HttpRequestError(
+            400,
+            'invalid_workspace_request'
+          )
+        }
+
+        if (workspaceRoute.action === 'archive') {
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.archive(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal
+                )
+              )
+          })
+          return
+        }
+
+        if (workspaceRoute.action === 'restore') {
+          writeJson(response, 200, {
+            workspace:
+              publicWorkspaceRegion(
+                management.restore(
+                  workspaceRoute.id,
+                  parsed.data.actor_principal
+                )
+              )
+          })
+          return
+        }
+      }
+
       if (url.pathname === '/v1/goals') {
         requireMethod(method, 'POST')
         const body = await readJsonBody(request, this.maxBodyBytes)
@@ -327,6 +711,24 @@ export class ControlServer {
         }
         return
       }
+
+      if (error instanceof WorkspaceManagementError) {
+        const mapped =
+          mapWorkspaceManagementError(
+            error
+          )
+        if (!response.headersSent) {
+          writeJson(
+            response,
+            mapped.statusCode,
+            { error: mapped.publicCode }
+          )
+        } else if (!response.writableEnded) {
+          response.end()
+        }
+        return
+      }
+
       throw error
     }
   }
@@ -616,6 +1018,320 @@ function publicWorkspaceSelectionStatus(
           selected_at: snapshot.selection.selectedAt
         }
       : null
+  }
+}
+
+type WorkspaceRouteAction =
+  | 'audit'
+  | 'rename'
+  | 'resize'
+  | 'purpose'
+  | 'tags'
+  | 'constraints'
+  | 'archive'
+  | 'restore'
+
+function parseWorkspaceRoute(
+  pathname: string
+): {
+  readonly id: string
+  readonly action:
+    WorkspaceRouteAction | null
+} | null {
+  const match =
+    /^\/v1\/workspaces\/([^/]+)(?:\/([^/]+))?$/
+      .exec(pathname)
+  if (!match) return null
+
+  let decodedId: string
+  try {
+    decodedId = decodeURIComponent(
+      match[1] ?? ''
+    )
+  } catch {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_id'
+    )
+  }
+
+  const id =
+    WorkspaceIdSchema.safeParse(
+      decodedId
+    )
+  if (!id.success) {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_id'
+    )
+  }
+
+  const rawAction = match[2] ?? null
+  if (rawAction === null) {
+    return {
+      id: id.data,
+      action: null
+    }
+  }
+
+  const actions:
+    readonly WorkspaceRouteAction[] = [
+      'audit',
+      'rename',
+      'resize',
+      'purpose',
+      'tags',
+      'constraints',
+      'archive',
+      'restore'
+    ]
+
+  if (
+    !actions.includes(
+      rawAction as WorkspaceRouteAction
+    )
+  ) {
+    return null
+  }
+
+  return {
+    id: id.data,
+    action:
+      rawAction as WorkspaceRouteAction
+  }
+}
+
+function parseWorkspaceListQuery(
+  params: URLSearchParams
+): {
+  readonly actorPrincipal: string
+  readonly dimension?: string
+  readonly includeArchived?: boolean
+} {
+  const actor =
+    WorkspaceActorSchema.safeParse(
+      params.get('actor_principal')
+    )
+  if (!actor.success) {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_query'
+    )
+  }
+
+  const dimensionValue =
+    params.get('dimension')
+  const dimension =
+    dimensionValue === null
+      ? undefined
+      : WorkspaceDimensionSchema
+          .safeParse(dimensionValue)
+  if (
+    dimension !== undefined &&
+    !dimension.success
+  ) {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_query'
+    )
+  }
+
+  const includeArchived =
+    parseOptionalBoolean(
+      params,
+      'include_archived',
+      'invalid_workspace_query'
+    )
+
+  return {
+    actorPrincipal: actor.data,
+    ...(dimension === undefined
+      ? {}
+      : { dimension: dimension.data }),
+    ...(includeArchived === undefined
+      ? {}
+      : { includeArchived })
+  }
+}
+
+function parseWorkspaceActorQuery(
+  params: URLSearchParams
+): string {
+  const parsed =
+    WorkspaceActorSchema.safeParse(
+      params.get('actor_principal')
+    )
+  if (!parsed.success) {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_query'
+    )
+  }
+  return parsed.data
+}
+
+function parseWorkspaceAuditQuery(
+  params: URLSearchParams
+): {
+  readonly actorPrincipal: string
+  readonly limit?: number
+} {
+  const actorPrincipal =
+    parseWorkspaceActorQuery(params)
+  const limit =
+    parseOptionalNumber(
+      params,
+      'limit'
+    )
+  if (
+    limit !== undefined &&
+    (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    )
+  ) {
+    throw new HttpRequestError(
+      400,
+      'invalid_workspace_query'
+    )
+  }
+
+  return {
+    actorPrincipal,
+    ...(limit === undefined
+      ? {}
+      : { limit })
+  }
+}
+
+function parseOptionalBoolean(
+  params: URLSearchParams,
+  name: string,
+  errorCode: string
+): boolean | undefined {
+  if (!params.has(name)) return undefined
+  const value = params.get(name)
+  if (value === 'true') return true
+  if (value === 'false') return false
+  throw new HttpRequestError(
+    400,
+    errorCode
+  )
+}
+
+function publicWorkspaceRegion(
+  workspace: WorkspaceRegion
+): unknown {
+  return {
+    id: workspace.id,
+    world_key: workspace.worldKey,
+    dimension: workspace.dimension,
+    bounds: {
+      min: { ...workspace.bounds.min },
+      max: { ...workspace.bounds.max }
+    },
+    label: workspace.label,
+    purpose: workspace.purpose,
+    status: workspace.status,
+    tags: [...workspace.tags],
+    constraints:
+      publicWorkspaceConstraints(
+        workspace.constraints
+      ),
+    owner_principal:
+      workspace.ownerPrincipal,
+    source_selection_id:
+      workspace.sourceSelectionId,
+    created_at: workspace.createdAt,
+    updated_at: workspace.updatedAt
+  }
+}
+
+function publicWorkspaceConstraints(
+  constraints: WorkspaceConstraints
+): unknown {
+  return {
+    ...(constraints.preserveExistingStructures === undefined
+      ? {}
+      : {
+          preserve_existing_structures:
+            constraints.preserveExistingStructures
+        }),
+    ...(constraints.temporaryInfrastructureAllowed === undefined
+      ? {}
+      : {
+          temporary_infrastructure_allowed:
+            constraints.temporaryInfrastructureAllowed
+        }),
+    ...(constraints.protected === undefined
+      ? {}
+      : {
+          protected: constraints.protected
+        }),
+    ...(constraints.requestedSpacing === undefined
+      ? {}
+      : {
+          requested_spacing:
+            constraints.requestedSpacing
+        }),
+    ...(constraints.lighting === undefined
+      ? {}
+      : {
+          lighting: {
+            block_light_min:
+              constraints.lighting.blockLightMin,
+            spawn_safe_required:
+              constraints.lighting.spawnSafeRequired
+          }
+        })
+  }
+}
+
+function publicWorkspaceAudit(
+  record: WorkspaceAuditRecord
+): unknown {
+  return {
+    event_id: record.eventId,
+    workspace_id: record.workspaceId,
+    actor_principal:
+      record.actorPrincipal,
+    action: record.action,
+    safe_summary: record.safeSummary,
+    source_selection_id:
+      record.sourceSelectionId,
+    created_at: record.createdAt
+  }
+}
+
+function mapWorkspaceManagementError(
+  error: WorkspaceManagementError
+): {
+  readonly statusCode: number
+  readonly publicCode: string
+} {
+  switch (error.code) {
+    case 'workspace_not_found':
+      return {
+        statusCode: 404,
+        publicCode: error.code
+      }
+    case 'workspace_not_owner':
+      return {
+        statusCode: 403,
+        publicCode: error.code
+      }
+    case 'workspace_selection_unavailable':
+    case 'workspace_selection_stale':
+      return {
+        statusCode: 503,
+        publicCode: error.code
+      }
+    default:
+      return {
+        statusCode: 409,
+        publicCode: error.code
+      }
   }
 }
 

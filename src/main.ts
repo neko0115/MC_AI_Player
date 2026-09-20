@@ -60,6 +60,15 @@ import {
 import type {
   WorkspaceSelectionSource
 } from './workspace/selection-source.js'
+import type {
+  WorkspaceRepository
+} from './workspace/repository.js'
+import {
+  SqliteWorkspaceRepository
+} from './workspace/sqlite-repository.js'
+import {
+  WorkspaceManagementService
+} from './workspace/management-service.js'
 import {
   createMineflayerRuntimeBundle,
   type MineflayerRuntimeBundle
@@ -77,6 +86,7 @@ import { RuntimeEventBus } from './telemetry/event-bus.js'
 import { JsonlEventRecorder } from './telemetry/recorder.js'
 
 const DEFAULT_MEMORY_PATH = 'data/mc_memory.sqlite3'
+const DEFAULT_WORKSPACE_PATH = 'data/workspaces.sqlite3'
 const DEFAULT_QUOTA_PATH = 'data/ai-quota.sqlite3'
 const DEFAULT_EVENT_LOG_PATH = 'data/runtime-events.jsonl'
 const DEFAULT_EVENT_LOG_MAX_BYTES = 5 * 1024 * 1024
@@ -223,6 +233,9 @@ export interface ApplicationDependencies {
     config: Extract<MoxueBridgeConfig, { enabled: true }>,
     worldKey: string
   ) => ApplicationWorkspaceSelectionsPort
+  readonly createWorkspaceRepository?: (
+    filename: string
+  ) => WorkspaceRepository
   readonly createMemory?: (filename: string) => MinecraftMemoryRepository
   readonly createRecorder?: (filename: string) => ApplicationRecorderPort
   readonly createLogicalDecisionExecutor?: (
@@ -280,6 +293,21 @@ export function createApplication(
         worldKey
       )
     : null
+  const createWorkspaceRepository =
+    dependencies.createWorkspaceRepository ??
+    createDefaultWorkspaceRepository
+  const workspaceRepository =
+    createWorkspaceRepository(
+      DEFAULT_WORKSPACE_PATH
+    )
+  const workspaceManagement =
+    new WorkspaceManagementService({
+      worldKey,
+      repository: workspaceRepository,
+      ...(workspaceSelections
+        ? { selections: workspaceSelections }
+        : {})
+    })
 
   const registry = new SkillRegistry()
   installSkillModules(
@@ -420,7 +448,8 @@ export function createApplication(
     ...(capabilityStatus ? { capabilityStatus } : {}),
     ...(workspaceSelectionStatus
       ? { workspaceSelectionStatus }
-      : {})
+      : {}),
+    workspaceManagement
   })
 
   const createAdminServer = dependencies.createAdminServer ?? (options => new AdminServer(options))
@@ -486,6 +515,7 @@ export function createApplication(
       unsubscribeAdapter()
       await recorderTail
       geminiStack?.close()
+      workspaceRepository.close()
       memory.close()
       started = false
     }
@@ -634,6 +664,15 @@ function createDefaultWorkspaceSelections(
   return createWorkspaceSelectionsFromConfig(
     config,
     worldKey
+  )
+}
+
+function createDefaultWorkspaceRepository(
+  filename: string
+): WorkspaceRepository {
+  ensureParentDirectory(filename)
+  return new SqliteWorkspaceRepository(
+    filename
   )
 }
 

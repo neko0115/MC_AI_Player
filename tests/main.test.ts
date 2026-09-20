@@ -6,6 +6,9 @@ import type { SkillResult } from '../src/contracts/skills.js'
 import type { MinecraftAdapter, NavigationOptions } from '../src/minecraft/adapter.js'
 import type { MineflayerRuntimeBundle } from '../src/minecraft/runtime-bundle.js'
 import type { MinecraftMemoryRepository, MemorySearchQuery, MinecraftMemory } from '../src/memory/repository.js'
+import {
+  SqliteWorkspaceRepository
+} from '../src/workspace/sqlite-repository.js'
 import type { ProviderCapabilities, DecisionProvider } from '../src/agent/provider.js'
 import type {
   LogicalDecisionExecutor,
@@ -402,6 +405,10 @@ function harness(options: {
   const application = createApplication(options.env ?? environment(), {
     createRuntime: (_config: MinecraftConfig) => runtime,
     createMemory: () => memory,
+    createWorkspaceRepository: () =>
+      new SqliteWorkspaceRepository(
+        ':memory:'
+      ),
     createRecorder: () => recorder,
     createLogicalDecisionExecutor: () => logicalExecutor,
     ...(options.serverCapabilities
