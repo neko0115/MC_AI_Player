@@ -586,7 +586,47 @@ Regression fixes retained:
 - same-millisecond audit events are deterministically ordered by `created_at DESC, rowid DESC`;
 - regression test deliberately collides create/archive/restore timestamps.
 
-W4A is complete. Next implementation step is W4B deterministic Workspace resolution before any chat/API management binding.
+W4A is complete.
+
+#### W4B deterministic Workspace resolver — implementation in progress
+
+Commits:
+
+- `950ae15` — `feat: resolve workspaces deterministically`;
+- `89b9c95` — `fix: fail closed on duplicate selection workspace matches`;
+- `4838d1f` — `test: cover duplicate selection workspace ambiguity`.
+
+Resolver precedence:
+
+1. explicit id or exact label;
+2. conversation-bound workspace;
+3. trusted latest selection exact source match;
+4. trusted selection unique spatial intersection;
+5. unique nearby workspace;
+6. recent authorized workspace;
+7. otherwise ambiguous/none.
+
+Safety behavior:
+
+- explicit reference that is missing or unauthorized returns `explicit_not_found`; it does not silently fall back to nearby context;
+- duplicate exact labels return `ambiguous`;
+- duplicate workspaces created from the same selection return `ambiguous: selection_source`;
+- multiple nearby workspaces return `ambiguous`;
+- foreign-player/cross-world/cross-dimension selection context is ignored;
+- archived workspaces are excluded from ordinary resolution;
+- current v1 resolver authorization is owner-only;
+- resolver does not mutate workspace state or Minecraft world state.
+
+**W4B verification status:** local verification pending.
+
+**Next exact action:**
+
+1. fast-forward workspace worktree;
+2. run `npm test -- tests/workspace/sqlite-repository.test.ts tests/workspace/lifecycle-service.test.ts tests/workspace/resolver.test.ts`;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree clean;
+6. if green, mark W4B PASS and proceed to bounded Workspace management API/chat binding.
 
 **Next exact action:**
 
