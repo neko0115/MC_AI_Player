@@ -744,7 +744,13 @@ Safety/ambiguity rule:
 - deictic shorthand such as `這農田` only becomes create-from-selection when a fresh trusted selection exists for the speaking player;
 - without a fresh trusted selection, do not guess coordinates or silently resolve a nearby workspace; ask for a setting-wand selection;
 - explicit management verbs such as rename/archive/restore take precedence over shorthand creation;
-- phrases that contain an execution directive such as lighting/building must not be misclassified as metadata creation.
+- phrases that contain an execution directive such as lighting/building must not be misclassified as metadata creation;
+- possessive/private phrases set use policy independently from purpose:
+  - `我的私人倉庫`, `我自己的農田`, ordinary possessive `我的倉庫/農田` -> `owner_only`;
+  - `你專用的農田/倉庫`, `墨雪專用`, `給你用` -> `moxue_preferred`;
+  - ordinary `這是倉庫/農田` -> `shared`;
+- `owner_only` means Moxue must not operationally use or mutate the Workspace, but may retain bounded awareness so planners avoid it;
+- `moxue_preferred` means prefer over equivalent shared candidates, not bypass SafetyPolicy or storage ACLs.
 
 Purpose mapping remains generic and small:
 
