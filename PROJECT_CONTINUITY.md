@@ -1172,6 +1172,20 @@ Acceptance coverage:
 
 **W5C4 verification status:** local verification pending.
 
+Full-suite regression note:
+
+- after the runtime chat-output test isolation fix, full suite reached 522 tests / 517 pass / 1 fail / 4 skipped;
+- only `tests/scenarios/cooperative-session.test.ts` failed, timing out while waiting for player `goal-3` (`go_to(BASE)`) to become `succeeded`;
+- root cause is a pre-existing GoalManager terminal-event race exposed by full-suite timing:
+  1. old goal transitions to terminal status;
+  2. `completeGoal()` awaited terminal event publication while still owning `activeGoalId`;
+  3. another caller could observe the terminal status and submit/start a replacement goal during that publish;
+  4. stale old completion then returned and unconditionally set `activeGoalId = null`, orphaning the replacement running goal;
+- `f260efa` fixes the lifecycle by releasing active ownership immediately after terminal transition and before publishing the terminal event;
+- `5062a0d` adds a regression test that deliberately blocks `goal_completed` publication, starts a replacement goal during the block, releases the old completion, and proves the replacement remains active;
+- cooperative-session timeout budget was not increased and the scenario behavior was not weakened;
+- rerun GoalManager + cooperative-session + W5C4 focused tests, then typecheck/full suite.
+
 Verification note:
 
 - first focused run: 47 tests total, 46 passed, 1 failed;
