@@ -388,10 +388,24 @@ export class DecisionCoordinator {
     const sessionGeneration =
       this.currentMinecraftSessionGeneration()
 
+    const workspaceActorPrincipal =
+      this.options.identity
+        .resolveObservedPlayerId({
+          mode:
+            this.options.identityMode,
+          player:
+            classification.player,
+          ...(classification.playerId === undefined
+            ? {}
+            : {
+                playerId:
+                  classification.playerId
+              })
+        })
+
     if (
       this.options.workspaceChatRouter &&
-      classification.playerId !== undefined &&
-      classification.playerId.trim().length > 0
+      workspaceActorPrincipal !== null
     ) {
       this.startWorkspaceChatRouting(
         {
@@ -400,7 +414,7 @@ export class DecisionCoordinator {
           player:
             classification.player,
           actorPrincipal:
-            classification.playerId.trim(),
+            workspaceActorPrincipal,
           principalKind:
             principal.kind,
           sessionGeneration,
