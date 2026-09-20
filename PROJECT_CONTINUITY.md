@@ -1172,6 +1172,18 @@ Acceptance coverage:
 
 **W5C4 verification status:** local verification pending.
 
+Verification note:
+
+- first focused run: 47 tests total, 46 passed, 1 failed;
+- only `tests/minecraft/runtime-bundle-chat-output.test.ts` failed at file level without an assertion stack;
+- the failing acceptance test was over-coupled to a hand-built fake Mineflayer Bot lifecycle even though its intended contract was only runtime-port registration;
+- `feace2a` narrows that test to:
+  - default runtime registers `minecraft.chat_output`;
+  - enumerable runtime bundle surface remains `adapter / gathering / inventory`;
+  - pre-spawn chat output fails closed;
+- ready-bot send behavior remains covered independently by `tests/minecraft/chat-output.test.ts`;
+- rerun focused W5C4 tests before any new feature work.
+
 **Next exact action:**
 
 1. fast-forward `feature/workspace-planner`;
