@@ -4,6 +4,9 @@ import type {
   SurvivalInventoryAdapter
 } from './adapter.js'
 import type { ResourceGatheringAdapter } from './gathering.js'
+import type {
+  MinecraftChatOutput
+} from './chat-output.js'
 
 declare const RUNTIME_PORT_TYPE: unique symbol
 
@@ -64,6 +67,11 @@ export const SURVIVAL_INVENTORY_PORT =
 
 export const RESOURCE_GATHERING_PORT =
   defineRuntimePort<ResourceGatheringAdapter>('minecraft.gathering')
+
+export const MINECRAFT_CHAT_OUTPUT_PORT =
+  defineRuntimePort<MinecraftChatOutput>(
+    'minecraft.chat_output'
+  )
 
 export const RUNTIME_PORT_REGISTRY =
   Symbol('mc-ai-player.runtime-ports')
