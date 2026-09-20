@@ -918,17 +918,70 @@ Application wiring:
 
 **Important current limitation:** the production Gemini-backed `WorkspaceIntentInterpreter` is not wired yet. Do not claim live arbitrary-language Workspace chat support until that interpreter and live validation are complete.
 
-**Current verification gate:** pending.
+**Current verification gate:** PASS.
 
-**Next exact action:**
+Automated evidence:
 
-1. fast-forward `feature/workspace-planner`;
-2. run focused tests for geometry/sqlite/lifecycle/management/resolver/chat-intent/chat-router/control-api/decision-coordinator/main;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. confirm working tree clean;
-6. if green, implement a production Gemini-backed WorkspaceIntentInterpreter that reuses the existing ProjectPool/quota/failover infrastructure rather than bypassing it with a separate unmanaged API key;
-7. then live-test varied natural-language paraphrases in Minecraft.
+- full suite: 490 tests total;
+- 486 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
+
+W5B semantic router + addressed-chat coordinator seam is accepted.
+
+##### W5C learned Workspace semantic cache — requirements accepted
+
+Goal:
+
+- known, previously validated natural-language Workspace interpretations should be resolved locally before any provider/API call;
+- unseen wording may use the Gemini semantic interpreter;
+- successful provider interpretations may become reusable local examples;
+- learning must not silently expand mutation authority or bypass deterministic validation.
+
+Required lookup flow:
+
+```text
+addressed utterance
+  -> normalize + keyed fingerprint
+  -> trusted learned semantic cache lookup
+     -> trusted hit: validated WorkspaceChatIntent, no provider call
+     -> miss: production semantic interpreter
+          -> strict schema validation
+          -> deterministic resolver/management execution
+          -> successful bounded outcome
+          -> eligible learned record
+```
+
+Safety rules:
+
+- do not cache raw provider output before schema validation;
+- do not cache interpretations that ended in `clarify`, rejection, ambiguity, missing selection/reference, or failed lifecycle execution;
+- `not_workspace` should use a more conservative learning policy because caching a false negative would suppress future Workspace interpretation;
+- learning records are versioned by semantic-contract/schema version;
+- stale/incompatible learned records must be ignored rather than coerced;
+- user correction must be able to supersede/revoke a learned mapping;
+- learned records grant no world mutation authority; they only reproduce a previously validated semantic intent.
+
+Privacy/sync design:
+
+- live SQLite remains application-owned local state;
+- GitHub must never receive plaintext chat utterances or a plaintext learned-intent DB;
+- exact lookup should use a keyed fingerprint (HMAC) of normalized utterance text rather than a reversible raw-text index;
+- any optional stored exemplar text should be locally encrypted;
+- GitHub sync should publish a versioned encrypted export artifact, not the live SQLite file;
+- encryption key must come from an environment secret / local secret store and must never be committed alongside the export;
+- automatic GitHub push is a later explicit sync capability, not implicit runtime behavior.
+
+**Next implementation order:**
+
+1. implement local learned-intent repository/cache with contract versioning and HMAC lookup;
+2. wrap a provider-backed interpreter with cache-first behavior;
+3. persist only eligible successful semantic outcomes;
+4. add correction/revocation support;
+5. add encrypted export/import format and tests;
+6. only then wire production Gemini interpreter and optional GitHub sync.
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
