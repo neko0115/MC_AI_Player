@@ -931,57 +931,63 @@ Automated evidence:
 
 W5B semantic router + addressed-chat coordinator seam is accepted.
 
-##### W5C learned Workspace semantic cache — requirements accepted
+##### W5C learned Workspace semantic cache — implementation in progress
 
 Goal:
 
-- known, previously validated natural-language Workspace interpretations should be resolved locally before any provider/API call;
-- unseen wording may use the Gemini semantic interpreter;
-- successful provider interpretations may become reusable local examples;
-- learning must not silently expand mutation authority or bypass deterministic validation.
+- known, previously validated natural-language Workspace interpretations resolve locally before any provider/API call;
+- unseen wording may use the production semantic interpreter;
+- successful bounded interpretations become reusable learned records;
+- learning never grants mutation authority.
 
-Required lookup flow:
+Implemented W5C1:
 
-```text
-addressed utterance
-  -> normalize + keyed fingerprint
-  -> trusted learned semantic cache lookup
-     -> trusted hit: validated WorkspaceChatIntent, no provider call
-     -> miss: production semantic interpreter
-          -> strict schema validation
-          -> deterministic resolver/management execution
-          -> successful bounded outcome
-          -> eligible learned record
-```
+- `SqliteLearnedWorkspaceIntentCache`;
+- HMAC-SHA256 fingerprint lookup over normalized utterance;
+- raw utterance text is not stored;
+- semantic contract versioning;
+- `CacheFirstWorkspaceIntentInterpreter`;
+- cache-first lookup before fallback interpreter;
+- successful handled Workspace outcomes call optional `learnSuccessful()`;
+- fallback / clarification / failed operations are not learned;
+- `not_workspace` is not auto-learned;
+- `nearby` references are not auto-learned because they are highly context-sensitive;
+- conversation/recent mappings only match when the same reference class is available;
+- explicit-target mappings are cache-eligible only when the explicit name/id actually appears in the utterance;
+- conflicting active mappings for one fingerprint cause a cache miss instead of last-write-wins;
+- revocation invalidates all active mappings for one utterance fingerprint;
+- different HMAC keys cannot reproduce lookups;
+- cache is advisory: read/write failures do not override a successful deterministic Workspace operation.
 
-Safety rules:
+Relevant commits:
 
-- do not cache raw provider output before schema validation;
-- do not cache interpretations that ended in `clarify`, rejection, ambiguity, missing selection/reference, or failed lifecycle execution;
-- `not_workspace` should use a more conservative learning policy because caching a false negative would suppress future Workspace interpretation;
-- learning records are versioned by semantic-contract/schema version;
-- stale/incompatible learned records must be ignored rather than coerced;
-- user correction must be able to supersede/revoke a learned mapping;
-- learned records grant no world mutation authority; they only reproduce a previously validated semantic intent.
+- `2183f1f` — `feat: add learned workspace semantic cache`;
+- `1c11ee5` — `feat: allow successful workspace intent learning`;
+- `aab3335` — `feat: learn workspace semantics only after handled outcomes`;
+- `1cab671` — `test: learn only successful workspace chat outcomes`;
+- `96b04fb` — `feat: version workspace semantic intent contract`;
+- `b23f202` — `fix: cache only stable explicit workspace references`.
 
-Privacy/sync design:
+Privacy/sync boundary:
 
-- live SQLite remains application-owned local state;
-- GitHub must never receive plaintext chat utterances or a plaintext learned-intent DB;
-- exact lookup should use a keyed fingerprint (HMAC) of normalized utterance text rather than a reversible raw-text index;
-- any optional stored exemplar text should be locally encrypted;
-- GitHub sync should publish a versioned encrypted export artifact, not the live SQLite file;
-- encryption key must come from an environment secret / local secret store and must never be committed alongside the export;
-- automatic GitHub push is a later explicit sync capability, not implicit runtime behavior.
+- live learned SQLite state remains local application-owned state;
+- GitHub must never receive plaintext chat utterances or the plaintext learned DB;
+- GitHub sharing will use a versioned authenticated encrypted export, not the live DB file;
+- encryption key must come from a local/environment secret and must never be committed;
+- runtime will not automatically push to GitHub.
 
-**Next implementation order:**
+**W5C1 verification status:** local verification pending.
 
-1. implement local learned-intent repository/cache with contract versioning and HMAC lookup;
-2. wrap a provider-backed interpreter with cache-first behavior;
-3. persist only eligible successful semantic outcomes;
-4. add correction/revocation support;
-5. add encrypted export/import format and tests;
-6. only then wire production Gemini interpreter and optional GitHub sync.
+**Next exact action:**
+
+1. fast-forward `feature/workspace-planner`;
+2. run focused learned-cache/chat/router/resolver/sqlite/coordinator/main tests;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. confirm working tree clean;
+6. if green, implement authenticated encrypted export/import (AES-256-GCM with versioned envelope and key separation);
+7. after encrypted export is green, add the production Gemini-backed WorkspaceIntentInterpreter using the existing ProjectPool/quota/failover path;
+8. optional GitHub sync comes last and must be explicit, never implicit runtime behavior.
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
