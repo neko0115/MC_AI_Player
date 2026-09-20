@@ -229,6 +229,15 @@ export interface WorkspaceIntentInterpreter {
     context: WorkspaceSemanticContext,
     signal: AbortSignal
   ): Promise<WorkspaceChatIntent>
+
+  learnSuccessful?(
+    context: WorkspaceSemanticContext,
+    intent: WorkspaceChatIntent
+  ): Promise<void> | void
+
+  revoke?(
+    context: WorkspaceSemanticContext
+  ): Promise<number> | number
 }
 
 export function normalizeWorkspaceSemanticContext(
