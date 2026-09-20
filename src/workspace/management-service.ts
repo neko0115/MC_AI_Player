@@ -1,7 +1,8 @@
 import type {
   WorkspaceConstraints,
   WorkspacePurpose,
-  WorkspaceRegion
+  WorkspaceRegion,
+  WorkspaceUsePolicy
 } from './contracts.js'
 import {
   WorkspaceLifecycleError,
@@ -45,6 +46,7 @@ export interface CreateWorkspaceRequest {
   readonly actorPrincipal: string
   readonly label: string
   readonly purpose: WorkspacePurpose
+  readonly moxueUsePolicy?: WorkspaceUsePolicy
   readonly tags?: readonly string[]
   readonly constraints?: WorkspaceConstraints
 }
@@ -100,6 +102,12 @@ export class WorkspaceManagementService {
       actorPrincipal: actor,
       label: request.label,
       purpose: request.purpose,
+      ...(request.moxueUsePolicy === undefined
+        ? {}
+        : {
+            moxueUsePolicy:
+              request.moxueUsePolicy
+          }),
       ...(request.tags === undefined
         ? {}
         : { tags: [...request.tags] }),
@@ -208,6 +216,22 @@ export class WorkspaceManagementService {
           actorPrincipal
         ),
         purpose
+      )
+    )
+  }
+
+  changeUsePolicy(
+    workspaceId: string,
+    actorPrincipal: string,
+    policy: WorkspaceUsePolicy
+  ): WorkspaceRegion {
+    return this.mapLifecycle(() =>
+      this.lifecycle.changeUsePolicy(
+        workspaceId,
+        normalizePrincipal(
+          actorPrincipal
+        ),
+        policy
       )
     )
   }
