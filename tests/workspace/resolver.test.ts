@@ -453,6 +453,58 @@ test('trusted selection first resolves exact source id then unique intersection'
   }
 })
 
+test('duplicate workspaces from the same selection are ambiguous instead of last-write-wins', () => {
+  const repo = makeRepo()
+  try {
+    createWorkspace(repo, {
+      label: 'First from selection',
+      minX: 0,
+      maxX: 8,
+      minZ: 0,
+      maxZ: 8,
+      sourceSelectionId:
+        'selection-live'
+    })
+    createWorkspace(repo, {
+      label: 'Second from selection',
+      minX: 20,
+      maxX: 28,
+      minZ: 20,
+      maxZ: 28,
+      sourceSelectionId:
+        'selection-live'
+    })
+
+    const result =
+      new WorkspaceResolver(repo)
+        .resolve({
+          worldKey: 'server:survival',
+          dimension: 'overworld',
+          actorPrincipal: 'player-1',
+          selection: selection()
+        })
+
+    assert.equal(
+      result.kind,
+      'ambiguous'
+    )
+    if (
+      result.kind === 'ambiguous'
+    ) {
+      assert.equal(
+        result.reason,
+        'selection_source'
+      )
+      assert.equal(
+        result.candidates.length,
+        2
+      )
+    }
+  } finally {
+    repo.close()
+  }
+})
+
 test('foreign or cross-scope selection is ignored', () => {
   const repo = makeRepo()
   try {
