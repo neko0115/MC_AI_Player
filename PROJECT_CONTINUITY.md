@@ -569,16 +569,24 @@ W4A scope:
 - cross-player and cross-world/dimension resize attempts fail closed;
 - low-level physical `delete()` remains maintenance-only and is not user-facing lifecycle behavior.
 
-**W4A verification status:** verification in progress.
+**W4A verification status:** PASS.
 
-Regression findings and fixes:
+Final automated evidence:
 
-- stale W0 geometry fixture omitted required `status`; fixture corrected;
-- lifecycle archive/restore test then exposed a real audit ordering bug: multiple writes may share one millisecond, while `ORDER BY created_at DESC, event_id ASC` used a non-chronological identifier as tie-break;
-- repository now uses SQLite insertion order as the deterministic tie-break: `ORDER BY created_at DESC, rowid DESC`;
-- lifecycle regression test fixes `now` to one timestamp so create/archive/restore deliberately collide and still must return reverse insertion order.
+- full suite: 452 tests total;
+- 448 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS in the requested validation sequence;
+- working tree clean.
 
-W4A verification must be rerun after these corrections.
+Regression fixes retained:
+
+- stale W0 geometry fixture now includes required `status`;
+- same-millisecond audit events are deterministically ordered by `created_at DESC, rowid DESC`;
+- regression test deliberately collides create/archive/restore timestamps.
+
+W4A is complete. Next implementation step is W4B deterministic Workspace resolution before any chat/API management binding.
 
 **Next exact action:**
 
