@@ -727,106 +727,162 @@ Final automated evidence:
 
 W4C2 is complete.
 
-#### W5 natural-language Workspace chat binding — requirements accepted
+#### W5 natural-language Workspace chat binding — implementation in progress
 
-The chat layer must support both explicit commands and ordinary spoken shorthand.
+Hard architecture rule:
 
-Examples that should resolve to the same deterministic create-from-selection operation:
+> Do not implement Workspace natural language as a finite phrase/regex list.
+
+Human phrasing is open-ended. The raw addressed utterance must be interpreted semantically into a strict bounded Workspace intent. Deterministic code owns reference resolution, ownership, lifecycle mutation, persistence, audit, and all Minecraft execution.
+
+Current accepted flow:
+
+```text
+addressed natural language
+  -> Workspace semantic interpreter
+  -> strict WorkspaceChatIntent schema
+  -> deterministic Workspace resolver
+  -> WorkspaceManagementService
+  -> SQLite + audit
+
+if semantic interpreter returns not_workspace:
+  -> existing gameplay AI path
+```
+
+The semantic interpreter may understand arbitrary paraphrases such as possessive/private/shared/preferred-use language without enumerating exact Chinese sentences in production code.
+
+##### Workspace Moxue use policy — implementation complete, verification pending
+
+New first-class domain field:
+
+- `owner_only`
+  - private/player-owned operational use;
+  - Moxue may retain bounded awareness so planning can avoid conflict;
+  - Moxue must not harvest/use storage/consume output/perform ordinary workspace mutation there;
+- `shared`
+  - default for ordinary Workspace declarations;
+  - usable subject to purpose-specific rules, storage ACL and SafetyPolicy;
+- `moxue_preferred`
+  - usable and preferred over equivalent shared candidates;
+  - does not imply humans are forbidden;
+  - does not bypass storage ACL, Project policy or SafetyPolicy.
+
+Important distinction:
+
+- `ownerPrincipal` = who may manage the Workspace metadata;
+- `moxueUsePolicy` = whether/how Moxue may operationally use the Workspace.
+
+Implemented:
+
+- `WorkspaceUsePolicySchema`;
+- `WorkspaceRegion.moxueUsePolicy`;
+- input default = `shared`;
+- search filter by use policy;
+- audited `changeUsePolicy()`;
+- WorkspaceManagementService create/change support;
+- Control API:
+  - create accepts optional `moxue_use_policy`;
+  - `POST /v1/workspaces/:id/use-policy`;
+  - public response includes `moxue_use_policy`;
+- SQLite schema v3;
+- v1 -> v2 -> v3 migration;
+- v2 -> v3 migration;
+- legacy rows default to `shared`;
+- migration/restart/query/audit/API tests added.
+
+Relevant commits include:
+
+- `ed786bb` — `feat: define workspace moxue use policy`;
+- `f310c1e` — `feat: persist workspace moxue use policy`;
+- `31e5d1e` — `fix: sequence workspace use policy schema migration`;
+- `bb380cc` — `feat: manage workspace moxue use policy`;
+- `18ee1ab` — `feat: expose workspace moxue use policy management`;
+- `b94ec0b` — `feat: expose workspace moxue use policy api`;
+- `e81cf04` — `test: cover workspace moxue use policy api`;
+- policy regression coverage commits through `87edcd6`.
+
+##### W5A semantic Workspace chat intent contract — implementation complete, verification pending
+
+Commit:
+
+- `453c559` — `feat: define semantic workspace chat intent contract`.
+
+The contract is operation-based, not phrase-based.
+
+Supported bounded semantic outcomes include:
+
+- `not_workspace`;
+- `clarify`;
+- `create`;
+- `rename`;
+- `resize`;
+- `change_purpose`;
+- `change_use_policy`;
+- `replace_tags`;
+- `change_constraints`;
+- `archive`;
+- `restore`;
+- `list`;
+- `show`.
+
+Reference semantics are also bounded:
+
+- explicit id/name;
+- current trusted selection;
+- current conversation Workspace;
+- nearby Workspace;
+- recent Workspace.
+
+The intent schema intentionally rejects:
+
+- raw coordinate bounds;
+- physical purge/delete-forever;
+- arbitrary mutation authority;
+- unknown use policies;
+- extra undeclared fields.
+
+The semantic context keeps the original utterance opaque and bounded for the interpreter and supplies only bounded Workspace/selection context. There is no production phrase table such as `message.includes("農田")`.
+
+Natural-language examples are tests/spec examples only, not exhaustive parser rules.
+
+##### Accepted natural-language behavior
+
+Examples that may map to create-from-selection when semantically appropriate include:
 
 - `墨雪 幫我把這邊設定成農田`;
-- `墨雪 把這裡設成農田`;
 - `墨雪 這裡是農田`;
 - `墨雪 這農田`;
-- `墨雪 這邊農田`.
+- paraphrases not listed here.
 
-Safety/ambiguity rule:
+Use-policy semantics:
 
-- deictic shorthand such as `這農田` only becomes create-from-selection when a fresh trusted selection exists for the speaking player;
-- without a fresh trusted selection, do not guess coordinates or silently resolve a nearby workspace; ask for a setting-wand selection;
-- explicit management verbs such as rename/archive/restore take precedence over shorthand creation;
-- phrases that contain an execution directive such as lighting/building must not be misclassified as metadata creation;
-- possessive/private phrases set use policy independently from purpose:
-  - `我的私人倉庫`, `我自己的農田`, ordinary possessive `我的倉庫/農田` -> `owner_only`;
-  - `你專用的農田/倉庫`, `墨雪專用`, `給你用` -> `moxue_preferred`;
-  - ordinary `這是倉庫/農田` -> `shared`;
-- `owner_only` means Moxue must not operationally use or mutate the Workspace, but may retain bounded awareness so planners avoid it;
-- `moxue_preferred` means prefer over equivalent shared candidates, not bypass SafetyPolicy or storage ACLs.
+- private/possessive meaning such as "這塊我自己用、你不要拿" -> `owner_only`;
+- ordinary shared meaning -> `shared`;
+- "這個給你用 / 你優先用" meaning -> `moxue_preferred`.
 
-Purpose mapping remains generic and small:
+These are semantic meanings, not exact-string matching requirements.
 
-- farm/agriculture wording -> `farm`;
-- furnace/processing/production wording -> `production`;
-- storage wording -> `storage`;
-- build/construction wording -> `construction`;
-- lighting wording -> `lighting`;
-- protected wording -> `protected`;
-- transit/path wording -> `transit`;
-- unknown labels remain `custom`.
+Safety rules:
 
-The parser should handle common deterministic phrasing first and defer genuinely ambiguous semantics to the existing AI layer without granting it direct repository or world-mutation authority.
+- create/resize still require a fresh trusted setting-wand selection;
+- without a fresh selection, deictic create/resize must ask for one rather than guess coordinates;
+- ambiguous target reference must produce clarification instead of last-write-wins;
+- explicit lifecycle verbs/semantics take precedence over accidental create interpretation;
+- execution directives such as lighting/building must not be confused with metadata creation;
+- AI never receives repository/world-mutation authority.
+
+**Current verification gate:**
+
+Run focused Workspace policy/chat tests, typecheck, then full suite. Do not wire production chat interception until these contracts/migrations are green.
 
 **Next exact action:**
 
-1. fast-forward workspace worktree;
-2. run `npm test -- tests/workspace/management-service.test.ts tests/api/control-server-workspaces.test.ts tests/api/control-server.test.ts tests/main.test.ts`;
+1. fast-forward `feature/workspace-planner`;
+2. run focused tests for contracts/geometry/sqlite/lifecycle/management/control-api/chat-intent/main;
 3. run `npm run typecheck`;
 4. run full `npm test`;
 5. confirm working tree clean;
-6. if green, mark W4C2 PASS and proceed to natural-language Minecraft chat binding over the same resolver/management service.
-
-**Next exact action:**
-
-1. fast-forward workspace worktree;
-2. run `npm test -- tests/workspace/sqlite-repository.test.ts tests/workspace/lifecycle-service.test.ts tests/workspace/resolver.test.ts tests/workspace/management-service.test.ts`;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. confirm working tree clean;
-6. if green, wire WorkspaceRepository + WorkspaceManagementService into application lifecycle and Control API without exposing physical purge.
-
-**Next exact action:**
-
-1. fast-forward the workspace worktree;
-2. run `npm test -- tests/workspace/geometry.test.ts tests/workspace/sqlite-repository.test.ts tests/workspace/lifecycle-service.test.ts`;
-3. run `npm run typecheck`;
-4. run full `npm test`;
-5. confirm working tree clean;
-6. if green, mark W4A PASS and implement deterministic Workspace resolver before exposing lifecycle actions to chat/API.
-
-W4 lifecycle direction:
-
-- create/list/show/update/rename/resize/change purpose/retag/change constraints;
-- ordinary delete = archive;
-- restore supported;
-- every mutation appends safe audit transactionally;
-- deterministic resolver reuses Project Autonomy principles;
-- hard purge remains dependency-safe maintenance-only;
-- selection state and durable workspace state stay separate.
-
-Automated evidence:
-
-- MC_AI_Player full suite: 445 tests total, 441 passed, 0 failed, 4 skipped; working tree clean;
-- MoxueBridge `.\\gradlew.bat clean test build`: BUILD SUCCESSFUL; working tree clean;
-- MC_AI workspace selection transport/lifecycle tests PASS as part of the full suite;
-- MoxueBridge workspace selection store/API tests PASS as part of Gradle build.
-
-**Next exact action:**
-
-1. run MoxueBridge Gradle tests/build on `feature/workspace-selection-observation`;
-2. run MC_AI focused workspace/bridge/main tests;
-3. run MC_AI `npm run typecheck` and full suite;
-4. if both repos are green, deploy the Bridge JAR to the test Paper server;
-5. live-test `墨雪設定棍` A/B selection and authenticated endpoint output;
-6. verify MC_AI source becomes `current` and resolves the same selection;
-7. only then begin W4 chat/context binding for “這裡 / 剛才那區 / <workspace name>”.
-
-**Do not:**
-
-- implement lighting by hard-coded farm/furnace special cases;
-- let region labels directly authorize mutation;
-- expose raw Mineflayer Bot to this module;
-- make Paper wand observations responsible for executing world changes.
-
----
+6. if green, implement the addressed-chat semantic coordinator seam so every addressed utterance can return `not_workspace` and fall through to the existing gameplay AI path without keyword prefiltering.
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
 
