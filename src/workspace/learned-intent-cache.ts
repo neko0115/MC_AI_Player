@@ -164,6 +164,12 @@ const SnapshotSchema = z
   })
   .strict()
 
+export function parseLearnedWorkspaceIntentSnapshot(
+  value: unknown
+): LearnedWorkspaceIntentSnapshot {
+  return SnapshotSchema.parse(value)
+}
+
 export class SqliteLearnedWorkspaceIntentCache
 implements LearnedWorkspaceIntentCache {
   private readonly db: DatabaseLike
@@ -222,6 +228,9 @@ implements LearnedWorkspaceIntentCache {
         intent_hash,
         intent_json,
         contract_version,
+        created_at,
+        updated_at,
+        last_success_at,
         success_count,
         revoked
       FROM learned_workspace_intents
@@ -444,7 +453,9 @@ implements LearnedWorkspaceIntentCache {
   ): LearnedWorkspaceIntentImportResult {
     this.assertOpen()
     const parsed =
-      SnapshotSchema.parse(snapshot)
+      parseLearnedWorkspaceIntentSnapshot(
+        snapshot
+      )
 
     let merged = 0
     let skipped = 0
