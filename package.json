@@ -14,7 +14,8 @@
     "probe": "tsx scripts/probe-platform.ts",
     "fetch:test-server": "tsx scripts/fetch-test-server.ts",
     "validate:gemini-live": "tsx scripts/validate-gemini-routing-live.ts",
-    "inspect:workspace-semantic-live": "tsx scripts/inspect-workspace-semantic-live.ts"
+    "inspect:workspace-semantic-live": "tsx scripts/inspect-workspace-semantic-live.ts",
+    "sync:workspace-semantic": "node --env-file=.env --import tsx scripts/sync-workspace-semantic.ts"
   },
   "dependencies": {
     "@google/genai": "2.21.0",
