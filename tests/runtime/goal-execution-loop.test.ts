@@ -198,6 +198,157 @@ test('disposing the execution binding stops future goal_started handling', async
   assert.equal(current.executor.executeCalls.length, 0)
 })
 
+
+test('progress watchdog fails a bounded gameplay goal whose executor never settles', async () => {
+  const events = new RuntimeEventBus()
+  const seen: Array<{
+    type: string
+    code?: string
+    scope?: string
+  }> = []
+  const executor = {
+    cancelCalls: 0,
+    async execute(): Promise<SkillResult> {
+      return new Promise<SkillResult>(
+        () => {}
+      )
+    },
+    async cancelActive(): Promise<void> {
+      this.cancelCalls += 1
+    }
+  }
+  const goals = new GoalManager({
+    skillController: executor,
+    events,
+    nextGoalId: () => 'goal-hung',
+    now: () => 100
+  })
+  events.subscribe(event => {
+    if (
+      event.type ===
+        'runtime_watchdog' ||
+      event.type === 'goal_failed'
+    ) {
+      seen.push({
+        type: event.type,
+        ...('code' in event
+          ? { code: event.code }
+          : {}),
+        ...('scope' in event
+          ? { scope: event.scope }
+          : {})
+      })
+    }
+  })
+
+  const binding = wireGoalExecution({
+    events,
+    goals,
+    executor,
+    stallTimeoutMs: 10,
+    cancelGraceMs: 5,
+    now: () => 200
+  })
+  try {
+    await goals.submit(
+      {
+        kind: 'gather_resource',
+        args: {
+          resource: 'stone',
+          quantity: 64
+        }
+      },
+      'ai'
+    )
+
+    await waitFor(() =>
+      goals.getGoal('goal-hung')
+        ?.status === 'failed'
+    )
+
+    assert.equal(
+      executor.cancelCalls,
+      1
+    )
+    assert.equal(
+      seen.some(event =>
+        event.type ===
+          'runtime_watchdog' &&
+        event.scope ===
+          'goal_execution' &&
+        event.code ===
+          'no_progress_timeout'
+      ),
+      true
+    )
+    assert.equal(
+      seen.some(event =>
+        event.type ===
+          'goal_failed' &&
+        event.code ===
+          'runtime_watchdog_timeout'
+      ),
+      true
+    )
+  } finally {
+    binding.dispose()
+  }
+})
+
+test('continuous stay goal is exempt from the progress watchdog', async () => {
+  const events = new RuntimeEventBus()
+  const executor = {
+    cancelCalls: 0,
+    async execute(): Promise<SkillResult> {
+      return new Promise<SkillResult>(
+        () => {}
+      )
+    },
+    async cancelActive(): Promise<void> {
+      this.cancelCalls += 1
+    }
+  }
+  const goals = new GoalManager({
+    skillController: executor,
+    events,
+    nextGoalId: () =>
+      'goal-stay',
+    now: () => 100
+  })
+  const binding = wireGoalExecution({
+    events,
+    goals,
+    executor,
+    stallTimeoutMs: 10,
+    cancelGraceMs: 5
+  })
+
+  try {
+    await goals.submit(
+      {
+        kind: 'stay',
+        args: {}
+      },
+      'ai'
+    )
+    await new Promise(resolve =>
+      setTimeout(resolve, 30)
+    )
+
+    assert.equal(
+      goals.getGoal('goal-stay')
+        ?.status,
+      'running'
+    )
+    assert.equal(
+      executor.cancelCalls,
+      0
+    )
+  } finally {
+    binding.dispose()
+  }
+})
+
 async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return
