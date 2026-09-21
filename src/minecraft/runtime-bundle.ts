@@ -13,6 +13,9 @@ import {
 import { MineflayerGatheringRuntime } from './mineflayer-gathering.js'
 import { MineflayerInventoryRuntime } from './mineflayer-inventory.js'
 import {
+  createMineflayerProductionExtension
+} from './mineflayer-production.js'
+import {
   installMineflayerRuntimeExtensions,
   type MineflayerRuntimeExtension
 } from './runtime-extension.js'
@@ -109,7 +112,10 @@ export function createMineflayerRuntimeBundle(
 
   installMineflayerRuntimeExtensions(
     { readyBot, ports },
-    dependencies.extensions ?? []
+    [
+      createMineflayerProductionExtension(),
+      ...(dependencies.extensions ?? [])
+    ]
   )
 
   return Object.freeze({
