@@ -74,6 +74,7 @@ function basePack(): GameKnowledgePack {
     workstations: [
       {
         id: 'minecraft:furnace',
+        item: null,
         blockIds: ['minecraft:furnace'],
         supportedKinds: ['smelting']
       }
