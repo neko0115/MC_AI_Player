@@ -381,7 +381,8 @@ function ensureTool(
   path: ReadonlySet<string>,
   depth: number
 ): boolean {
-  if (requirement.class === null) {
+  const acceptedItems = normalizedAcceptedItems(requirement)
+  if (requirement.class === null && acceptedItems.size === 0) {
     return requirement.requiredEnchantments.length === 0
   }
 
@@ -394,7 +395,7 @@ function ensureTool(
 
   if (requirement.requiredEnchantments.length > 0) {
     unresolved.push({
-      item: requirement.class,
+      item: requirement.class ?? firstAcceptedItem(acceptedItems),
       quantity: 1,
       code: 'required_enchanted_tool_unavailable'
     })
@@ -403,7 +404,8 @@ function ensureTool(
 
   const candidate = pack.tools
     .filter(tool =>
-      tool.class === requirement.class &&
+      (acceptedItems.size === 0 || acceptedItems.has(tool.item)) &&
+      (requirement.class === null || tool.class === requirement.class) &&
       tierSatisfies(tool, requirement) &&
       productionRoutesFor(pack, tool.item).length > 0
     )
@@ -411,7 +413,7 @@ function ensureTool(
 
   if (!candidate) {
     unresolved.push({
-      item: requirement.class,
+      item: requirement.class ?? firstAcceptedItem(acceptedItems),
       quantity: 1,
       code: 'tool_route_missing'
     })
@@ -580,7 +582,8 @@ function worldRoutePotentiallyViable(
   fact: WorldAcquisitionFact,
   state: MutablePlannerState
 ): boolean {
-  if (fact.tool.class === null) {
+  const acceptedItems = normalizedAcceptedItems(fact.tool)
+  if (fact.tool.class === null && acceptedItems.size === 0) {
     return fact.tool.requiredEnchantments.length === 0
   }
 
@@ -595,7 +598,8 @@ function worldRoutePotentiallyViable(
   }
 
   return pack.tools.some(tool =>
-    tool.class === fact.tool.class &&
+    (acceptedItems.size === 0 || acceptedItems.has(tool.item)) &&
+    (fact.tool.class === null || tool.class === fact.tool.class) &&
     tierSatisfies(tool, fact.tool) &&
     productionRoutesFor(pack, tool.item).length > 0
   )
@@ -606,14 +610,24 @@ function toolMatchesRequirement(
   owned: OwnedToolState,
   requirement: ToolRequirement
 ): boolean {
-  if (requirement.class === null) return true
-
+  const acceptedItems = normalizedAcceptedItems(requirement)
   const item = normalizeNamespacedId(owned.item)
+  if (acceptedItems.size > 0 && !acceptedItems.has(item)) {
+    return false
+  }
+
   const fact = pack.tools.find(candidate => candidate.item === item)
-  if (
-    !fact ||
-    fact.class !== requirement.class ||
-    !tierSatisfies(fact, requirement)
+  if (requirement.class !== null) {
+    if (
+      !fact ||
+      fact.class !== requirement.class ||
+      !tierSatisfies(fact, requirement)
+    ) {
+      return false
+    }
+  } else if (
+    requirement.minimumTierRank !== null &&
+    (!fact || !tierSatisfies(fact, requirement))
   ) {
     return false
   }
@@ -636,6 +650,20 @@ function toolMatchesRequirement(
     return false
   }
   return true
+}
+
+function normalizedAcceptedItems(
+  requirement: ToolRequirement
+): ReadonlySet<string> {
+  return new Set(
+    (requirement.acceptedItems ?? []).map(normalizeNamespacedId)
+  )
+}
+
+function firstAcceptedItem(
+  acceptedItems: ReadonlySet<string>
+): string {
+  return [...acceptedItems].sort()[0] ?? 'tool'
 }
 
 function tierSatisfies(
