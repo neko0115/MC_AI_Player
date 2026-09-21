@@ -102,6 +102,10 @@ function harness(options: {
     'online' | 'offline'
   readonly chatOutput?:
     FakeChatOutput
+  readonly decisionTimeoutMs?:
+    number
+  readonly workspaceRouteTimeoutMs?:
+    number
 } = {}) {
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({ maxRecentEvents: 32 })
@@ -161,7 +165,19 @@ function harness(options: {
     safetyConstraints: ['PvP is disabled.'],
     nextTaskId: (() => { let value = 0; return () => `task-${++value}` })(),
     nextDecisionId: (() => { let value = 0; return () => `decision-${++value}` })(),
-    now: () => 1_000
+    now: () => 1_000,
+    ...(options.decisionTimeoutMs === undefined
+      ? {}
+      : {
+          decisionTimeoutMs:
+            options.decisionTimeoutMs
+        }),
+    ...(options.workspaceRouteTimeoutMs === undefined
+      ? {}
+      : {
+          workspaceRouteTimeoutMs:
+            options.workspaceRouteTimeoutMs
+        })
   })
   coordinator.start()
   return { coordinator, events, state, logicalExecutor, goals, registry }
@@ -335,7 +351,10 @@ test('addressed chat with authoritative player id is semantically routed before 
   )
   assert.deepEqual(
     chatOutput.messages,
-    ['好，我已記住這個區域。']
+    [
+      '收到，我開始處理。',
+      '好，我已記住這個區域。'
+    ]
   )
   current.coordinator.dispose()
 })
@@ -375,11 +394,14 @@ test('workspace clarification is visible to the player without starting gameplay
   })
 
   await waitFor(() =>
-    chatOutput.messages.length === 1
+    chatOutput.messages.length === 2
   )
-  assert.equal(
-    chatOutput.messages[0],
-    '請先用墨雪設定棍框選區域，再告訴我這裡要設定成什麼。'
+  assert.deepEqual(
+    chatOutput.messages,
+    [
+      '收到，我開始處理。',
+      '請先用墨雪設定棍框選區域，再告訴我這裡要設定成什麼。'
+    ]
   )
   assert.equal(
     current.logicalExecutor
@@ -579,6 +601,159 @@ test('addressed chat enqueues AI work without blocking RuntimeEventBus on an unr
   await waitFor(() => current.logicalExecutor.requests.length === 1)
   assert.equal(current.coordinator.status().decisionInFlight, true)
   assert.equal(current.logicalExecutor.requests[0]?.context.task?.objective, '跟我來')
+
+  current.coordinator.dispose()
+})
+
+test('exact undelimited stone command reaches gameplay routing and is visibly acknowledged', async () => {
+  const chatOutput =
+    new FakeChatOutput()
+  const current = harness({
+    chatOutput
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    message: '墨雪幫我採一組石頭'
+  })
+
+  await waitFor(() =>
+    current.logicalExecutor
+      .requests.length === 1
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests[0]
+      ?.context.task?.objective,
+    '幫我採一組石頭'
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    ['收到，我開始處理。']
+  )
+
+  current.logicalExecutor
+    .resolveNext(completeResult())
+  await waitFor(() =>
+    current.coordinator.status()
+      .activeTaskId === null
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    [
+      '收到，我開始處理。',
+      '完成了。'
+    ]
+  )
+
+  current.coordinator.dispose()
+})
+
+test('decision watchdog aborts an unresolved provider and terminates the task visibly', async () => {
+  const chatOutput =
+    new FakeChatOutput()
+  const current = harness({
+    chatOutput,
+    decisionTimeoutMs: 10
+  })
+  await ready(current.events)
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    message: '墨雪 幫我做一件事'
+  })
+  await waitFor(() =>
+    current.logicalExecutor
+      .signals.length === 1
+  )
+  const signal =
+    current.logicalExecutor.signals[0]
+  assert.ok(signal)
+
+  await waitFor(() =>
+    signal.aborted &&
+    current.coordinator.status()
+      .activeTaskId === null
+  )
+
+  assert.equal(
+    current.coordinator.status()
+      .execution,
+    'idle'
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    [
+      '收到，我開始處理。',
+      '這個任務等太久沒有進展，我先停止了。'
+    ]
+  )
+
+  current.coordinator.dispose()
+})
+
+test('workspace semantic watchdog breaks a hung serial route and lets the next addressed chat enter routing', async () => {
+  const workspace =
+    new FakeWorkspaceChatRouter()
+  const chatOutput =
+    new FakeChatOutput()
+  const current = harness({
+    workspaceChatRouter:
+      workspace,
+    identityMode: 'online',
+    chatOutput,
+    workspaceRouteTimeoutMs: 10
+  })
+  await ready(current.events)
+  await observeTrustedBoss(
+    current.events
+  )
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    message: '墨雪 這個區域先處理一下'
+  })
+
+  await waitFor(() =>
+    workspace.signals[0]
+      ?.aborted === true
+  )
+  await waitFor(() =>
+    chatOutput.messages.length === 2
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    [
+      '收到，我開始處理。',
+      '這個區域操作目前無法安全完成。'
+    ]
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    0
+  )
+
+  await current.events.publish({
+    type: 'player_chat',
+    at: 4,
+    player: 'Boss',
+    playerId:
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    message: '墨雪 再看另一個區域'
+  })
+  await waitFor(() =>
+    workspace.requests.length === 2
+  )
 
   current.coordinator.dispose()
 })
