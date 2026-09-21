@@ -276,6 +276,9 @@ export function validateKnowledgePackReferences(
 
   for (const fact of pack.worldAcquisition) {
     requireItem(fact.output.item, fact.id)
+    for (const toolItem of fact.tool.acceptedItems ?? []) {
+      requireItem(toolItem, `harvest_tool:${fact.id}`)
+    }
     if (
       fact.tool.requiredEnchantments.length > 0 &&
       fact.tool.class === null &&
