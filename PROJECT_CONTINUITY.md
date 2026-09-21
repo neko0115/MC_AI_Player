@@ -1251,16 +1251,48 @@ trusted online UUID
 -> bounded Minecraft acknowledgement
 ```
 
+Repeated non-mutating explicit `show` cache proof — LIVE PASS:
+
+- exact utterance used twice:
+  - `墨雪，幫我看一下 W5C-LiveFarm-A 現在是什麼設定？`;
+- both requests produced the same visible deterministic Workspace reply:
+  - `W5C-LiveFarm-A` reported as a farm;
+  - owner-only/private semantics reported;
+  - Moxue stated it would not use the region's resources;
+- inspector window started before the first `show`;
+- across both identical utterances:
+  - semanticRouteCount = 1;
+  - semanticAttemptCount = 1;
+  - activeLearnedRecords = 2;
+  - revokedLearnedRecords = 0;
+  - conflictingFingerprints = 0;
+  - expectation gate PASS;
+- this proves:
+  1. first `show` was a cache miss and used one Gemini Workspace semantic route/attempt;
+  2. successful `show` interpretation was learned locally;
+  3. second identical `show` was served from learned semantic cache;
+  4. no second Workspace semantic provider call was made.
+
+This directly validates the intended API-saving behavior:
+
+```text
+first unseen wording
+-> Gemini semantic interpretation
+-> deterministic successful Workspace handling
+-> learned semantic DB
+
+same wording again
+-> local cache hit
+-> deterministic Workspace handling
+-> 0 additional semantic Gemini calls
+```
+
 Remaining W5C5 live gates before FULL PASS:
 
-1. repeated non-mutating explicit `show` cache proof:
-   - first exact utterance -> one semantic provider route/attempt;
-   - second identical utterance -> local learned-cache hit;
-   - no second semantic provider route/attempt;
-2. non-Workspace gameplay fallback;
-3. representative shared + moxue_preferred semantics;
-4. ambiguity clarification;
-5. archive + restore.
+1. non-Workspace gameplay fallback;
+2. representative shared + moxue_preferred semantics;
+3. ambiguity clarification;
+4. archive + restore.
 
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
