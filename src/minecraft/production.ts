@@ -1,6 +1,9 @@
 import type { Position } from '../contracts/events.js'
 import type { SkillResult } from '../contracts/skills.js'
-import type { ProcessingKind } from '../knowledge/contracts.js'
+import type {
+  IngredientRequirement,
+  ProcessingKind
+} from '../knowledge/contracts.js'
 import { defineRuntimePort } from './runtime-ports.js'
 
 export interface ResolvedWorkstation {
@@ -18,6 +21,8 @@ export interface ResolvedWorkstation {
 export interface CraftItemRequest {
   readonly recipeId: string
   readonly item: string
+  readonly outputCountPerBatch: number
+  readonly inputs: readonly IngredientRequirement[]
   readonly batches: number
   readonly workstation: ResolvedWorkstation | null
 }
@@ -26,8 +31,11 @@ export interface ProcessItemRequest {
   readonly processingId: string
   readonly kind: ProcessingKind
   readonly input: string
+  readonly inputCountPerBatch: number
   readonly output: string
+  readonly outputCountPerBatch: number
   readonly batches: number
+  readonly cookTimeTicks: number | null
   readonly workstation: ResolvedWorkstation
   readonly fuel?: string
   readonly fuelQuantity?: number
