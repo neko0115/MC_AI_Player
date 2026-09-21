@@ -51,6 +51,7 @@ const SYSTEM_INSTRUCTION = [
   'Use create only for defining the current trusted selection as a Workspace. If a Workspace definition clearly refers to the current area but no trusted selection is available, return clarify with missing_selection.',
   'Use clarify instead of guessing when Workspace semantics or the referenced Workspace are genuinely ambiguous.',
   'Use not_workspace when the addressed utterance is not Workspace metadata/management.',
+  'Controlled hostile constraints are narrow safety metadata: only use them when the user explicitly authorizes an exact canonical hostile kind and a bounded maximum count for the Workspace. Never turn them into a global hostile ignore rule.',
   'Never invent coordinates, world mutation, permissions, storage access, or physical purge authority.',
   'You MUST call exactly one supplied workspace_* function. The function name is the intent discriminator; do not include a kind argument.',
   'Do not emit model text. Keep reasoning private and never include reasoning or explanations in function arguments.'
@@ -97,7 +98,19 @@ const CONSTRAINTS_SCHEMA =
             'blockLightMin',
             'spawnSafeRequired'
           ]
+        ),
+      controlledHostiles: {
+        type: 'array',
+        maxItems: 16,
+        items: strictObject(
+          {
+            kind: stringSchema(128),
+            maxCount:
+              integerSchema(1, 16)
+          },
+          ['kind', 'maxCount']
         )
+      }
     },
     []
   )
