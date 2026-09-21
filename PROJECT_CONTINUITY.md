@@ -1440,12 +1440,66 @@ Known non-blocking UX follow-up:
 
 **W5C5 status:** FULL PASS.
 
-**Next planned work:**
+##### W5D explicit encrypted learned-semantic Git sync — implementation complete, verification pending
 
-1. explicit encrypted learned-semantic GitHub sync transport, using the existing authenticated AES-256-GCM export/import format;
-2. no implicit runtime push;
-3. keep encryption/master secrets local and gitignored;
-4. optionally harden duplicate-label ambiguity replies before broader multiplayer use.
+Implemented:
+
+- dedicated remote data branch: `workspace-semantic-cache`;
+- encrypted artifact path: `workspace-semantic-cache.enc`;
+- explicit operator commands:
+  - `npm run sync:workspace-semantic -- pull`;
+  - `npm run sync:workspace-semantic -- push`;
+- no implicit runtime pull or push;
+- no separate GitHub token/API integration: sync reuses the repository's existing authenticated `origin` Git transport;
+- current source branch, HEAD, worktree and index are not checked out or modified by sync;
+- Git plumbing creates/pushes data-only commits directly to the dedicated branch;
+- `pull`:
+  - fetches the dedicated branch;
+  - reads only the encrypted artifact;
+  - authenticates/decrypts AES-256-GCM;
+  - validates snapshot/intent/hash contracts;
+  - record-merges into local SQLite;
+- `push`:
+  - fetches and imports latest remote state first;
+  - merges remote/local records;
+  - compares semantic record content while ignoring export timestamp/random nonce;
+  - emits no new encrypted commit when semantic content is unchanged;
+  - encrypts and publishes only when records changed;
+  - detects concurrent branch updates, refetches/merges and retries boundedly;
+- wrong semantic secret fails closed at authenticated decryption;
+- raw utterances and plaintext intent records are never written to the Git branch;
+- the same master secret must be shared out-of-band across machines that participate in this encrypted cache.
+
+Automated coverage added:
+
+- encrypted first push;
+- unchanged second push = no-op;
+- two-machine merge without last-write-wins;
+- concurrent remote update refetch/merge/retry;
+- wrong-key pull fail-closed;
+- local bare-Git transport integration proving the dedicated branch can be created/updated without changing current HEAD/worktree/index.
+
+Relevant commits:
+
+- `5396edd` — `feat: add explicit encrypted workspace semantic git sync`;
+- `242de29` — `fix: read semantic sync artifact from fetched remote head`;
+- `4c1e468` — `feat: expose explicit workspace semantic sync command`;
+- `986cc7e` — `docs: document encrypted workspace semantic git sync`.
+
+**W5D verification status:** local verification pending.
+
+**Next exact action:**
+
+1. fast-forward `feature/workspace-planner`;
+2. run focused learned-intent Git sync/export/cache tests;
+3. run `npm run typecheck`;
+4. run full `npm test`;
+5. run `git diff --check` and confirm clean worktree;
+6. if green, perform first explicit live `push` to create `origin/workspace-semantic-cache`;
+7. verify source branch HEAD/status are unchanged by the sync command;
+8. run a second `push` without new learned semantics and require `no_change`;
+9. optionally prove `pull` on a fresh local cache copy before declaring W5D FULL PASS;
+10. duplicate-label ambiguity reply UX hardening remains a separate non-blocking follow-up.
 
 ##### W5C5 live startup diagnosis + fail-closed launcher — automated PASS, live retest pending
 
