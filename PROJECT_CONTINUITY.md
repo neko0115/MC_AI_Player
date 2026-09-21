@@ -1486,7 +1486,48 @@ Relevant commits:
 - `4c1e468` — `feat: expose explicit workspace semantic sync command`;
 - `986cc7e` — `docs: document encrypted workspace semantic git sync`.
 
-**W5D verification status:** local verification pending.
+**W5D verification status:** PARTIAL LIVE PASS.
+
+Automated verification:
+
+- full suite: 542 tests total;
+- 538 passed;
+- 0 failed;
+- 4 skipped;
+- typecheck PASS;
+- `git diff --check` PASS;
+- working tree clean.
+
+Live explicit push evidence:
+
+- first `npm run sync:workspace-semantic -- push` returned:
+  - `kind = pushed`;
+  - remote commit `0a1d8bf1448a6529be7250dd35f108a98fde1c4b`;
+  - `localRecordCount = 8`;
+  - `merged = 0`;
+  - `skipped = 0`;
+- dedicated remote branch exists:
+  - `refs/heads/workspace-semantic-cache`;
+- source branch HEAD remained exactly unchanged at `d6e9318752727a12bf342d95798b2d81222eae9b`;
+- source worktree/index remained unchanged;
+- immediate second push with no new learned semantics returned:
+  - `kind = no_change`;
+  - same remote commit SHA;
+  - `localRecordCount = 8`;
+  - no additional data-branch commit was created.
+
+Note on second-push `merged = 8`:
+
+- push deliberately imports the latest remote snapshot before comparison;
+- the 8 records were validated/upserted into the local cache;
+- semantic content then compared equal, producing `no_change`;
+- this does not mean 8 duplicate learned records were created.
+
+Remaining W5D live gate before FULL PASS:
+
+1. pull the encrypted data branch into a fresh empty cache using the same semantic master secret;
+2. prove the fresh cache receives the expected 8 validated records;
+3. prove the source branch/worktree remain unchanged during pull.
 
 **Next exact action:**
 
