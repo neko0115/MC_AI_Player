@@ -19,6 +19,7 @@
     "better-sqlite3": "12.11.1",
     "mineflayer": "4.39.0",
     "mineflayer-pathfinder": "2.4.5",
+    "minecraft-data": "3.116.0",
     "zod": "4.5.4"
   },
   "devDependencies": {
