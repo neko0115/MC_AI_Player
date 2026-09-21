@@ -141,7 +141,7 @@ export class ProcessItemSkill
         ...(parsed.data.fuel
           ? {
               fuel: parsed.data.fuel,
-              fuelQuantity: parsed.data.fuelQuantity
+              fuelQuantity: parsed.data.fuelQuantity!
             }
           : {})
       },
