@@ -99,6 +99,34 @@ test('workspace reply explains missing selection and bounded ambiguity', () => {
   )
 })
 
+test('duplicate-label ambiguity tells the player how to disambiguate with the setting wand', () => {
+  const message =
+    formatWorkspaceChatReply({
+      kind: 'clarify',
+      reason:
+        'ambiguous_reference',
+      candidates: [
+        workspace({
+          id: 'workspace-1',
+          label: 'W5C-AmbigFarm',
+          sourceSelectionId:
+            'selection-1'
+        }),
+        workspace({
+          id: 'workspace-2',
+          label: 'W5C-AmbigFarm',
+          sourceSelectionId:
+            'selection-2'
+        })
+      ]
+    })
+
+  assert.equal(
+    message,
+    '我找到 2 個都叫「W5C-AmbigFarm」的區域。請用墨雪設定棍選其中一塊，再告訴我你指的是選到的那個。'
+  )
+})
+
 test('workspace reply sanitizes user labels and remains non-command bounded chat', () => {
   const message =
     formatWorkspaceChatReply({
