@@ -33,6 +33,19 @@ test('only deterministically addressed chat creates an explicit instruction', ()
   assert.equal(addressed.baseComplexityEvidence.multiSkill, true)
 })
 
+test('CJK bot address may directly prefix an instruction without whitespace', () => {
+  const addressed = classifier.classify({
+    type: 'player_chat',
+    at: 3,
+    player: 'Boss',
+    message: '墨雪幫我採一組石頭'
+  }, active)
+
+  assert.equal(addressed.kind, 'explicit_instruction')
+  if (addressed.kind !== 'explicit_instruction') return
+  assert.equal(addressed.instruction, '幫我採一組石頭')
+})
+
 test('configured bot username and moxue aliases are deterministic addresses', () => {
   for (const message of ['Moxue_Test: 跟我來', 'moxue 跟我來', '!moxue 跟我來']) {
     const result = classifier.classify({
