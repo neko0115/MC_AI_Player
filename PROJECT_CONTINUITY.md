@@ -1313,9 +1313,37 @@ addressed chat
 -> accepted gameplay action
 ```
 
+Representative shared semantics — LIVE PASS:
+
+- fresh trusted selection created for `W5C-SharedFarm`;
+- natural-language utterance:
+  - `墨雪，這塊叫 W5C-SharedFarm，之後就當一般農田用吧。`;
+- Minecraft visible acknowledgement:
+  - region remembered;
+  - explicitly reported as an ordinary shared region;
+- semantic provider evidence over the same test window after completion:
+  - semanticRouteCount = 1;
+  - semanticAttemptCount = 1;
+  - activeLearnedRecords increased 2 -> 3;
+  - 0 revoked records;
+  - 0 conflicting fingerprints;
+- persistent Workspace row:
+  - label `W5C-SharedFarm`;
+  - purpose `farm`;
+  - `moxue_use_policy = shared`;
+  - status `active`;
+  - canonical hyphenless owner principal;
+  - source selection id present.
+
+Operator timing note:
+
+- the first inspector invocation was executed before the asynchronous semantic route had completed and therefore temporarily observed 0 routes / 0 attempts;
+- rerunning against the same `sinceMs` after the Minecraft acknowledgement observed the expected 1 route / 1 attempt;
+- this was an evidence-collection timing issue, not a product failure.
+
 Remaining W5C5 live gates before FULL PASS:
 
-1. representative shared + moxue_preferred semantics;
+1. representative moxue_preferred semantics;
 2. ambiguity clarification;
 3. archive + restore.
 
