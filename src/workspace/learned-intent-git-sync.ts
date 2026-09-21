@@ -1,5 +1,4 @@
 import {
-  execFileSync,
   spawnSync
 } from 'node:child_process'
 import type {
@@ -376,10 +375,26 @@ implements WorkspaceSemanticGitTransport {
       )
     }
 
+    const fetchedHead =
+      this.runGit([
+        'rev-parse',
+        '--verify',
+        remoteTrackingRef
+      ])
+    if (!fetchedHead.ok) {
+      throw new WorkspaceSemanticGitSyncError(
+        'git_read_failed'
+      )
+    }
+    const fetchedSha =
+      requireGitSha(
+        fetchedHead.stdout
+      )
+
     const envelope =
       this.runGit([
         'show',
-        `${remoteSha}:${this.artifactPath}`
+        `${fetchedSha}:${this.artifactPath}`
       ])
     if (!envelope.ok) {
       throw new WorkspaceSemanticGitSyncError(
@@ -388,7 +403,7 @@ implements WorkspaceSemanticGitTransport {
     }
 
     return {
-      commitSha: remoteSha,
+      commitSha: fetchedSha,
       envelope: envelope.stdout
     }
   }
