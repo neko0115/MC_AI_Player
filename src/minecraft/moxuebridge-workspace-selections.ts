@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import type { MoxueBridgeConfig } from '../config.js'
 import {
+  normalizeMinecraftUuid
+} from './identity-registry.js'
+import {
   WorkspaceSelectionTracker,
   type WorkspaceSelectionSource,
   type WorkspaceSelectionSourceStatus
@@ -176,7 +179,9 @@ implements WorkspaceSelectionSource {
             dimension:
               selection.dimension,
             playerId:
-              selection.player_id,
+              canonicalPlayerId(
+                selection.player_id
+              ),
             playerName:
               selection.player_name,
             pointA: {
@@ -206,7 +211,13 @@ implements WorkspaceSelectionSource {
   latest(
     query: WorkspaceSelectionQuery
   ): WorkspaceSelection | null {
-    return this.tracker.latest(query)
+    return this.tracker.latest({
+      ...query,
+      playerId:
+        canonicalPlayerId(
+          query.playerId
+        )
+    })
   }
 
   status(): WorkspaceSelectionSourceStatus {
@@ -297,6 +308,15 @@ function normalizeWorldKey(value: string): string {
     )
   }
   return normalized
+}
+
+function canonicalPlayerId(
+  value: string
+): string {
+  return (
+    normalizeMinecraftUuid(value) ??
+    value.trim()
+  )
 }
 
 function normalizePositiveInteger(

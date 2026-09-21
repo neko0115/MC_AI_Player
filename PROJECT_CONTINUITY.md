@@ -1370,6 +1370,60 @@ Next exact action:
 
 **Merge/readiness:** automated PASS; controlled live validation remains pending. Do not claim W5C5 FULL PASS yet.
 
+##### W5C5 Workspace selection UUID canonicalization — automated PASS, live retest pending
+
+#### Handoff 2026-09-21 +08:00
+
+**Branch:** `feature/workspace-planner`
+**Worktree:** `D:\MC_AI_player-worktrees\workspace-planner`
+**Base / current committed HEAD:** `cf70c1f` (`fix: make workspace gemini tools schema compatible`)
+**Goal:** make Bridge-observed Bukkit UUID selections use the same canonical representation as trusted online Minecraft actor identities without weakening identity trust or moving Minecraft-specific formatting into generic Workspace core.
+
+Controlled live RED evidence:
+
+- Control API reported the selection source `current` with a non-null fresh selection for world `127.0.0.1:25565`, dimension `overworld`, generation 7 and hyphenated player UUID `b19a556a-0e50-40ec-88db-4e587dede94c`;
+- the addressed Workspace create produced the visible `missing_selection` clarification;
+- `MinecraftIdentityRegistry.resolveObservedPlayerId()` canonicalizes the trusted current-session UUID to hyphenless `b19a556a0e5040ec88db4e587dede94c`;
+- `MoxueBridgeWorkspaceSelections` previously preserved the wire UUID verbatim and delegated `latest()` without query canonicalization;
+- `WorkspaceSelectionTracker` keys and `WorkspaceLifecycleService` ownership checks are exact, so the representation mismatch prevented lookup before lifecycle mutation.
+
+RED automated evidence:
+
+- the direct Bridge regression failed because a hyphenless trusted-actor query could not find the hyphenated wire selection;
+- the Bridge-to-management regression failed with `workspace_selection_missing` before create;
+- existing opaque `player-1` behavior and a new blank-ID rejection characterization remained green.
+
+Changed:
+
+- `MoxueBridgeWorkspaceSelections` now reuses `normalizeMinecraftUuid()` at the Minecraft transport boundary;
+- wire `selection.player_id` is canonicalized before entering the domain tracker;
+- `latest(query)` canonicalizes `query.playerId` through the same helper, so hyphenated and hyphenless UUID queries resolve the same canonical selection;
+- non-UUID opaque IDs remain supported after trimming;
+- blank wire IDs remain schema-invalid;
+- no generic Workspace selection key, lifecycle ownership policy, router semantics, identity trust gate, Paper plugin, freshness logic, chat reply, Gemini interpreter or learned cache behavior changed.
+
+Automated verification:
+
+- MoxueBridge selection focused suite: 6 passed, 0 failed;
+- identity + Bridge + management + chat-router focused suites: 27 passed, 0 failed;
+- `npm run typecheck`: PASS;
+- full suite: 537 tests total, 533 passed, 0 failed, 4 skipped;
+- final `git diff --check` and fresh full verification remain required after this continuity update.
+
+Live verification:
+
+- not rerun in this coding session; no real Gemini or Minecraft process was started.
+
+Next exact action:
+
+1. restart only the Workspace live application so the updated Bridge adapter is loaded;
+2. confirm Control API returns the current selection with canonical hyphenless `selection.player_id`;
+3. send the same natural-language owner-only create as the same online current-session player;
+4. require a handled create acknowledgement, one durable owner-only Workspace row, and no `missing_selection` or `workspace_selection_owner_mismatch`;
+5. continue the existing repeated-show cache proof and non-Workspace gameplay fallback checks.
+
+**Merge/readiness:** automated PASS only; controlled live retest remains pending. Do not claim W5C5 FULL PASS yet.
+
 Full-suite regression note:
 
 - after the runtime chat-output test isolation fix, full suite reached 522 tests / 517 pass / 1 fail / 4 skipped;
