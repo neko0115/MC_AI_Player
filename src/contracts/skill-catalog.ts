@@ -181,6 +181,22 @@ export const SKILL_CONTRACTS = [
     safety: { capabilities: NONE, mutationAuthority: 'none' }
   }),
   contract({
+    name: 'craft_item',
+    argsSchema: null,
+    goal: false,
+    decision: false,
+    ai: { exposed: false, description: null },
+    safety: { capabilities: NONE, mutationAuthority: 'none' }
+  }),
+  contract({
+    name: 'process_item',
+    argsSchema: null,
+    goal: false,
+    decision: false,
+    ai: { exposed: false, description: null },
+    safety: { capabilities: NONE, mutationAuthority: 'none' }
+  }),
+  contract({
     name: 'deposit_item',
     argsSchema: DepositItemArgsSchema,
     goal: true,
