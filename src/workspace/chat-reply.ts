@@ -40,12 +40,22 @@ function formatClarification(
       return '我還不確定你指的是哪個區域，請說區域名稱或用設定棍重新選取。'
 
     case 'ambiguous_reference': {
+      const candidates =
+        result.candidates ?? []
       const labels =
         uniqueCandidateLabels(
-          result.candidates ?? []
+          candidates
         )
       if (labels.length === 0) {
         return '我找到不只一個可能的區域，請說更明確的名稱或重新框選。'
+      }
+      if (
+        candidates.length > 1 &&
+        labels.length === 1
+      ) {
+        return boundedReply(
+          `我找到 ${candidates.length} 個都叫「${labels[0]}」的區域。請用墨雪設定棍選其中一塊，再告訴我你指的是選到的那個。`
+        )
       }
       return boundedReply(
         `我找到不只一個可能的區域：${labels.join('、')}。請告訴我是其中哪一個。`
