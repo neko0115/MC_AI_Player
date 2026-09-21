@@ -3,12 +3,17 @@ import { EventEmitter } from 'node:events'
 import test from 'node:test'
 import type { Bot } from 'mineflayer'
 import {
-  MineflayerProductionRuntime
+  MineflayerProductionRuntime,
+  createMineflayerProductionExtension
 } from '../../src/minecraft/mineflayer-production.js'
-import type {
-  CraftItemRequest,
-  ProcessItemRequest
+import {
+  PRODUCTION_RUNTIME_PORT,
+  type CraftItemRequest,
+  type ProcessItemRequest
 } from '../../src/minecraft/production.js'
+import {
+  RuntimePortRegistry
+} from '../../src/minecraft/runtime-ports.js'
 
 interface FakeItem {
   readonly name: string
@@ -388,4 +393,21 @@ test('stonecutting stays fail-closed until a reviewed runtime adapter exists', a
     }
   )
   assert.equal(bot.openFurnaceCount, 0)
+})
+
+
+test('production runtime extension registers only the typed production port', () => {
+  const ports = new RuntimePortRegistry()
+  const extension = createMineflayerProductionExtension()
+
+  extension.install({
+    readyBot: () => null,
+    ports
+  })
+
+  assert.equal(ports.has(PRODUCTION_RUNTIME_PORT), true)
+  assert.deepEqual(
+    ports.registeredIds(),
+    ['minecraft.production']
+  )
 })
