@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "tsx src/main.ts",
+    "start:workspace-live": "node --env-file=.env --import tsx scripts/start-workspace-live.ts",
     "test": "tsx --test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "probe": "tsx scripts/probe-platform.ts",

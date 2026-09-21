@@ -93,6 +93,37 @@ MC_AI_PROVIDER=fake
 
 Fake mode requires no Gemini routing file, Google credential, Admin token, or production quota DB.
 
+### Trusted Workspace live launcher
+
+Use the dedicated launcher for natural-language Workspace validation against
+an `online-mode=true` server. It loads the gitignored `.env` with Node 24's
+native environment-file support and runs a fail-closed preflight before the
+application is constructed or Minecraft is contacted:
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item config/ai-routing.example.json data/ai-routing.json
+# Edit only the private, gitignored .env and data/ai-routing.json files.
+npm run start:workspace-live
+```
+
+The private `.env` must select `MC_AI_PROVIDER=gemini`,
+`MC_SERVER_IDENTITY_MODE=online`, and `MC_AUTH=microsoft`. It must also provide
+a valid MoxueBridge URL/token and a non-empty value for every `apiKeyEnv`
+referenced by the private routing JSON. The launcher validates the routing JSON
+with the production routing schema and reports credential environment names
+only as `set: true|false`; it never reports credential, Bridge-token, or
+Workspace semantic master-secret values.
+
+`MC_WORKSPACE_SEMANTIC_MASTER_SECRET` remains optional for semantic routing.
+When absent, startup continues with warning `semantic_cache_disabled`; repeated
+utterances will not have learned-cache evidence. When present, it must contain
+at least 32 UTF-8 bytes, matching the production cache key-derivation rule.
+
+The general `npm start` path retains its existing safe defaults. Use
+`npm run start:workspace-live` for the trusted-UUID Workspace live gate so a
+stale shell environment cannot silently fall back to fake/offline operation.
+
 
 ### MoxueBridge capability discovery
 

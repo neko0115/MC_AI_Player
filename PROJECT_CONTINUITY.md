@@ -1257,6 +1257,60 @@ Final automated evidence before live validation:
 
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
+##### W5C5 live startup diagnosis + fail-closed launcher — automated PASS, live retest pending
+
+#### Handoff 2026-09-21 +08:00
+
+**Branch:** `feature/workspace-planner`
+**Worktree:** `D:\MC_AI_player-worktrees\workspace-planner`
+**Base / current committed HEAD before this uncommitted handoff:** `88cfe6e`
+**Goal:** prevent trusted-UUID Workspace live validation from silently starting with the safe fake/offline defaults.
+
+Root-cause evidence:
+
+- the affected live process came from this worktree and was launched through Windows Terminal -> PowerShell -> `npm start` -> npm CLI -> `tsx src/main.ts`;
+- the actual `src/main.ts` process had `MC_AI_PROVIDER=fake`, `MC_SERVER_IDENTITY_MODE=online`, and `MC_AUTH=microsoft`;
+- `createApplication()` therefore created the fake decision stack, no Gemini Workspace interpreter, and no `WorkspaceChatRouter`;
+- the addressed chat reached `task_started` and immediately failed as `fake_response_exhausted`, matching fallback to the gameplay fake provider;
+- identity was not the blocking gate: the current session observed the same trusted player name/UUID before chat;
+- the MoxueBridge selection matched world `127.0.0.1:25565`, `overworld`, and the same player UUID, and was only about 16 seconds old when chat arrived;
+- no product Workspace router, identity gate, provider, or chat-output behavior was changed.
+
+Changed:
+
+- added `scripts/start-workspace-live.ts` with a pure, unit-tested preflight and sanitized report;
+- added `npm run start:workspace-live`, using Node 24 native `--env-file=.env` with no dotenv dependency;
+- preflight requires Gemini, online identity mode, Microsoft auth, valid enabled MoxueBridge configuration, a present/schema-valid private routing JSON, and every referenced credential environment variable;
+- missing semantic master secret remains allowed with warning `semantic_cache_disabled`; a present secret must satisfy the existing minimum 32 UTF-8 byte rule;
+- all required failures occur before importing/starting `createApplication()` and before Minecraft connection;
+- `.env` and `data/ai-routing.json` remain gitignored/private; tracked examples and README contain no real secret values.
+
+RED evidence:
+
+- focused launcher test initially failed with `ERR_MODULE_NOT_FOUND` because `scripts/start-workspace-live.ts` did not exist.
+- a focused error-classification regression then failed because an overlong Gemini routing path was incorrectly reported as `provider_not_gemini`; the launcher now reports `routing_config_invalid`.
+
+Automated verification:
+
+- focused launcher suite: 7 passed, 0 failed;
+- `npm run typecheck`: PASS;
+- full suite: 532 tests total, 528 passed, 0 failed, 4 skipped;
+- sanitized preflight probe against the public routing example reported only check states, credential env names plus booleans, and `semantic_cache_disabled`;
+- running `npm run start:workspace-live` without private `.env` stopped immediately in Node's native env loader before application construction.
+
+Live verification:
+
+- pending; no real credential, token, master secret, or private routing config was created or printed during automated verification.
+
+Next exact action:
+
+1. create private gitignored `.env` and `data/ai-routing.json` from the tracked examples;
+2. set Gemini/online/Microsoft-auth/MoxueBridge/private credential values;
+3. stop the existing fake-provider process and start `npm run start:workspace-live`;
+4. capture a fresh trusted selection and validate owner-only create acknowledgement, DB row, semantic `model_route`, semantic `attempt_result`, repeated-show cache proof, and non-Workspace gameplay fallback.
+
+**Merge/readiness:** implementation is automated PASS; do not claim W5C5 FULL PASS until the controlled live checklist passes.
+
 Full-suite regression note:
 
 - after the runtime chat-output test isolation fix, full suite reached 522 tests / 517 pass / 1 fail / 4 skipped;
