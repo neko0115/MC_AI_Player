@@ -98,11 +98,14 @@ export class SkillExecutor {
       !active.cancelWatchdogReported
     ) {
       active.cancelWatchdogReported = true
-      await this.events?.publish({
+      void this.events?.publish({
         type: 'runtime_watchdog',
         at: this.now(),
         scope: 'skill_cancel',
         code: 'cancel_cleanup_timeout'
+      }).catch(() => {
+        // Watchdog telemetry is best-effort and
+        // must not extend cancellation latency.
       })
     }
   }
