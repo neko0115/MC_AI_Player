@@ -93,7 +93,10 @@ export interface DecisionCoordinatorOptions {
   readonly workspaceRouteTimeoutMs?: number
 }
 
-const DEFAULT_DECISION_TIMEOUT_MS = 45_000
+// Routed decisions may legitimately fail over across several
+// independent 30 s provider attempts. Keep the outer watchdog
+// above normal failover while still enforcing a finite wall time.
+const DEFAULT_DECISION_TIMEOUT_MS = 180_000
 const DEFAULT_WORKSPACE_ROUTE_TIMEOUT_MS = 35_000
 const MAX_TASK_REPLANS = 6
 const GAMEPLAY_ACK_MESSAGE =
