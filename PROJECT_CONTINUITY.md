@@ -397,7 +397,8 @@ Shared-boundary rule:
 Branch: `feature/skill-production`  
 Worktree: `D:\\MC_AI_player-worktrees\\production` (user-owned local worktree; this session wrote the connected GitHub branch directly)  
 Base SHA: `b75cb48`  
-Current remote HEAD before this continuity update: `2264379d`  
+Current remote HEAD at initial handoff write: `2264379d`  
+Latest follow-up code HEAD before this continuity refresh: `2d400e57`  
 Goal: establish the generic, exact-item Production knowledge / supply core without touching Resource internals, Runtime Reliability, or Workspace threat internals.
 
 Audit completed:
@@ -445,7 +446,7 @@ Changed:
 Canonical validation cases now encoded in tests:
 - one stack uses the requested item's authoritative max stack:
   - stone 64 in the fixture;
-  - ender pearl 16;
+  - ender pearl 16 (validated from existing inventory; no fake direct-acquisition route is invented);
   - diamond pickaxe 1;
   - unknown item stack fact fails closed.
 - `minecraft:stone` exact identity:
@@ -473,6 +474,7 @@ Known issue / uncertainty:
 - Furnace-style processing should use bounded `openFurnace / putInput / putFuel / takeOutput` execution with abort/disconnect cleanup; stonecutting needs its own reviewed adapter/capability rather than being guessed.
 - the committed real `1.21.1` knowledge pack/generator is not implemented yet; current fixture is deliberately `test-1.0`.
 - direct non-resource acquisition mechanics (for example trading or entity-drop-specific executors) are not implicitly trusted; they require future reviewed capability/runtime contracts and must fail closed until then.
+- an early schema draft imposed `stackSize <= 99`; this was removed because authoritative modded stack sizes must not inherit an arbitrary vanilla-ish ceiling.
 - because this session wrote the connected GitHub branch, the local worktree may be behind the remote branch. Inspect local status before fast-forwarding; do not overwrite local unpublished changes.
 
 Next exact action:
