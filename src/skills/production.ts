@@ -5,6 +5,7 @@ import type {
   SkillResult
 } from '../contracts/skills.js'
 import {
+  IngredientRequirementSchema,
   NamespacedIdSchema,
   ProcessingKindSchema
 } from '../knowledge/contracts.js'
@@ -45,6 +46,8 @@ export const CraftItemArgsSchema = z
   .object({
     recipeId: NamespacedIdSchema,
     item: NamespacedIdSchema,
+    outputCountPerBatch: z.number().int().positive().max(2304),
+    inputs: z.array(IngredientRequirementSchema).min(1).max(64),
     batches: z.number().int().min(1).max(2304),
     workstation: ResolvedWorkstationSchema.nullable()
   })
@@ -55,8 +58,11 @@ export const ProcessItemArgsSchema = z
     processingId: NamespacedIdSchema,
     kind: ProcessingKindSchema,
     input: NamespacedIdSchema,
+    inputCountPerBatch: z.number().int().positive().max(2304),
     output: NamespacedIdSchema,
+    outputCountPerBatch: z.number().int().positive().max(2304),
     batches: z.number().int().min(1).max(2304),
+    cookTimeTicks: z.number().int().positive().nullable(),
     workstation: ResolvedWorkstationSchema,
     fuel: NamespacedIdSchema.optional(),
     fuelQuantity: z.number().int().min(1).max(2304).optional()
@@ -99,6 +105,8 @@ export class CraftItemSkill
       {
         recipeId: parsed.data.recipeId,
         item: parsed.data.item,
+        outputCountPerBatch: parsed.data.outputCountPerBatch,
+        inputs: parsed.data.inputs,
         batches: parsed.data.batches,
         workstation:
           parsed.data.workstation as ResolvedWorkstation | null
@@ -134,8 +142,11 @@ export class ProcessItemSkill
         processingId: parsed.data.processingId,
         kind: parsed.data.kind,
         input: parsed.data.input,
+        inputCountPerBatch: parsed.data.inputCountPerBatch,
         output: parsed.data.output,
+        outputCountPerBatch: parsed.data.outputCountPerBatch,
         batches: parsed.data.batches,
+        cookTimeTicks: parsed.data.cookTimeTicks,
         workstation:
           parsed.data.workstation as ResolvedWorkstation,
         ...(parsed.data.fuel
