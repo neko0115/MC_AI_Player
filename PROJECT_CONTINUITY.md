@@ -350,6 +350,41 @@ The extensibility rules in this continuity document are a program-wide requireme
 
 **Startup action:** audit the existing Phase 3 knowledge/supply design before writing code, then define the smallest independent Production module and typed runtime ports required.
 
+**New user-visible acquisition requirement (2026-09-21):**
+
+Observed live utterance:
+
+- `墨雪幫我採一組石頭`;
+- user observed no visible reaction.
+
+Production must treat this as a generic item-acquisition requirement, not as a one-off `stone` patch.
+
+Required architecture direction:
+
+- introduce/complete a high-level item acquisition plan that can choose among:
+  - already-held inventory;
+  - authorized storage retrieval;
+  - direct world resource acquisition;
+  - crafting;
+  - smelting/processing;
+  - workstation/tool dependencies;
+- do not assume every requested item is directly mined as itself;
+- `minecraft:stone` is a canonical validation case:
+  - ordinary mining of stone does not directly yield the stone item without Silk Touch;
+  - valid plans may use an appropriate Silk Touch path when available or obtain cobblestone and smelt it to stone;
+  - never silently reinterpret a request for stone as a request for cobblestone;
+- “one stack / 一組” must be resolved from authoritative item stack-size knowledge;
+  - do not globally hard-code one stack = 64 because some items stack to 16 or 1;
+- namespaced vanilla/modded IDs remain data;
+- unknown mutation-critical acquisition facts fail closed.
+
+Shared-boundary rule:
+
+- Production owns acquisition dependency/recipe/workstation/smelting knowledge and orchestration;
+- the existing Resource module continues to own deterministic direct world search/gather;
+- long-running task watchdogs, gameplay acknowledgement visibility, and Workspace hostile-tolerance policy belong to the separate Runtime Reliability workstream;
+- if Production needs a new shared contract, land it deliberately rather than editing another active workstream's internals.
+
 **Do not:**
 
 - add per-item/per-mod recipe if forests;
