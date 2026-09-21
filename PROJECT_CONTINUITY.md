@@ -1287,12 +1287,37 @@ same wording again
 -> 0 additional semantic Gemini calls
 ```
 
+Non-Workspace gameplay fallback — LIVE PASS:
+
+- addressed utterance: `墨雪，跟我來一下`;
+- Workspace semantic classifier ran exactly once:
+  - semanticRouteCount = 1;
+  - semanticAttemptCount = 1;
+  - result = success;
+- Workspace interpretation returned `not_workspace`;
+- no Workspace acknowledgement or mutation occurred;
+- learned Workspace record count remained unchanged at 2;
+- coordinator then created an ordinary gameplay task;
+- ordinary gameplay Gemini route ran separately and succeeded;
+- `decision_accepted` emitted;
+- live Minecraft behavior confirmed Moxue followed the player.
+
+This proves the intended fallthrough path:
+
+```text
+addressed chat
+-> Workspace semantic interpretation
+-> not_workspace
+-> silent Workspace fallback
+-> normal gameplay AI routing
+-> accepted gameplay action
+```
+
 Remaining W5C5 live gates before FULL PASS:
 
-1. non-Workspace gameplay fallback;
-2. representative shared + moxue_preferred semantics;
-3. ambiguity clarification;
-4. archive + restore.
+1. representative shared + moxue_preferred semantics;
+2. ambiguity clarification;
+3. archive + restore.
 
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
