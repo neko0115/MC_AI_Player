@@ -33,6 +33,10 @@ export interface WorkspaceRepository {
     limit?: number
   ): WorkspaceAuditRecord[]
 
+  subscribe?(
+    listener: () => void
+  ): () => void
+
   /**
    * Low-level physical purge for future dependency-safe maintenance only.
    * User-facing "delete" must use lifecycle archive instead.
