@@ -429,6 +429,13 @@ export function createApplication(
               workspaces: []
             }
           }
+        },
+        subscribe(listener) {
+          return (
+            workspaceRepository
+              .subscribe?.(listener) ??
+            (() => {})
+          )
         }
       }
     }
