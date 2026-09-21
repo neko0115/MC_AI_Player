@@ -1554,7 +1554,20 @@ Relevant commits:
 - `bcd4bde` — `fix: make duplicate workspace ambiguity actionable`;
 - `b852cbc` — `test: cover duplicate-label workspace clarification`.
 
-**W5E verification status:** local verification pending.
+**W5E verification status:** Automated PASS.
+
+Final automated evidence:
+
+- full suite: 543 tests total;
+- 539 passed;
+- 0 failed;
+- 4 skipped;
+- `git diff --check` PASS;
+- working tree clean.
+
+W5E duplicate-label ambiguity UX hardening is complete. Distinct-label ambiguity behavior remains unchanged; exact duplicate-label ambiguity now reports the candidate count and gives an actionable setting-wand disambiguation path.
+
+Next step is merge/consolidation audit only; do not merge/reset/rebase another active worktree without explicit handoff.
 
 **Next exact action:**
 
