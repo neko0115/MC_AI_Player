@@ -112,6 +112,43 @@ export const WorkspaceUsePolicySchema = z.enum([
 export type WorkspaceUsePolicy =
   z.infer<typeof WorkspaceUsePolicySchema>
 
+export const WorkspaceControlledHostileRuleSchema = z
+  .object({
+    kind: WorkspaceIdentifierSchema,
+    maxCount: z
+      .number()
+      .int()
+      .min(1)
+      .max(16)
+  })
+  .strict()
+
+export type WorkspaceControlledHostileRule =
+  z.infer<
+    typeof WorkspaceControlledHostileRuleSchema
+  >
+
+const WorkspaceControlledHostileRulesSchema =
+  z
+    .array(
+      WorkspaceControlledHostileRuleSchema
+    )
+    .max(16)
+    .superRefine((rules, context) => {
+      const seen = new Set<string>()
+      for (const rule of rules) {
+        if (seen.has(rule.kind)) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'controlled hostile kinds must be unique'
+          })
+          return
+        }
+        seen.add(rule.kind)
+      }
+    })
+
 export const WorkspaceConstraintsSchema = z
   .object({
     preserveExistingStructures: z.boolean().optional(),
@@ -124,7 +161,10 @@ export const WorkspaceConstraintsSchema = z
         spawnSafeRequired: z.boolean()
       })
       .strict()
-      .optional()
+      .optional(),
+    controlledHostiles:
+      WorkspaceControlledHostileRulesSchema
+        .optional()
   })
   .strict()
 
