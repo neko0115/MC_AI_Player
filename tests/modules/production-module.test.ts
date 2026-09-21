@@ -57,8 +57,9 @@ test('production module registers only internal production skills from its typed
   const executor = new SkillExecutor(registry)
   assert.deepEqual(
     await executor.execute('craft_item', {
+      recipeId: 'minecraft:crafting_table',
       item: 'minecraft:crafting_table',
-      quantity: 1,
+      batches: 1,
       workstation: null
     }),
     { status: 'succeeded', code: 'crafted' }
@@ -66,8 +67,9 @@ test('production module registers only internal production skills from its typed
 
   assert.equal(runtime.craftRequests.length, 1)
   assert.deepEqual(runtime.craftRequests[0], {
+    recipeId: 'minecraft:crafting_table',
     item: 'minecraft:crafting_table',
-    quantity: 1,
+    batches: 1,
     workstation: null
   })
 })
@@ -85,17 +87,19 @@ test('production module delegates exact processing requests without deciding rec
   const executor = new SkillExecutor(registry)
   assert.deepEqual(
     await executor.execute('process_item', {
+      processingId: 'minecraft:smelt_stone',
       kind: 'smelting',
       input: 'minecraft:cobblestone',
       output: 'minecraft:stone',
-      quantity: 64,
+      batches: 64,
       workstation: {
         id: 'minecraft:furnace',
         kind: 'furnace',
         position: { x: 1, y: 64, z: 2 },
         expectedBlockNames: ['furnace']
       },
-      fuel: 'minecraft:coal'
+      fuel: 'minecraft:coal',
+      fuelQuantity: 8
     }),
     { status: 'succeeded', code: 'processed' }
   )
