@@ -1567,7 +1567,36 @@ Final automated evidence:
 
 W5E duplicate-label ambiguity UX hardening is complete. Distinct-label ambiguity behavior remains unchanged; exact duplicate-label ambiguity now reports the candidate count and gives an actionable setting-wand disambiguation path.
 
-Next step is merge/consolidation audit only; do not merge/reset/rebase another active worktree without explicit handoff.
+##### Workspace Planner merge / consolidation audit — READY
+
+GitHub branch topology at audit time:
+
+- `feature/modular-extension-core`:
+  - HEAD `b75cb487f747a9d2da6da5d747e2b5f935dbe73e`;
+  - role: accepted M7 SAFE PARALLELIZATION POINT / common feature baseline.
+- `feature/workspace-planner`:
+  - HEAD `ec7894644693616c9b9d2058aa84a3ca3d9e1f56`;
+  - compare against modular core: ahead 142, behind 0;
+  - merge base exactly `b75cb487f747a9d2da6da5d747e2b5f935dbe73e`;
+  - no rebase is required.
+- `feature/skill-production`:
+  - M7 baseline + 1 handoff commit.
+- `feature/skill-hostile-combat`:
+  - M7 baseline + 1 handoff commit.
+- `feature/project-autonomy-construction`:
+  - materially diverged history;
+  - remains isolated and must be audited before integration.
+
+Integration recommendation:
+
+- keep `feature/modular-extension-core` pinned as the stable M7 baseline;
+- do not fast-forward that baseline branch to Workspace Planner;
+- create/use a separate integration branch whose first accepted feature state is the fully validated Workspace Planner HEAD;
+- merge Production / Combat into that integration branch when their workstreams become ready;
+- keep Construction isolated until its existing divergent/local-ahead state is audited;
+- keep `workspace-semantic-cache` as a data-only encrypted branch, never as a source-code integration branch.
+
+No merge/reset/rebase was performed by this audit.
 
 **Next exact action:**
 
