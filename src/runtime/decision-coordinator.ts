@@ -89,12 +89,28 @@ export interface DecisionCoordinatorOptions {
   readonly nextTaskId: () => string
   readonly nextDecisionId: () => string
   readonly now?: () => number
+  readonly decisionTimeoutMs?: number
+  readonly workspaceRouteTimeoutMs?: number
 }
+
+const DEFAULT_DECISION_TIMEOUT_MS = 45_000
+const DEFAULT_WORKSPACE_ROUTE_TIMEOUT_MS = 35_000
+const MAX_TASK_REPLANS = 6
+const GAMEPLAY_ACK_MESSAGE =
+  '收到，我開始處理。'
+const GAMEPLAY_COMPLETE_MESSAGE =
+  '完成了。'
+const GAMEPLAY_FAILED_MESSAGE =
+  '這個任務目前無法完成。'
+const GAMEPLAY_TIMEOUT_MESSAGE =
+  '這個任務等太久沒有進展，我先停止了。'
 
 export class DecisionCoordinator {
   private readonly classifier: TriggerClassifier
   private readonly pendingTasks = new AiTaskQueue(8)
   private readonly now: () => number
+  private readonly decisionTimeoutMs: number
+  private readonly workspaceRouteTimeoutMs: number
   private readonly manualGrants = new Map<string, ManualRouteGrant>()
   private readonly grantRequiredTasks = new Set<string>()
   private unsubscribe: (() => void) | null = null
@@ -102,6 +118,8 @@ export class DecisionCoordinator {
   private telemetryTail: Promise<void> = Promise.resolve()
   private activeTask: AiTask | null = null
   private decisionAbort: AbortController | null = null
+  private decisionWatchdogTimer:
+    ReturnType<typeof setTimeout> | null = null
   private activeDecisionEpoch: number | null = null
   private decisionEpoch = 0
   private running = false
@@ -124,6 +142,34 @@ export class DecisionCoordinator {
   constructor(private readonly options: DecisionCoordinatorOptions) {
     this.classifier = new TriggerClassifier({ botUsername: options.botUsername })
     this.now = options.now ?? Date.now
+    this.decisionTimeoutMs =
+      options.decisionTimeoutMs ??
+      DEFAULT_DECISION_TIMEOUT_MS
+    this.workspaceRouteTimeoutMs =
+      options.workspaceRouteTimeoutMs ??
+      DEFAULT_WORKSPACE_ROUTE_TIMEOUT_MS
+
+    if (
+      !Number.isFinite(
+        this.decisionTimeoutMs
+      ) ||
+      this.decisionTimeoutMs < 1
+    ) {
+      throw new RangeError(
+        'decisionTimeoutMs must be a positive finite number'
+      )
+    }
+    if (
+      !Number.isFinite(
+        this.workspaceRouteTimeoutMs
+      ) ||
+      this.workspaceRouteTimeoutMs < 1
+    ) {
+      throw new RangeError(
+        'workspaceRouteTimeoutMs must be a positive finite number'
+      )
+    }
+
     const initial = options.state.snapshot()
     this.minecraftReady = initial.connected && initial.spawned
   }
@@ -366,6 +412,19 @@ export class DecisionCoordinator {
         this.previousAction = this.options.goals.getGoal(classification.goalId)?.request.kind ?? null
         task.activeGoalId = null
         noteGoalFailure(task)
+        if (
+          task.totalReplanCount >=
+          MAX_TASK_REPLANS
+        ) {
+          this.failureEvidence.clear()
+          this.pendingDecisionEvidence = {}
+          this.blockTask(
+            task,
+            'replan_limit_exceeded'
+          )
+          return
+        }
+
         this.pendingDecisionEvidence = {
           goalFailed: true,
           ...(this.failureEvidence.has('stuck') ? { stuck: true } : {})
@@ -409,6 +468,10 @@ export class DecisionCoordinator {
                   classification.playerId
               })
         })
+
+    this.replyGameplayMessage(
+      GAMEPLAY_ACK_MESSAGE
+    )
 
     if (
       this.options.workspaceChatRouter &&
@@ -493,15 +556,63 @@ export class DecisionCoordinator {
 
           let result:
             WorkspaceChatRouteResult
+          let timeout:
+            ReturnType<typeof setTimeout> |
+            null = null
           try {
             result =
-              await router.route(
-                request,
-                abort.signal
-              )
+              await Promise.race([
+                router.route(
+                  request,
+                  abort.signal
+                ),
+                new Promise<
+                  WorkspaceChatRouteResult
+                >(resolve => {
+                  timeout = setTimeout(
+                    () => {
+                      if (
+                        abort.signal
+                          .aborted
+                      ) {
+                        resolve({
+                          kind:
+                            'rejected',
+                          code:
+                            'workspace_chat_cancelled'
+                        })
+                        return
+                      }
+
+                      this.publishTelemetry({
+                        type:
+                          'runtime_watchdog',
+                        at: this.now(),
+                        scope:
+                          'workspace_route',
+                        code:
+                          'workspace_route_timeout'
+                      })
+                      abort.abort(
+                        'workspace_route_timeout'
+                      )
+                      resolve({
+                        kind: 'rejected',
+                        code:
+                          'workspace_route_timeout'
+                      })
+                    },
+                    this.workspaceRouteTimeoutMs
+                  )
+                })
+              ])
           } catch {
             result = {
               kind: 'fallback'
+            }
+          } finally {
+            if (timeout !== null) {
+              clearTimeout(timeout)
             }
           }
 
@@ -640,6 +751,13 @@ export class DecisionCoordinator {
     }
 
     if (this.aiAvailability === 'unavailable' && !force && !grantValid) {
+      if (this.recoveryRetryAt === null) {
+        this.blockTask(
+          task,
+          'ai_unavailable_no_retry'
+        )
+        return
+      }
       this.execution = 'decision_pending'
       return
     }
@@ -709,6 +827,11 @@ export class DecisionCoordinator {
     this.decisionAbort = abort
     this.activeDecisionEpoch = epoch
     this.execution = 'decision_in_flight'
+    this.armDecisionWatchdog(
+      task,
+      epoch,
+      abort
+    )
 
     void this.options.logicalExecutor
       .execute({ context, routePlan }, abort.signal)
@@ -730,6 +853,7 @@ export class DecisionCoordinator {
     result: LogicalDecisionResult
   ): Promise<void> {
     if (!this.running || this.activeDecisionEpoch !== decisionEpoch) return
+    this.clearDecisionWatchdog()
     const task = this.activeTask
     if (
       task === null ||
@@ -746,9 +870,16 @@ export class DecisionCoordinator {
 
     if (result.kind === 'unavailable') {
       this.setAiAvailability('unavailable', result.retryAt)
-      this.execution = 'decision_pending'
       this.recoveryRetryAt = result.retryAt
-      if (result.retryAt !== null) this.scheduleRecovery(result.retryAt)
+      if (result.retryAt === null) {
+        this.blockTask(
+          task,
+          'ai_unavailable_no_retry'
+        )
+        return
+      }
+      this.execution = 'decision_pending'
+      this.scheduleRecovery(result.retryAt)
       return
     }
 
@@ -952,9 +1083,82 @@ export class DecisionCoordinator {
   }
 
   private invalidateInFlightDecision(reason: string): void {
+    this.clearDecisionWatchdog()
     this.decisionAbort?.abort(reason)
     this.decisionAbort = null
     this.activeDecisionEpoch = null
+  }
+
+  private armDecisionWatchdog(
+    task: AiTask,
+    epoch: number,
+    abort: AbortController
+  ): void {
+    this.clearDecisionWatchdog()
+    this.decisionWatchdogTimer =
+      setTimeout(() => {
+        this.decisionWatchdogTimer =
+          null
+        if (
+          !this.running ||
+          this.activeDecisionEpoch !==
+            epoch ||
+          this.activeTask?.taskId !==
+            task.taskId ||
+          this.activeTask
+            .taskGeneration !==
+            task.taskGeneration
+        ) {
+          return
+        }
+
+        this.publishTelemetry({
+          type: 'runtime_watchdog',
+          at: this.now(),
+          scope: 'decision',
+          code: 'decision_timeout'
+        })
+        this.enqueueDecisionResult(
+          task.taskId,
+          task.taskGeneration,
+          epoch,
+          {
+            kind: 'invalid_response',
+            code: 'decision_timeout'
+          }
+        )
+        abort.abort(
+          'decision_timeout'
+        )
+      }, this.decisionTimeoutMs)
+  }
+
+  private clearDecisionWatchdog(): void {
+    if (
+      this.decisionWatchdogTimer !==
+      null
+    ) {
+      clearTimeout(
+        this.decisionWatchdogTimer
+      )
+    }
+    this.decisionWatchdogTimer =
+      null
+  }
+
+  private replyGameplayMessage(
+    message: string
+  ): void {
+    const output =
+      this.options.chatOutput
+    if (!output) return
+
+    try {
+      output.sendMessage(message)
+    } catch {
+      // Player-visible progress must never
+      // change gameplay state.
+    }
   }
 
   private invalidateMinecraftManualGrants(): void {
@@ -1013,6 +1217,11 @@ export class DecisionCoordinator {
         this.manualGrants.get(task.taskId)?.invalidate()
         this.manualGrants.delete(task.taskId)
         this.grantRequiredTasks.delete(task.taskId)
+        if (task.source === 'minecraft') {
+          this.replyGameplayMessage(
+            GAMEPLAY_FAILED_MESSAGE
+          )
+        }
       }
       return
     }
@@ -1083,6 +1292,11 @@ export class DecisionCoordinator {
       at: this.now(),
       taskId: task.taskId
     })
+    if (task.source === 'minecraft') {
+      this.replyGameplayMessage(
+        GAMEPLAY_COMPLETE_MESSAGE
+      )
+    }
     this.clearActiveTaskState()
     this.execution = 'idle'
     this.startNextPendingTask()
@@ -1090,12 +1304,24 @@ export class DecisionCoordinator {
 
   private blockTask(task: AiTask, code: string): void {
     task.state = 'blocked'
+    const safeCode =
+      safeEventCode(
+        code,
+        'task_blocked'
+      )
     this.publishTelemetry({
       type: 'task_blocked',
       at: this.now(),
       taskId: task.taskId,
-      code: safeEventCode(code, 'task_blocked')
+      code: safeCode
     })
+    if (task.source === 'minecraft') {
+      this.replyGameplayMessage(
+        safeCode === 'decision_timeout'
+          ? GAMEPLAY_TIMEOUT_MESSAGE
+          : GAMEPLAY_FAILED_MESSAGE
+      )
+    }
     this.clearActiveTaskState()
     this.execution = 'idle'
     this.startNextPendingTask()
