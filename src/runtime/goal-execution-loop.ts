@@ -172,11 +172,14 @@ export function wireGoalExecution(
     }
 
     stalledGoals.add(goalId)
-    await dependencies.events.publish({
+    void dependencies.events.publish({
       type: 'runtime_watchdog',
       at: now(),
       scope: 'goal_execution',
       code: 'no_progress_timeout'
+    }).catch(() => {
+      // Watchdog telemetry is advisory and
+      // must never delay cancellation.
     })
 
     const cancelling =
