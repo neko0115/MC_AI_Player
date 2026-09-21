@@ -278,7 +278,8 @@ export function validateKnowledgePackReferences(
     requireItem(fact.output.item, fact.id)
     if (
       fact.tool.requiredEnchantments.length > 0 &&
-      fact.tool.class === null
+      fact.tool.class === null &&
+      (fact.tool.acceptedItems?.length ?? 0) === 0
     ) {
       throw new Error(
         `knowledge_invalid_tool_requirement:${fact.id}`
