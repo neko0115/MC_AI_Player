@@ -101,6 +101,8 @@ implements WorkspaceRepository {
   private readonly now: () => number
   private readonly nextId: () => string
   private readonly nextAuditId: () => string
+  private readonly listeners =
+    new Set<() => void>()
   private closed = false
 
   constructor(
@@ -162,6 +164,7 @@ implements WorkspaceRepository {
       )
     })
     write()
+    this.notifyChanged()
 
     return this.requireById(id)
   }
@@ -234,6 +237,7 @@ implements WorkspaceRepository {
       )
     })
     write()
+    this.notifyChanged()
 
     return this.requireById(normalizedId)
   }
@@ -268,6 +272,7 @@ implements WorkspaceRepository {
       )
     })
     write()
+    this.notifyChanged()
 
     return this.requireById(normalizedId)
   }
@@ -395,21 +400,50 @@ implements WorkspaceRepository {
       .map(hydrateAudit)
   }
 
+  subscribe(
+    listener: () => void
+  ): () => void {
+    this.assertOpen()
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
   delete(id: string): boolean {
     this.assertOpen()
     const normalizedId = normalizeOptionalId(id)
     if (normalizedId === null) return false
 
-    return this.db
+    const deleted = this.db
       .prepare('DELETE FROM workspace_regions WHERE id = ?')
       .run(normalizedId)
       .changes === 1
+
+    if (deleted) {
+      this.notifyChanged()
+    }
+    return deleted
   }
 
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.listeners.clear()
     this.db.close()
+  }
+
+  private notifyChanged(): void {
+    for (const listener of [
+      ...this.listeners
+    ]) {
+      try {
+        listener()
+      } catch {
+        // Workspace persistence is already committed;
+        // observer failures are isolated.
+      }
+    }
   }
 
   private configureDatabase(filename: string): void {
