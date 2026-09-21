@@ -25,7 +25,7 @@ export interface IngredientRequirement {
 export const ItemFactSchema = z
   .object({
     id: NamespacedIdSchema,
-    stackSize: z.number().int().min(1).max(99)
+    stackSize: z.number().int().positive()
   })
   .strict()
 
