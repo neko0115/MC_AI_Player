@@ -124,6 +124,47 @@ The general `npm start` path retains its existing safe defaults. Use
 `npm run start:workspace-live` for the trusted-UUID Workspace live gate so a
 stale shell environment cannot silently fall back to fake/offline operation.
 
+### Encrypted Workspace semantic sync
+
+Learned Workspace language can be synchronized explicitly through Git without
+copying the live SQLite database or exposing plaintext utterances.
+
+The sync command uses the same private
+`MC_WORKSPACE_SEMANTIC_MASTER_SECRET` as the local learned cache:
+
+```powershell
+npm run sync:workspace-semantic -- pull
+npm run sync:workspace-semantic -- push
+```
+
+The transport stores one authenticated AES-256-GCM encrypted artifact on the
+dedicated remote branch:
+
+```text
+origin/workspace-semantic-cache
+  workspace-semantic-cache.enc
+```
+
+The data branch is separate from the current source branch. Sync uses Git
+plumbing and does not checkout the data branch, modify the current index, or
+commit source changes.
+
+`pull` fetches, authenticates, decrypts, validates, and record-merges the
+remote snapshot into `data/workspace-semantic-cache.sqlite3`.
+
+`push` first fetches and imports the latest remote snapshot, merges it with
+local learned records, and publishes a new encrypted snapshot only when the
+semantic record content changed. Concurrent remote updates are refetched and
+merged before retrying, rather than using last-write-wins.
+
+The encrypted artifact contains no plaintext chat utterances. The master
+secret is never stored in Git and must be the same on every machine that needs
+to decrypt or contribute to the shared semantic cache. A wrong secret fails
+closed during authenticated decryption.
+
+Sync is always operator-triggered. Normal runtime startup never pushes or pulls
+GitHub automatically.
+
 
 ### MoxueBridge capability discovery
 
