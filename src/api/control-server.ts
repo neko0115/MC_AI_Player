@@ -229,6 +229,22 @@ const WorkspaceApiConstraintsSchema = z
           z.boolean()
       })
       .strict()
+      .optional(),
+    controlled_hostiles: z
+      .array(
+        z
+          .object({
+            kind:
+              WorkspaceIdSchema,
+            max_count:
+              z.number()
+                .int()
+                .min(1)
+                .max(16)
+          })
+          .strict()
+      )
+      .max(16)
       .optional()
   })
   .strict()
@@ -1332,6 +1348,17 @@ function toWorkspaceConstraints(
             spawnSafeRequired:
               value.lighting.spawn_safe_required
           }
+        }),
+    ...(value.controlled_hostiles === undefined
+      ? {}
+      : {
+          controlledHostiles:
+            value.controlled_hostiles
+              .map(rule => ({
+                kind: rule.kind,
+                maxCount:
+                  rule.max_count
+              }))
         })
   })
 }
@@ -1402,6 +1429,17 @@ function publicWorkspaceConstraints(
             spawn_safe_required:
               constraints.lighting.spawnSafeRequired
           }
+        }),
+    ...(constraints.controlledHostiles === undefined
+      ? {}
+      : {
+          controlled_hostiles:
+            constraints.controlledHostiles
+              .map(rule => ({
+                kind: rule.kind,
+                max_count:
+                  rule.maxCount
+              }))
         })
   }
 }
