@@ -4,9 +4,14 @@ import type { GoalRecord, GoalRequest, GoalSource } from '../../src/contracts/go
 import type { RuntimeEvent } from '../../src/contracts/events.js'
 import type { MemorySearchQuery, MinecraftMemory, MinecraftMemoryRepository } from '../../src/memory/repository.js'
 import type { WorldStateSnapshot } from '../../src/state/world-state.js'
+import type {
+  WorkspaceConstraints,
+  WorkspaceRegion
+} from '../../src/workspace/contracts.js'
 import {
   ControlServer,
   type ControlGoalPort,
+  type ControlWorkspaceManagementPort,
   type RuntimeEventSource
 } from '../../src/api/control-server.js'
 
@@ -495,3 +500,181 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
   throw new Error('condition did not become true')
 }
+
+
+test('workspace control API round-trips exact bounded controlled hostile constraints', async () => {
+  const captured:
+    WorkspaceConstraints[] = []
+
+  const region = (
+    constraints:
+      WorkspaceConstraints
+  ): WorkspaceRegion => ({
+    id: 'workspace-iron-farm',
+    worldKey: 'test-world',
+    dimension: 'overworld',
+    bounds: {
+      min: {
+        x: 0,
+        y: 60,
+        z: 0
+      },
+      max: {
+        x: 10,
+        y: 70,
+        z: 10
+      }
+    },
+    label: '鐵巨人農場',
+    purpose: 'farm',
+    moxueUsePolicy: 'shared',
+    status: 'active',
+    tags: ['iron-farm'],
+    constraints:
+      structuredClone(
+        constraints
+      ),
+    ownerPrincipal: 'owner-1',
+    sourceSelectionId:
+      'selection-1',
+    createdAt: 1,
+    updatedAt: 2
+  })
+
+  const management = {
+    create() {
+      throw new Error('not used')
+    },
+    list() {
+      return []
+    },
+    get() {
+      return region({})
+    },
+    rename() {
+      throw new Error('not used')
+    },
+    resizeFromCurrentSelection() {
+      throw new Error('not used')
+    },
+    changePurpose() {
+      throw new Error('not used')
+    },
+    changeUsePolicy() {
+      throw new Error('not used')
+    },
+    replaceTags() {
+      throw new Error('not used')
+    },
+    changeConstraints(
+      _workspaceId: string,
+      _actorPrincipal: string,
+      constraints:
+        WorkspaceConstraints
+    ) {
+      captured.push(
+        structuredClone(
+          constraints
+        )
+      )
+      return region(constraints)
+    },
+    archive() {
+      throw new Error('not used')
+    },
+    restore() {
+      throw new Error('not used')
+    },
+    audit() {
+      return []
+    }
+  } as ControlWorkspaceManagementPort
+
+  const current = await started({
+    workspaceManagement:
+      management
+  })
+  try {
+    const response = await fetch(
+      `${current.address.baseUrl}/v1/workspaces/workspace-iron-farm/constraints`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type':
+            'application/json'
+        },
+        body: JSON.stringify({
+          actor_principal:
+            'owner-1',
+          constraints: {
+            controlled_hostiles: [{
+              kind: 'zombie',
+              max_count: 1
+            }]
+          }
+        })
+      }
+    )
+
+    assert.equal(
+      response.status,
+      200
+    )
+    assert.deepEqual(
+      captured,
+      [{
+        controlledHostiles: [{
+          kind: 'zombie',
+          maxCount: 1
+        }]
+      }]
+    )
+
+    const body =
+      await json(response) as {
+        workspace?: {
+          constraints?: unknown
+        }
+      }
+    assert.deepEqual(
+      body.workspace?.constraints,
+      {
+        controlled_hostiles: [{
+          kind: 'zombie',
+          max_count: 1
+        }]
+      }
+    )
+
+    const invalid = await fetch(
+      `${current.address.baseUrl}/v1/workspaces/workspace-iron-farm/constraints`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type':
+            'application/json'
+        },
+        body: JSON.stringify({
+          actor_principal:
+            'owner-1',
+          constraints: {
+            controlled_hostiles: [{
+              kind: 'zombie',
+              max_count: 0
+            }]
+          }
+        })
+      }
+    )
+    assert.equal(
+      invalid.status,
+      400
+    )
+    assert.equal(
+      captured.length,
+      1
+    )
+  } finally {
+    await current.server.close()
+  }
+})
