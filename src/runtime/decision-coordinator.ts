@@ -1099,14 +1099,16 @@ export class DecisionCoordinator {
       setTimeout(() => {
         this.decisionWatchdogTimer =
           null
+        const activeTask =
+          this.activeTask
         if (
           !this.running ||
           this.activeDecisionEpoch !==
             epoch ||
-          this.activeTask?.taskId !==
+          activeTask === null ||
+          activeTask.taskId !==
             task.taskId ||
-          this.activeTask
-            .taskGeneration !==
+          activeTask.taskGeneration !==
             task.taskGeneration
         ) {
           return
