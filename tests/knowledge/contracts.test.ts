@@ -28,6 +28,7 @@ function basePack(): GameKnowledgePack {
         tool: {
           class: 'pickaxe',
           minimumTier: null,
+          minimumTierRank: null,
           requiredEnchantments: [],
           forbiddenEnchantments: ['silk_touch']
         }
@@ -41,6 +42,7 @@ function basePack(): GameKnowledgePack {
         tool: {
           class: 'pickaxe',
           minimumTier: null,
+          minimumTierRank: null,
           requiredEnchantments: ['silk_touch'],
           forbiddenEnchantments: []
         }
@@ -65,6 +67,7 @@ function basePack(): GameKnowledgePack {
         item: 'minecraft:diamond_pickaxe',
         class: 'pickaxe',
         tier: 'diamond',
+        tierRank: 3,
         maxDurability: 1561
       }
     ],
