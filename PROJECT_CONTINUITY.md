@@ -392,6 +392,111 @@ Shared-boundary rule:
 - edit Hostile Combat or Workspace module internals;
 - bypass trusted catalog or SafetyPolicy.
 
+#### Handoff 2026-09-21 22:xx +08:00 — Production knowledge / acquisition core slice
+
+Branch: `feature/skill-production`  
+Worktree: `D:\\MC_AI_player-worktrees\\production` (user-owned local worktree; this session wrote the connected GitHub branch directly)  
+Base SHA: `b75cb48`  
+Current remote HEAD before this continuity update: `2264379d`  
+Goal: establish the generic, exact-item Production knowledge / supply core without touching Resource internals, Runtime Reliability, or Workspace threat internals.
+
+Audit completed:
+- read this entire continuity contract and `WS-PRODUCTION`;
+- read the approved Project Autonomy design and Phase 3 knowledge/supply plan from `feature/project-autonomy-construction`;
+- confirmed this Production branch did not already contain the old Phase 3 implementation, so no existing Phase 3 code was duplicated;
+- confirmed M7 typed runtime/module seams are the integration point and M7 itself was not reimplemented;
+- identified that Resource's generic fallback may assume block/item identity for unknown resources; Production therefore only treats direct gathering as authoritative when an explicit exact-output acquisition fact exists, instead of changing Resource internals.
+
+Changed:
+- added `src/knowledge/contracts.ts`:
+  - exact namespaced item IDs;
+  - authoritative per-item `stackSize`;
+  - explicit exact-output world acquisition facts;
+  - recipe / processing / fuel / tool / workstation facts;
+  - data-driven tool tier ranks and enchantment requirements;
+  - cross-reference and duplicate validation;
+  - unknown mutation-critical facts fail closed;
+  - no global stack-size ceiling is hard-coded.
+- added `src/knowledge/graph.ts`:
+  - bounded/cycle-safe reverse production graph;
+  - exact output matching, so a cobblestone drop route is not a stone route;
+  - deterministic batch calculation and route ordering.
+- added `src/knowledge/loader.ts` plus `fixtures/game-data/java/test-1.0/*`:
+  - exact Java-version loading only;
+  - no nearest-version fallback;
+  - metadata mismatch and traversal-like version strings rejected.
+- added `src/supply/planner.ts`:
+  - inventory -> authorized storage -> exact world/craft/process dependencies;
+  - tool class/tier/enchantment dependency resolution;
+  - workstation dependency resolution;
+  - processing fuel arithmetic;
+  - bounded recursion / node budget;
+  - unresolved/fail-closed results rather than invented acquisition semantics.
+- added `src/minecraft/production.ts`:
+  - independent typed `minecraft.production` runtime port;
+  - runtime receives already-selected recipe/processing IDs and batch counts, so it does not choose production strategy.
+- added `src/skills/production.ts` and `src/modules/production-module.ts`:
+  - internal-only `craft_item` / `process_item`;
+  - strict args and cancellation;
+  - module requires only the Production runtime port.
+- added internal Production skill names to the trusted skill catalog with `goal=false`, `decision=false`, `ai.exposed=false`; existing AI/Goal/Decision surfaces remain unchanged.
+- added focused tests under `tests/knowledge/`, `tests/supply/`, `tests/skills/production.test.ts`, and `tests/modules/production-module.test.ts`.
+
+Canonical validation cases now encoded in tests:
+- one stack uses the requested item's authoritative max stack:
+  - stone 64 in the fixture;
+  - ender pearl 16;
+  - diamond pickaxe 1;
+  - unknown item stack fact fails closed.
+- `minecraft:stone` exact identity:
+  - `mine_cobblestone` is never accepted as direct completion for stone;
+  - without a usable Silk Touch tool, the plan is cobblestone acquisition -> furnace/fuel -> smelting -> stone;
+  - with a usable Silk Touch tool, an explicit exact-stone direct route may be selected.
+- inventory and explicitly provided authorized storage are consumed before production;
+- an unknown mod item with no authoritative acquisition/production route remains unresolved instead of inventing direct gathering.
+
+RED evidence:
+- not recorded as a formal RED run in this chat environment; GitHub connector writes do not expose the user's Windows worktree execution environment.
+
+Automated verification:
+- **NOT RUN in this session.**
+- GitHub CI does not trigger on this stacked branch push; current workflow triggers only on `main` pushes or PRs targeting `main`.
+- do not mark this slice Automated PASS until the user-owned Production worktree runs focused tests, full `npm test`, and `npm run typecheck`.
+
+Live verification:
+- **NOT RUN.**
+- No Minecraft live mutation was attempted in this slice.
+
+Known issue / uncertainty:
+- Mineflayer production execution adapter is not implemented yet; the typed runtime contract and internal module seam are ready for it.
+- Crafting runtime must execute the planner-selected recipe rather than choose an arbitrary recipe for the output item.
+- Furnace-style processing should use bounded `openFurnace / putInput / putFuel / takeOutput` execution with abort/disconnect cleanup; stonecutting needs its own reviewed adapter/capability rather than being guessed.
+- the committed real `1.21.1` knowledge pack/generator is not implemented yet; current fixture is deliberately `test-1.0`.
+- direct non-resource acquisition mechanics (for example trading or entity-drop-specific executors) are not implicitly trusted; they require future reviewed capability/runtime contracts and must fail closed until then.
+- because this session wrote the connected GitHub branch, the local worktree may be behind the remote branch. Inspect local status before fast-forwarding; do not overwrite local unpublished changes.
+
+Next exact action:
+1. In `D:\\MC_AI_player-worktrees\\production`, verify clean/expected status, fetch the branch, and fast-forward only if safe.
+2. Run focused tests:
+   - `npm test -- tests/knowledge/contracts.test.ts tests/knowledge/graph.test.ts tests/knowledge/loader.test.ts tests/supply/planner.test.ts tests/skills/production.test.ts tests/modules/production-module.test.ts`
+   - `npm run typecheck`
+3. Fix any RED/type failures before expanding scope.
+4. Add the bounded Mineflayer Production runtime through the existing runtime-extension seam; do not add raw Bot access to skills.
+5. Add exact-version knowledge generation and commit the real server `1.21.1` pack from the pinned Mineflayer-compatible `minecraft-data`.
+6. Wire high-level item acquisition orchestration to Resource only through explicit exact-output acquisition facts, then live-validate `墨雪幫我採一組石頭`.
+7. Only after focused + full suite/typecheck PASS, perform controlled Minecraft live crafting/smelting validation.
+
+PR / merge status:
+- **NOT SAFE TO PR/MERGE YET** — implementation slice is incomplete and automated/live verification has not run.
+
+Do not:
+- patch `stone`, `iron`, or mod IDs with item-specific control flow;
+- reinterpret stone as cobblestone;
+- assume one stack is 64;
+- edit Resource acquisition internals to make Production easier;
+- edit Runtime Reliability or Workspace threat internals;
+- expose Production internal leaf skills directly to AI.
+
 ---
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
