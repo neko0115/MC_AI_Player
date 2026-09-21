@@ -340,6 +340,68 @@ The extensibility rules in this continuity document are a program-wide requireme
 
 ## 9. Current Workstreams
 
+### WS-RUNTIME-RELIABILITY — ready / isolated
+
+**Planned branch:** `feature/runtime-reliability`  
+**Planned worktree:** `D:\MC_AI_player-worktrees\runtime-reliability`  
+**Base:** current `integration/m7-workstreams` after Workspace Planner consolidation.
+
+**Observed issues / goals (2026-09-21):**
+
+1. Long-running task stability:
+   - no silent hangs or permanently stuck mailbox/goal state;
+   - bounded progress/watchdog evidence;
+   - robust suspend/resume around threats and transient path/provider failures;
+   - controlled soak tests;
+   - process-restart durability is NOT implied unless explicitly designed and tested.
+2. Gameplay command visibility:
+   - live utterance `墨雪幫我採一組石頭` produced no visible reaction;
+   - reproduce from runtime events before changing behavior;
+   - distinguish Workspace semantic `not_workspace` fallthrough, gameplay model routing, decision acceptance/rejection, goal start, skill progress, and final failure;
+   - consider bounded deterministic gameplay acknowledgement/failure replies so accepted work is not silent.
+3. Generic direct-resource reliability:
+   - do not add per-resource control-flow branches;
+   - current fallback ResourceProfile assumption `blockNames=[resource]`, `collectedItemNames=[resource]`, `toolKind=null` is not authoritative for transformed drops such as stone;
+   - Production owns crafting/smelting/dependency planning; Runtime Reliability may harden direct-resource/profile contracts but must not duplicate Production.
+4. Workspace-aware controlled-hostile tolerance:
+   - iron-golem farms may intentionally contain a zombie;
+   - current ThreatSupervisor evaluates nearby hostiles without Workspace context and therefore may suspend/retreat around an intentionally contained farm zombie;
+   - add a deterministic, owner-authorized, fail-closed Workspace safety constraint rather than a global mob exception;
+   - target semantics:
+     - active Workspace only;
+     - exact hostile kind, e.g. `zombie`;
+     - bounded authorized count, e.g. `maxCount=1`;
+     - tolerance applies only while matching hostiles remain inside the authorized Workspace;
+     - if count exceeds the authorized bound, the hostile exits the region, the Workspace is archived, or metadata is invalid/stale, normal threat policy resumes;
+     - never globally ignore zombies or other hostiles;
+     - PvP policy remains unchanged.
+
+**First diagnostic gate:**
+
+Capture the failed/no-response stone utterance with a timestamp and inspect:
+
+```text
+workspace semantic route/attempt
+-> not_workspace?
+-> gameplay model_route / attempt_result
+-> task_started
+-> decision_accepted or decision_rejected
+-> goal_started
+-> skill_started / acquisition phases
+-> skill_failed / goal_failed / completion
+```
+
+Do not guess the root cause from the chat symptom alone.
+
+**Concurrency boundary:**
+
+- do not edit `feature/skill-production` worktree;
+- Production owns general item acquisition dependencies/recipes/workstations;
+- Runtime Reliability owns runtime progress/visibility and Workspace hostile-tolerance;
+- shared contract changes require deliberate integration.
+
+---
+
 ### WS-WORKSPACE-PLANNER — active
 
 **Branch:** `feature/workspace-planner`  
