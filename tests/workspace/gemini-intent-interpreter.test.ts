@@ -782,6 +782,36 @@ test('Gemini workspace transport reconstructs terminal and reference intents fro
         moxueUsePolicy:
           'moxue_preferred'
       }
+    },
+    {
+      name:
+        'workspace_change_constraints',
+      arguments: {
+        target: {
+          kind: 'explicit',
+          value: 'workspace-iron-farm'
+        },
+        constraints: {
+          controlledHostiles: [{
+            kind: 'zombie',
+            maxCount: 1
+          }]
+        }
+      },
+      intent: {
+        kind:
+          'change_constraints',
+        target: {
+          kind: 'explicit',
+          value: 'workspace-iron-farm'
+        },
+        constraints: {
+          controlledHostiles: [{
+            kind: 'zombie',
+            maxCount: 1
+          }]
+        }
+      }
     }
   ] as const
 
