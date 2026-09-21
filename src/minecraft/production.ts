@@ -16,18 +16,21 @@ export interface ResolvedWorkstation {
 }
 
 export interface CraftItemRequest {
+  readonly recipeId: string
   readonly item: string
-  readonly quantity: number
+  readonly batches: number
   readonly workstation: ResolvedWorkstation | null
 }
 
 export interface ProcessItemRequest {
+  readonly processingId: string
   readonly kind: ProcessingKind
   readonly input: string
   readonly output: string
-  readonly quantity: number
+  readonly batches: number
   readonly workstation: ResolvedWorkstation
   readonly fuel?: string
+  readonly fuelQuantity?: number
 }
 
 export interface ProductionRuntime {
