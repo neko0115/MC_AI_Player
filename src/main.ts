@@ -408,7 +408,30 @@ export function createApplication(
     events,
     state,
     goals,
-    navigation: runtime.adapter
+    navigation: runtime.adapter,
+    workspaceContext: {
+      worldKey,
+      source: {
+        snapshot(query) {
+          try {
+            return {
+              state: 'current' as const,
+              workspaces:
+                workspaceRepository.search({
+                  worldKey: query.worldKey,
+                  dimension: query.dimension,
+                  limit: 100
+                })
+            }
+          } catch {
+            return {
+              state: 'unavailable' as const,
+              workspaces: []
+            }
+          }
+        }
+      }
+    }
   })
   threatSupervisor.start()
 
