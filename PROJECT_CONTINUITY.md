@@ -1486,7 +1486,57 @@ Relevant commits:
 - `4c1e468` — `feat: expose explicit workspace semantic sync command`;
 - `986cc7e` — `docs: document encrypted workspace semantic git sync`.
 
-**W5D verification status:** PARTIAL LIVE PASS.
+**W5D verification status:** FULL PASS.
+
+Final live pull proof:
+
+- a fresh empty temporary learned-cache database was created with the same local semantic master secret;
+- explicit pull from `origin/workspace-semantic-cache` returned:
+  - `kind = pulled`;
+  - remote commit `0a1d8bf1448a6529be7250dd35f108a98fde1c4b`;
+  - `merged = 8`;
+  - `skipped = 0`;
+  - `localRecordCount = 8`;
+- fresh-cache export immediately after pull contained exactly 8 records;
+- source branch safety proof during pull:
+  - HEAD unchanged = true;
+  - index unchanged = true;
+  - worktree unchanged = true;
+- temporary proof DB/script were removed after validation.
+
+W5D explicit encrypted learned-semantic Git sync is FULL PASS.
+
+Validated end-to-end sync path:
+
+```text
+local learned semantic DB
+-> record-level snapshot
+-> AES-256-GCM authenticated encryption
+-> dedicated Git data branch
+-> unchanged second push = no-op
+-> fresh empty cache on another machine/context
+-> fetch encrypted artifact
+-> authenticated decrypt
+-> schema / intent / hash validation
+-> record merge
+-> all learned semantics restored
+```
+
+Operational properties now proven:
+
+- no plaintext utterances are uploaded;
+- no live SQLite file is uploaded;
+- no automatic runtime push/pull exists;
+- same master secret is required to decrypt/share the cache;
+- wrong secret fails closed;
+- concurrent contributors merge instead of last-write-wins;
+- source branch/worktree/index remain untouched by explicit sync operations.
+
+**Next planned work:**
+
+1. optional duplicate-label ambiguity UX hardening;
+2. decide whether Workspace Planner W5 should now be consolidated/merged into the integration branch;
+3. keep the dedicated `workspace-semantic-cache` branch as data-only encrypted state.
 
 Automated verification:
 
