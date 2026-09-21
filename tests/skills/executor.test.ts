@@ -142,3 +142,118 @@ test('executor refuses a concurrent second skill instead of racing it', async ()
   release?.()
   assert.deepEqual(await first, { status: 'succeeded', code: 'held' })
 })
+
+
+test('cancelActive is bounded when a skill ignores abort cleanup and keeps single-active safety', async () => {
+  const registry = new SkillRegistry()
+  const events = new RuntimeEventBus()
+  const seen: string[] = []
+  let release:
+    (() => void) | undefined
+  const gate = new Promise<void>(
+    resolve => {
+      release = resolve
+    }
+  )
+
+  events.subscribe(event => {
+    if (
+      event.type ===
+      'runtime_watchdog'
+    ) {
+      seen.push(
+        `${event.scope}:${event.code}`
+      )
+    }
+  })
+
+  registry.register({
+    name: 'gather_resource',
+    async execute() {
+      await gate
+      return {
+        status: 'succeeded',
+        code: 'late_success'
+      }
+    }
+  })
+  registry.register({
+    name: 'eat',
+    async execute() {
+      return {
+        status: 'succeeded',
+        code: 'ate'
+      }
+    }
+  })
+
+  const executor = new SkillExecutor(
+    registry,
+    {
+      events,
+      cancelWaitTimeoutMs: 10
+    }
+  )
+  const running = executor.execute(
+    'gather_resource',
+    {
+      resource: 'stone',
+      quantity: 64
+    }
+  )
+
+  await Promise.race([
+    executor.cancelActive(
+      'runtime_watchdog_timeout'
+    ),
+    new Promise<never>(
+      (_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                'cancelActive remained hung'
+              )
+            ),
+          100
+        )
+    )
+  ])
+
+  assert.deepEqual(
+    seen,
+    [
+      'skill_cancel:cancel_cleanup_timeout'
+    ]
+  )
+  assert.deepEqual(
+    await executor.execute(
+      'eat',
+      {}
+    ),
+    {
+      status: 'failed',
+      code: 'executor_busy'
+    }
+  )
+
+  release?.()
+  assert.deepEqual(
+    await running,
+    {
+      status: 'cancelled',
+      code: 'runtime_watchdog_timeout'
+    }
+  )
+
+  assert.deepEqual(
+    await executor.execute(
+      'eat',
+      {}
+    ),
+    {
+      status: 'succeeded',
+      code: 'ate'
+    }
+  )
+})
