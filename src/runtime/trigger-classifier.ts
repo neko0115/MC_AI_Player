@@ -126,7 +126,11 @@ function extractAddressedInstruction(
     if (!lowered.startsWith(address)) continue
 
     const following = trimmed.slice(address.length)
-    if (following.length > 0 && !isAddressBoundary(following[0] ?? '')) {
+    if (
+      following.length > 0 &&
+      requiresExplicitBoundary(address) &&
+      !isAddressBoundary(following[0] ?? '')
+    ) {
       continue
     }
 
@@ -137,6 +141,10 @@ function extractAddressedInstruction(
   }
 
   return null
+}
+
+function requiresExplicitBoundary(address: string): boolean {
+  return /^[\x00-\x7f]+$/u.test(address)
 }
 
 function isAddressBoundary(value: string): boolean {
