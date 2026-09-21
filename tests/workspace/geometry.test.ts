@@ -163,3 +163,82 @@ test('workspace bounds reject reversed or unbounded spans', () => {
     false
   )
 })
+
+
+test('controlled hostile Workspace constraints are exact and bounded', () => {
+  const base = {
+    id: 'workspace-iron-farm',
+    worldKey: 'localhost:25565',
+    dimension: 'overworld',
+    bounds: normalizeWorkspaceBounds(
+      { x: 0, y: 60, z: 0 },
+      { x: 10, y: 70, z: 10 }
+    ),
+    label: '鐵巨人農場',
+    purpose: 'farm',
+    moxueUsePolicy: 'shared',
+    status: 'active',
+    tags: ['iron-farm'],
+    ownerPrincipal: 'player-1',
+    sourceSelectionId: 'selection-1',
+    createdAt: 1,
+    updatedAt: 1
+  } as const
+
+  const parsed =
+    WorkspaceRegionSchema.parse({
+      ...base,
+      constraints: {
+        controlledHostiles: [{
+          kind: 'zombie',
+          maxCount: 1
+        }]
+      }
+    })
+
+  assert.deepEqual(
+    parsed.constraints
+      .controlledHostiles,
+    [{
+      kind: 'zombie',
+      maxCount: 1
+    }]
+  )
+
+  for (const controlledHostiles of [
+    [{
+      kind: 'zombie',
+      maxCount: 0
+    }],
+    [{
+      kind: 'zombie',
+      maxCount: 17
+    }],
+    [{
+      kind: 'Zombie',
+      maxCount: 1
+    }],
+    [
+      {
+        kind: 'zombie',
+        maxCount: 1
+      },
+      {
+        kind: 'zombie',
+        maxCount: 2
+      }
+    ]
+  ]) {
+    assert.equal(
+      WorkspaceRegionSchema
+        .safeParse({
+          ...base,
+          constraints: {
+            controlledHostiles
+          }
+        })
+        .success,
+      false
+    )
+  }
+})
