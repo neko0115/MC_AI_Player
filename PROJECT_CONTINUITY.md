@@ -1191,69 +1191,76 @@ Additional regression evidence:
 
 W5C4 automated implementation is complete.
 
-##### W5C5 controlled Minecraft live semantic validation — tooling ready, live run pending
+##### W5C5 controlled Minecraft live semantic validation — PARTIAL LIVE PASS
 
-Evidence tooling commit:
+Controlled create-path evidence:
 
-- `9c7e0c9` — `test: add workspace semantic live evidence inspector`.
+- live launcher preflight READY:
+  - Gemini provider;
+  - online identity mode;
+  - Microsoft auth;
+  - MoxueBridge enabled;
+  - routing config present/valid;
+  - primary + backup credential envs present;
+  - semantic cache enabled with no warnings.
+- trusted player UUID observed and canonicalized:
+  - wire/Bukkit: `b19a556a-0e50-40ec-88db-4e587dede94c`;
+  - MC_AI_Player durable principal: `b19a556a0e5040ec88db4e587dede94c`.
+- fresh MoxueBridge selection PASS:
+  - generation 9;
+  - overworld;
+  - canonical player id;
+  - selection id `f564fbb0-dee5-4d02-8de5-3f3fd09ada95`;
+  - A = (-202, 63, 299);
+  - B = (-210, 64, 307).
+- natural-language owner-only create utterance PASS.
+- Workspace semantic provider evidence:
+  - exactly 1 semantic `model_route`;
+  - model `gemini-3.5-flash-lite`;
+  - project `primary`;
+  - thinking `low`;
+  - exactly 1 semantic `attempt_result`;
+  - result `success`;
+  - no safeCode.
+- learned semantic cache evidence:
+  - cache present;
+  - 1 active learned record;
+  - 0 revoked records;
+  - 0 conflicting fingerprints.
+- persistent Workspace row PASS:
+  - label `W5C-LiveFarm-A`;
+  - purpose `farm`;
+  - `moxue_use_policy = owner_only`;
+  - status `active`;
+  - owner principal canonical hyphenless UUID;
+  - source selection id matches generation-9 selection.
+- Minecraft visible acknowledgement PASS:
+  - Moxue replied that the region was remembered as private and its resources would not be used.
 
-New command:
+This proves the full live create path:
 
 ```text
-npm run inspect:workspace-semantic-live -- --since-ms <epoch-ms> [expectations...]
+trusted online UUID
+-> fresh Bridge selection
+-> cache miss
+-> Gemini semantic interpretation
+-> strict Workspace intent
+-> deterministic management/lifecycle
+-> SQLite + audit
+-> learned semantic cache
+-> bounded Minecraft acknowledgement
 ```
 
-Inspector behavior:
+Remaining W5C5 live gates before FULL PASS:
 
-- read-only; does not call Gemini, mutate Minecraft, or modify learned cache;
-- filters runtime events at/after `--since-ms`;
-- identifies Workspace semantic provider routes by `model_route.reasons` containing `workspace_semantic_interpretation`;
-- correlates `attempt_result` by semantic decision id;
-- reports model/project/thinking evidence;
-- reads learned-cache SQLite in read-only mode;
-- reports current-contract active/revoked record counts and conflicting fingerprint count;
-- can fail CI/operator validation when exact expectations are not met.
-
-Supported expectations:
-
-- `--expect-routes N`;
-- `--expect-attempts N`;
-- `--expect-active-learned-at-least N`.
-
-Primary cache live proof:
-
-1. choose a non-mutating explicit-reference utterance for an existing Workspace, for example asking to show one specifically named Workspace;
-2. record `t0` immediately before the first utterance;
-3. send the exact same utterance twice;
-4. first successful handling should miss cache, use exactly one Workspace semantic provider route, and learn the mapping;
-5. second handling should hit local cache and create no second Workspace semantic provider route;
-6. inspector over `since=t0` should therefore report exactly one semantic route and at least one active learned record.
-
-Do not use a repeated `create` utterance for the cache proof because repeating a valid create intent would legitimately create another durable Workspace. Prefer `show` for cache-hit proof.
-
-Live acceptance still requires:
-
-- trusted online-mode current-session player UUID identity;
-- fresh MoxueBridge setting-wand selection for create/resize cases;
-- real Gemini Workspace semantic interpretation;
-- visible chat acknowledgement/clarification;
-- owner_only / shared / moxue_preferred behavior;
-- ambiguity clarification;
-- archive/restore;
-- non-Workspace fallback;
-- cache miss -> provider -> successful learning -> repeated cache hit with no second semantic provider call.
-
-**W5C5 tooling verification:** Automated PASS.
-
-Final automated evidence before live validation:
-
-- full suite: 525 tests total;
-- 521 passed;
-- 0 failed;
-- 4 skipped;
-- typecheck PASS;
-- working tree clean;
-- live evidence inspector tests PASS.
+1. repeated non-mutating explicit `show` cache proof:
+   - first exact utterance -> one semantic provider route/attempt;
+   - second identical utterance -> local learned-cache hit;
+   - no second semantic provider route/attempt;
+2. non-Workspace gameplay fallback;
+3. representative shared + moxue_preferred semantics;
+4. ambiguity clarification;
+5. archive + restore.
 
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
