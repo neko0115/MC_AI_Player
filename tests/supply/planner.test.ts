@@ -64,20 +64,6 @@ function pack(): GameKnowledgePack {
           forbiddenEnchantments: ['silk_touch']
         }
       },
-      {
-        id: 'minecraft:gather_ender_pearl',
-        resource: 'minecraft:ender_pearl',
-        output: { item: 'minecraft:ender_pearl', count: 1 },
-        blockIds: ['minecraft:ender_pearl_source'],
-        minimumOnePerBlock: true,
-        tool: {
-          class: null,
-          minimumTier: null,
-          minimumTierRank: null,
-          requiredEnchantments: [],
-          forbiddenEnchantments: []
-        }
-      }
     ],
     recipes: [],
     processing: [
@@ -133,22 +119,21 @@ test('one stack uses item max stack size in the high-level acquisition plan', ()
     pack(),
     'minecraft:ender_pearl',
     { kind: 'stacks', stacks: 1 },
-    state()
+    state({
+      inventory: {
+        'minecraft:ender_pearl': 16,
+        'minecraft:coal': 64
+      }
+    })
   )
 
   assert.equal(plan.requestedQuantity, 16)
   assert.equal(plan.unresolved.length, 0)
-  assert.deepEqual(
-    plan.steps.find(step => step.kind === 'gather'),
-    {
-      kind: 'gather',
-      routeId: 'minecraft:gather_ender_pearl',
-      resource: 'minecraft:ender_pearl',
-      item: 'minecraft:ender_pearl',
-      quantity: 16,
-      minimumBlocks: 16
-    }
-  )
+  assert.deepEqual(plan.steps, [{
+    kind: 'use_inventory',
+    item: 'minecraft:ender_pearl',
+    quantity: 16
+  }])
 })
 
 test('stone without Silk Touch plans cobblestone then smelting and never substitutes final identity', () => {
