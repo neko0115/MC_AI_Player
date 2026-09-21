@@ -1,0 +1,9 @@
+[
+  {
+    "item": "minecraft:diamond_pickaxe",
+    "class": "pickaxe",
+    "tier": "diamond",
+    "tierRank": 3,
+    "maxDurability": 1561
+  }
+]
