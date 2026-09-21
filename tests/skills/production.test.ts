@@ -39,6 +39,8 @@ test('craft skill forwards one exact chosen recipe and batch count', async () =>
     await skill.execute({ signal }, {
       recipeId: 'minecraft:oak_planks',
       item: 'minecraft:oak_planks',
+      outputCountPerBatch: 4,
+      inputs: [{ item: 'minecraft:oak_log', count: 1 }],
       batches: 4,
       workstation: null
     }),
@@ -47,6 +49,8 @@ test('craft skill forwards one exact chosen recipe and batch count', async () =>
   assert.deepEqual(runtime.craftCalls, [{
     recipeId: 'minecraft:oak_planks',
     item: 'minecraft:oak_planks',
+    outputCountPerBatch: 4,
+    inputs: [{ item: 'minecraft:oak_log', count: 1 }],
     batches: 4,
     workstation: null
   }])
@@ -63,8 +67,11 @@ test('process skill rejects half-specified fuel dependency', async () => {
       processingId: 'minecraft:smelt_stone',
       kind: 'smelting',
       input: 'minecraft:cobblestone',
+      inputCountPerBatch: 1,
       output: 'minecraft:stone',
+      outputCountPerBatch: 1,
       batches: 8,
+      cookTimeTicks: 200,
       workstation: {
         id: 'minecraft:furnace',
         kind: 'furnace',
@@ -91,6 +98,8 @@ test('production skills reject extra fields', async () => {
     {
       recipeId: 'minecraft:oak_planks',
       item: 'minecraft:oak_planks',
+      outputCountPerBatch: 4,
+      inputs: [{ item: 'minecraft:oak_log', count: 1 }],
       batches: 1,
       workstation: null,
       chooseRecipeAutomatically: true
@@ -116,8 +125,11 @@ test('production skills honor cancellation before runtime mutation', async () =>
       processingId: 'minecraft:smelt_stone',
       kind: 'smelting',
       input: 'minecraft:cobblestone',
+      inputCountPerBatch: 1,
       output: 'minecraft:stone',
+      outputCountPerBatch: 1,
       batches: 1,
+      cookTimeTicks: 200,
       workstation: {
         id: 'minecraft:furnace',
         kind: 'furnace',
