@@ -1,0 +1,6 @@
+[
+  { "id": "minecraft:stone", "stackSize": 64 },
+  { "id": "minecraft:cobblestone", "stackSize": 64 },
+  { "id": "minecraft:coal", "stackSize": 64 },
+  { "id": "minecraft:diamond_pickaxe", "stackSize": 1 }
+]
