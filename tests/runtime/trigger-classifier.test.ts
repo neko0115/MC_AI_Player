@@ -46,6 +46,24 @@ test('CJK bot address may directly prefix an instruction without whitespace', ()
   assert.equal(addressed.instruction, '幫我採一組石頭')
 })
 
+test('ASCII bot aliases still require an explicit address boundary', () => {
+  for (const message of [
+    'moxuehelper 跟我來',
+    'Moxue_Testfoo 跟我來',
+    '!moxuehelper 跟我來'
+  ]) {
+    assert.deepEqual(
+      classifier.classify({
+        type: 'player_chat',
+        at: 4,
+        player: 'Boss',
+        message
+      }, active),
+      { kind: 'state_only' }
+    )
+  }
+})
+
 test('configured bot username and moxue aliases are deterministic addresses', () => {
   for (const message of ['Moxue_Test: 跟我來', 'moxue 跟我來', '!moxue 跟我來']) {
     const result = classifier.classify({
