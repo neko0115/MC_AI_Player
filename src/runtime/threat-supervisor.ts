@@ -2,6 +2,13 @@ import type { RuntimeEvent, HostileSnapshot, Position } from '../contracts/event
 import type { GoalRecord } from '../contracts/goals.js'
 import type { SkillResult } from '../contracts/skills.js'
 import type { WorldStateSnapshot } from '../state/world-state.js'
+import {
+  WorkspaceRegionSchema,
+  type WorkspaceRegion
+} from '../workspace/contracts.js'
+import {
+  workspaceContainsPoint
+} from '../workspace/geometry.js'
 
 export interface ThreatEventSource {
   subscribe(
@@ -27,11 +34,32 @@ export interface ThreatNavigation {
   ): Promise<SkillResult>
 }
 
+export interface ThreatWorkspaceSnapshot {
+  readonly state:
+    'current' | 'stale' | 'unavailable'
+  readonly workspaces:
+    readonly unknown[]
+}
+
+export interface ThreatWorkspaceSource {
+  snapshot(input: {
+    readonly worldKey: string
+    readonly dimension: string
+  }): ThreatWorkspaceSnapshot
+}
+
+export interface ThreatWorkspaceContext {
+  readonly worldKey: string
+  readonly source: ThreatWorkspaceSource
+}
+
 export interface ThreatSupervisorOptions {
   readonly events: ThreatEventSource
   readonly state: ThreatStateSource
   readonly goals: ThreatGoalController
   readonly navigation: ThreatNavigation
+  readonly workspaceContext?:
+    ThreatWorkspaceContext
   readonly now?: () => number
   readonly retryCooldownMs?: number
 }
@@ -85,6 +113,21 @@ export class ThreatSupervisor {
     ) {
       throw new RangeError('retryCooldownMs must be a non-negative finite number')
     }
+
+    const worldKey =
+      options.workspaceContext?.worldKey
+        .trim()
+    if (
+      worldKey !== undefined &&
+      (
+        worldKey.length < 1 ||
+        worldKey.length > 256
+      )
+    ) {
+      throw new RangeError(
+        'workspace worldKey must be between 1 and 256 characters'
+      )
+    }
   }
 
   start(): void {
@@ -124,7 +167,11 @@ export class ThreatSupervisor {
     const state = this.options.state.snapshot()
     if (!state.connected || !state.spawned || !state.position) return
 
-    const threat = selectThreat(state, this.responseActive)
+    const threat = selectThreat(
+      state,
+      this.responseActive,
+      this.options.workspaceContext
+    )
     if (!threat) {
       await this.clearThreatResponse()
       return
@@ -203,13 +250,29 @@ export class ThreatSupervisor {
 
 function selectThreat(
   state: WorldStateSnapshot,
-  clearing: boolean
+  clearing: boolean,
+  workspaceContext:
+    ThreatWorkspaceContext | undefined
 ): ActiveThreat | null {
   const self = state.position
   if (!self) return null
 
+  const controlled =
+    controlledHostileIds(
+      state,
+      workspaceContext
+    )
+
   let selected: ActiveThreat | null = null
   for (const hostile of state.nearbyHostiles ?? []) {
+    if (
+      controlled.has(
+        hostile.entityId
+      )
+    ) {
+      continue
+    }
+
     const distance = euclideanDistance(self, hostile.position)
     const triggerDistance = threatDistance(
       hostile.kind,
@@ -237,6 +300,128 @@ function selectThreat(
     }
   }
   return selected
+}
+
+function controlledHostileIds(
+  state: WorldStateSnapshot,
+  workspaceContext:
+    ThreatWorkspaceContext | undefined
+): ReadonlySet<number> {
+  const controlled = new Set<number>()
+  if (
+    !workspaceContext ||
+    !state.dimension
+  ) {
+    return controlled
+  }
+
+  let snapshot: ThreatWorkspaceSnapshot
+  try {
+    snapshot =
+      workspaceContext.source.snapshot({
+        worldKey:
+          workspaceContext.worldKey,
+        dimension: state.dimension
+      })
+  } catch {
+    return controlled
+  }
+
+  if (
+    snapshot.state !== 'current' ||
+    !Array.isArray(
+      snapshot.workspaces
+    )
+  ) {
+    return controlled
+  }
+
+  const workspaces:
+    WorkspaceRegion[] = []
+
+  for (
+    const candidate of
+    snapshot.workspaces
+  ) {
+    const parsed =
+      WorkspaceRegionSchema
+        .safeParse(candidate)
+    if (!parsed.success) {
+      return new Set<number>()
+    }
+
+    const workspace = parsed.data
+    if (
+      workspace.worldKey !==
+        workspaceContext.worldKey ||
+      workspace.dimension !==
+        state.dimension
+    ) {
+      return new Set<number>()
+    }
+
+    if (
+      workspace.status === 'active'
+    ) {
+      workspaces.push(workspace)
+    }
+  }
+
+  const hostiles =
+    state.nearbyHostiles ?? []
+
+  for (const workspace of workspaces) {
+    const rules =
+      workspace.constraints
+        .controlledHostiles ?? []
+
+    for (const rule of rules) {
+      const matches =
+        hostiles.filter(hostile =>
+          hostile.kind === rule.kind &&
+          hostileInsideWorkspace(
+            hostile,
+            workspace
+          )
+        )
+
+      if (
+        matches.length < 1 ||
+        matches.length >
+          rule.maxCount
+      ) {
+        continue
+      }
+
+      for (const hostile of matches) {
+        controlled.add(
+          hostile.entityId
+        )
+      }
+    }
+  }
+
+  return controlled
+}
+
+function hostileInsideWorkspace(
+  hostile: HostileSnapshot,
+  workspace: WorkspaceRegion
+): boolean {
+  return workspaceContainsPoint(
+    workspace.bounds,
+    {
+      x: Math.floor(
+        hostile.position.x
+      ),
+      y: Math.floor(
+        hostile.position.y
+      ),
+      z: Math.floor(
+        hostile.position.z
+      )
+    }
+  )
 }
 
 function threatDistance(kind: string, health: number): number {
