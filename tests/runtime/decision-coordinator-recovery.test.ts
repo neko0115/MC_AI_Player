@@ -185,7 +185,7 @@ test('timed unavailable schedules exactly one fresh recovery decision from lates
   current.coordinator.dispose()
 })
 
-test('unavailable with null retryAt does not poll or silently switch models', async () => {
+test('unavailable with null retryAt terminates the task without polling or silently switching models', async () => {
   const current = harness()
   await ready(current)
   await sendChat(current, '墨雪 幫我看看')
@@ -193,10 +193,11 @@ test('unavailable with null retryAt does not poll or silently switch models', as
 
   current.logicalExecutor.resolveNext({ kind: 'unavailable', retryAt: null })
   await waitFor(() => current.coordinator.status().aiAvailability === 'unavailable')
+  await waitFor(() => current.coordinator.status().activeTaskId === null)
   await new Promise(resolve => setTimeout(resolve, 20))
 
   assert.equal(current.logicalExecutor.requests.length, 1)
-  assert.equal(current.coordinator.status().execution, 'decision_pending')
+  assert.equal(current.coordinator.status().execution, 'idle')
 
   current.coordinator.dispose()
 })
