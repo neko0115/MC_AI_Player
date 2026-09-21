@@ -27,6 +27,7 @@ class FakeFurnace {
   putInputCalls: unknown[][] = []
   putFuelCalls: unknown[][] = []
   output: FakeItem | null = null
+  outputAfterFuel: FakeItem | null = null
   input: FakeItem | null = null
   fuel: FakeItem | null = null
 
@@ -48,6 +49,9 @@ class FakeFurnace {
 
   async putFuel(...args: unknown[]) {
     this.putFuelCalls.push(args)
+    if (this.outputAfterFuel) {
+      this.output = this.outputAfterFuel
+    }
   }
 
   async takeOutput() {
@@ -245,7 +249,7 @@ test('processing uses only the resolved workstation and exact input/fuel quantit
     },
     { name: 'coal', count: 1, type: 6, metadata: 0 }
   ]
-  bot.furnace.output = {
+  bot.furnace.outputAfterFuel = {
     name: 'stone',
     count: 2,
     type: 5,
