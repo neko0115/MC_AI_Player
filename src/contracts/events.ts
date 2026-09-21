@@ -210,6 +210,19 @@ export const RuntimeEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stuck'), at: AtSchema, code: EventCodeSchema.optional() }).strict(),
   z
     .object({
+      type: z.literal('runtime_watchdog'),
+      at: AtSchema,
+      scope: z.enum([
+        'workspace_route',
+        'decision',
+        'goal_execution',
+        'skill_cancel'
+      ]),
+      code: EventCodeSchema
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('complexity_assessment'),
       at: AtSchema,
       decisionId: DecisionIdSchema,
