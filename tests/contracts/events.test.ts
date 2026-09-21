@@ -94,7 +94,11 @@ test('safe AI telemetry schemas accept only bounded routing metadata', () => {
     { type: 'task_started', at: 14, taskId: 'task-1', source: 'minecraft' },
     { type: 'task_completed', at: 15, taskId: 'task-1' },
     { type: 'task_blocked', at: 16, taskId: 'task-2', code: 'missing_information' },
-    { type: 'task_superseded', at: 17, taskId: 'task-3', code: 'preempted_by_player' }
+    { type: 'task_superseded', at: 17, taskId: 'task-3', code: 'preempted_by_player' },
+    {
+      type: 'runtime_watchdog', at: 18,
+      scope: 'goal_execution', code: 'no_progress_timeout'
+    }
   ] as const
 
   for (const event of events) {
