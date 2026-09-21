@@ -38,6 +38,7 @@ export const ToolRequirementSchema = z
   .object({
     class: z.string().min(1).max(64).nullable(),
     minimumTier: z.string().min(1).max(64).nullable(),
+    minimumTierRank: z.number().int().nonnegative().nullable(),
     requiredEnchantments: z.array(z.string().min(1).max(64)),
     forbiddenEnchantments: z.array(z.string().min(1).max(64))
   })
@@ -46,6 +47,7 @@ export const ToolRequirementSchema = z
 export interface ToolRequirement {
   readonly class: string | null
   readonly minimumTier: string | null
+  readonly minimumTierRank: number | null
   readonly requiredEnchantments: readonly string[]
   readonly forbiddenEnchantments: readonly string[]
 }
@@ -132,6 +134,7 @@ export const ToolFactSchema = z
     item: NamespacedIdSchema,
     class: z.string().min(1).max(64),
     tier: z.string().min(1).max(64).nullable(),
+    tierRank: z.number().int().nonnegative().nullable(),
     maxDurability: z.number().int().positive().nullable()
   })
   .strict()
@@ -140,6 +143,7 @@ export interface ToolFact {
   readonly item: string
   readonly class: string
   readonly tier: string | null
+  readonly tierRank: number | null
   readonly maxDurability: number | null
 }
 
