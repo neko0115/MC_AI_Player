@@ -590,15 +590,49 @@ test('workspace mutation endpoints map one action each and expose audit without 
       200
     )
 
-    assert.equal(
-      (await post('constraints', {
+    const constraintsResponse =
+      await post('constraints', {
         actor_principal:
           'player-1',
         constraints: {
-          requested_spacing: 6
+          requested_spacing: 6,
+          controlled_hostiles: [{
+            kind: 'zombie',
+            max_count: 1
+          }]
         }
-      })).status,
+      })
+    assert.equal(
+      constraintsResponse.status,
       200
+    )
+    assert.deepEqual(
+      (await json(
+        constraintsResponse
+      )).workspace.constraints,
+      {
+        requested_spacing: 6,
+        controlled_hostiles: [{
+          kind: 'zombie',
+          max_count: 1
+        }]
+      }
+    )
+
+    const invalidControlled =
+      await post('constraints', {
+        actor_principal:
+          'player-1',
+        constraints: {
+          controlled_hostiles: [{
+            kind: 'zombie',
+            max_count: 0
+          }]
+        }
+      })
+    assert.equal(
+      invalidControlled.status,
+      400
     )
 
     assert.equal(
@@ -626,7 +660,11 @@ test('workspace mutation endpoints map one action each and expose audit without 
         id: 'workspace-1',
         actor: 'player-1',
         constraints: {
-          requestedSpacing: 6
+          requestedSpacing: 6,
+          controlledHostiles: [{
+            kind: 'zombie',
+            maxCount: 1
+          }]
         }
       }
     )
