@@ -37,8 +37,6 @@ import {
   type WorkspaceSemanticContext
 } from './chat-intent.js'
 
-const FUNCTION_NAME =
-  'submit_workspace_intent'
 const PROVIDER_NAME = 'gemini'
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -54,38 +52,27 @@ const SYSTEM_INSTRUCTION = [
   'Use clarify instead of guessing when Workspace semantics or the referenced Workspace are genuinely ambiguous.',
   'Use not_workspace when the addressed utterance is not Workspace metadata/management.',
   'Never invent coordinates, world mutation, permissions, storage access, or physical purge authority.',
-  `You MUST call ${FUNCTION_NAME} exactly once.`,
+  'You MUST call exactly one supplied workspace_* function. The function name is the intent discriminator; do not include a kind argument.',
   'Do not emit model text. Keep reasoning private and never include reasoning or explanations in function arguments.'
 ].join(' ')
 
 const TARGET_REFERENCE_SCHEMA =
-  Object.freeze({
-    oneOf: [
-      strictObject(
-        {
-          kind: constString('explicit'),
-          value: stringSchema(128)
-        },
-        ['kind', 'value']
-      ),
-      strictObject(
-        { kind: constString('current_selection') },
-        ['kind']
-      ),
-      strictObject(
-        { kind: constString('conversation') },
-        ['kind']
-      ),
-      strictObject(
-        { kind: constString('nearby') },
-        ['kind']
-      ),
-      strictObject(
-        { kind: constString('recent') },
-        ['kind']
-      )
-    ]
-  })
+  strictObject(
+    {
+      kind: {
+        type: 'string',
+        enum: [
+          'explicit',
+          'current_selection',
+          'conversation',
+          'nearby',
+          'recent'
+        ]
+      },
+      value: stringSchema(128)
+    },
+    ['kind']
+  )
 
 const CONSTRAINTS_SCHEMA =
   strictObject(
@@ -144,146 +131,176 @@ const TAGS_SCHEMA = {
   items: stringSchema(64)
 }
 
-const TOOL: GeminiFunctionTool =
-  Object.freeze({
-    type: 'function',
-    name: FUNCTION_NAME,
-    description:
-      'Submit exactly one validated Workspace semantic intent. Never include reasoning.',
-    parameters: Object.freeze({
-      oneOf: [
-        intentBranch(
-          'not_workspace',
-          {},
-          []
-        ),
-        intentBranch(
-          'clarify',
-          {
-            reason: {
-              type: 'string',
-              enum: [
-                'ambiguous_intent',
-                'ambiguous_reference',
-                'missing_reference',
-                'missing_selection',
-                'missing_semantics'
-              ]
-            }
-          },
-          ['reason']
-        ),
-        intentBranch(
-          'create',
-          {
-            label: stringSchema(128),
-            purpose: PURPOSE_SCHEMA,
-            moxueUsePolicy:
-              USE_POLICY_SCHEMA,
-            tags: TAGS_SCHEMA,
-            constraints:
-              CONSTRAINTS_SCHEMA
-          },
-          [
-            'label',
-            'purpose',
-            'moxueUsePolicy'
+interface WorkspaceToolDefinition {
+  readonly kind:
+    WorkspaceChatIntent['kind']
+  readonly tool: GeminiFunctionTool
+}
+
+const WORKSPACE_TOOL_DEFINITIONS =
+  Object.freeze([
+    workspaceTool(
+      'not_workspace',
+      'workspace_not_workspace',
+      'The utterance is not Workspace metadata or management.',
+      {},
+      []
+    ),
+    workspaceTool(
+      'clarify',
+      'workspace_clarify',
+      'Request clarification for ambiguous or missing Workspace semantics.',
+      {
+        reason: {
+          type: 'string',
+          enum: [
+            'ambiguous_intent',
+            'ambiguous_reference',
+            'missing_reference',
+            'missing_selection',
+            'missing_semantics'
           ]
-        ),
-        intentBranch(
-          'rename',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA,
-            label: stringSchema(128)
-          },
-          ['target', 'label']
-        ),
-        intentBranch(
-          'resize',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA
-          },
-          ['target']
-        ),
-        intentBranch(
-          'change_purpose',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA,
-            purpose:
-              PURPOSE_SCHEMA
-          },
-          ['target', 'purpose']
-        ),
-        intentBranch(
-          'change_use_policy',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA,
-            moxueUsePolicy:
-              USE_POLICY_SCHEMA
-          },
-          [
-            'target',
-            'moxueUsePolicy'
-          ]
-        ),
-        intentBranch(
-          'replace_tags',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA,
-            tags: TAGS_SCHEMA
-          },
-          ['target', 'tags']
-        ),
-        intentBranch(
-          'change_constraints',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA,
-            constraints:
-              CONSTRAINTS_SCHEMA
-          },
-          ['target', 'constraints']
-        ),
-        intentBranch(
-          'archive',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA
-          },
-          ['target']
-        ),
-        intentBranch(
-          'restore',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA
-          },
-          ['target']
-        ),
-        intentBranch(
-          'list',
-          {
-            includeArchived:
-              { type: 'boolean' }
-          },
-          []
-        ),
-        intentBranch(
-          'show',
-          {
-            target:
-              TARGET_REFERENCE_SCHEMA
-          },
-          ['target']
-        )
+        }
+      },
+      ['reason']
+    ),
+    workspaceTool(
+      'create',
+      'workspace_create',
+      'Create Workspace metadata from the current trusted selection.',
+      {
+        label: stringSchema(128),
+        purpose: PURPOSE_SCHEMA,
+        moxueUsePolicy:
+          USE_POLICY_SCHEMA,
+        tags: TAGS_SCHEMA,
+        constraints:
+          CONSTRAINTS_SCHEMA
+      },
+      [
+        'label',
+        'purpose',
+        'moxueUsePolicy'
       ]
-    })
-  })
+    ),
+    workspaceTool(
+      'rename',
+      'workspace_rename',
+      'Rename one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA,
+        label: stringSchema(128)
+      },
+      ['target', 'label']
+    ),
+    workspaceTool(
+      'resize',
+      'workspace_resize',
+      'Resize one referenced Workspace to the current trusted selection.',
+      {
+        target: TARGET_REFERENCE_SCHEMA
+      },
+      ['target']
+    ),
+    workspaceTool(
+      'change_purpose',
+      'workspace_change_purpose',
+      'Change the semantic purpose of one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA,
+        purpose: PURPOSE_SCHEMA
+      },
+      ['target', 'purpose']
+    ),
+    workspaceTool(
+      'change_use_policy',
+      'workspace_change_use_policy',
+      'Change how Moxue may use one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA,
+        moxueUsePolicy:
+          USE_POLICY_SCHEMA
+      },
+      [
+        'target',
+        'moxueUsePolicy'
+      ]
+    ),
+    workspaceTool(
+      'replace_tags',
+      'workspace_replace_tags',
+      'Replace all tags on one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA,
+        tags: TAGS_SCHEMA
+      },
+      ['target', 'tags']
+    ),
+    workspaceTool(
+      'change_constraints',
+      'workspace_change_constraints',
+      'Replace deterministic constraints on one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA,
+        constraints:
+          CONSTRAINTS_SCHEMA
+      },
+      ['target', 'constraints']
+    ),
+    workspaceTool(
+      'archive',
+      'workspace_archive',
+      'Archive one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA
+      },
+      ['target']
+    ),
+    workspaceTool(
+      'restore',
+      'workspace_restore',
+      'Restore one referenced archived Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA
+      },
+      ['target']
+    ),
+    workspaceTool(
+      'list',
+      'workspace_list',
+      'List visible Workspace metadata.',
+      {
+        includeArchived:
+          { type: 'boolean' }
+      },
+      []
+    ),
+    workspaceTool(
+      'show',
+      'workspace_show',
+      'Show metadata for one referenced Workspace.',
+      {
+        target: TARGET_REFERENCE_SCHEMA
+      },
+      ['target']
+    )
+  ] satisfies readonly WorkspaceToolDefinition[])
+
+const WORKSPACE_TOOLS = Object.freeze(
+  WORKSPACE_TOOL_DEFINITIONS.map(
+    definition => definition.tool
+  )
+)
+
+const WORKSPACE_TOOL_KIND_BY_NAME =
+  new Map(
+    WORKSPACE_TOOL_DEFINITIONS.map(
+      definition => [
+        definition.tool.name,
+        definition.kind
+      ] as const
+    )
+  )
 
 export interface WorkspaceIntentPoolPort {
   configuredProjectCount(): number
@@ -624,7 +641,7 @@ implements WorkspaceIntentTransportPort {
       systemInstruction:
         SYSTEM_INSTRUCTION,
       tools:
-        Object.freeze([TOOL]),
+        WORKSPACE_TOOLS,
       utf8Bytes:
         Buffer.byteLength(
           input,
@@ -688,7 +705,10 @@ implements WorkspaceIntentTransportPort {
         response.usage
       )
     const extracted =
-      extractIntentCall(response)
+      extractIntentCall(
+        response,
+        prepared.tools
+      )
 
     if (
       extracted.kind !==
@@ -781,7 +801,9 @@ function semanticRoutePlan(
 }
 
 function extractIntentCall(
-  response: GeminiInteractionResponse
+  response: GeminiInteractionResponse,
+  advertisedTools:
+    readonly GeminiFunctionTool[]
 ):
   | {
       readonly kind: 'success'
@@ -849,7 +871,25 @@ function extractIntentCall(
   const call = calls[0]
   if (
     !call ||
-    call.name !== FUNCTION_NAME
+    typeof call.name !== 'string'
+  ) {
+    return invalid(
+      'unexpected_function_call'
+    )
+  }
+
+  const advertised = new Set(
+    advertisedTools.map(
+      tool => tool.name
+    )
+  )
+  const kind =
+    WORKSPACE_TOOL_KIND_BY_NAME.get(
+      call.name
+    )
+  if (
+    !advertised.has(call.name) ||
+    kind === undefined
   ) {
     return invalid(
       'unexpected_function_call'
@@ -866,10 +906,35 @@ function extractIntentCall(
     )
   }
 
+  let args: Record<string, unknown>
+  try {
+    args = structuredClone(
+      call.arguments
+    )
+  } catch {
+    return invalid(
+      'function_arguments_invalid'
+    )
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(
+      args,
+      'kind'
+    )
+  ) {
+    return invalid(
+      'workspace_intent_schema_invalid'
+    )
+  }
+
   const parsed =
     WorkspaceChatIntentSchema
       .safeParse(
-        call.arguments
+        {
+          kind,
+          ...args
+        }
       )
   if (!parsed.success) {
     return invalid(
@@ -936,20 +1001,28 @@ function missingUsagePolicy(
   return 'unknown'
 }
 
-function intentBranch(
+function workspaceTool(
   kind: WorkspaceChatIntent['kind'],
+  name: string,
+  description: string,
   properties:
     Record<string, unknown>,
   required:
     readonly string[]
-): Readonly<Record<string, unknown>> {
-  return strictObject(
-    {
-      kind: constString(kind),
-      ...properties
-    },
-    ['kind', ...required]
-  )
+): WorkspaceToolDefinition {
+  return Object.freeze({
+    kind,
+    tool: Object.freeze({
+      type: 'function',
+      name,
+      description,
+      parameters:
+        strictObject(
+          properties,
+          required
+        )
+    })
+  })
 }
 
 function strictObject(
@@ -974,15 +1047,6 @@ function strictObject(
         }
       : {})
   })
-}
-
-function constString(
-  value: string
-): Readonly<Record<string, unknown>> {
-  return {
-    type: 'string',
-    const: value
-  }
 }
 
 function stringSchema(

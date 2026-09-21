@@ -12,6 +12,7 @@ import type {
 } from '../../src/agent/routing/quota-ledger.js'
 import type {
   GeminiAttemptResult,
+  GeminiInteractionResponse,
   GeminiInteractionRequest
 } from '../../src/agent/providers/gemini.js'
 import {
@@ -241,6 +242,51 @@ function success(
       value
     }
   }
+}
+
+function containsAnyKey(
+  value: unknown,
+  forbidden: ReadonlySet<string>
+): boolean {
+  if (Array.isArray(value)) {
+    return value.some(item =>
+      containsAnyKey(item, forbidden)
+    )
+  }
+  if (
+    typeof value !== 'object' ||
+    value === null
+  ) {
+    return false
+  }
+  const record =
+    value as Record<string, unknown>
+  return Object.entries(record).some(
+    ([key, item]) =>
+      forbidden.has(key) ||
+      containsAnyKey(item, forbidden)
+  )
+}
+
+async function executeResponse(
+  response: GeminiInteractionResponse
+): Promise<GeminiAttemptResult> {
+  const transport =
+    new GeminiWorkspaceIntentTransport({
+      resolveCredential:
+        () => 'test-key',
+      createClient: () => ({
+        async create() {
+          return response
+        }
+      })
+    })
+
+  return transport.execute(
+    transport.prepare(context()),
+    lease(),
+    new AbortController().signal
+  )
 }
 
 test('routed workspace interpreter uses routine low ProjectPool route and returns validated semantic intent', async () => {
@@ -475,7 +521,92 @@ test('pool exhaustion becomes a bounded semantic provider error', async () => {
   )
 })
 
-test('Gemini workspace transport sends one semantic function tool and validates its arguments', async () => {
+test('Gemini workspace transport advertises only object-root intent tools with no unsupported combinators or const', () => {
+  const prepared =
+    new GeminiWorkspaceIntentTransport()
+      .prepare(context())
+  const names = prepared.tools
+    .map(tool => tool.name)
+    .sort()
+
+  assert.deepEqual(names, [
+    'workspace_archive',
+    'workspace_change_constraints',
+    'workspace_change_purpose',
+    'workspace_change_use_policy',
+    'workspace_clarify',
+    'workspace_create',
+    'workspace_list',
+    'workspace_not_workspace',
+    'workspace_rename',
+    'workspace_replace_tags',
+    'workspace_resize',
+    'workspace_restore',
+    'workspace_show'
+  ])
+
+  const forbidden = new Set([
+    'oneOf',
+    'anyOf',
+    'allOf',
+    'const'
+  ])
+  for (const tool of prepared.tools) {
+    assert.equal(
+      tool.parameters.type,
+      'object',
+      tool.name
+    )
+    assert.equal(
+      tool.parameters.additionalProperties,
+      false,
+      tool.name
+    )
+    assert.equal(
+      containsAnyKey(
+        tool.parameters,
+        forbidden
+      ),
+      false,
+      tool.name
+    )
+  }
+
+  const show = prepared.tools.find(
+    tool => tool.name === 'workspace_show'
+  )
+  assert.ok(show)
+  const properties =
+    show.parameters.properties as
+      Record<string, unknown>
+  assert.deepEqual(
+    properties.target,
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: {
+          type: 'string',
+          enum: [
+            'explicit',
+            'current_selection',
+            'conversation',
+            'nearby',
+            'recent'
+          ]
+        },
+        value: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 128
+        }
+      },
+      required: ['kind']
+    }
+  )
+})
+
+test('Gemini workspace transport sends compatible tools and reconstructs exact create intent', async () => {
   const requests:
     GeminiInteractionRequest[] = []
 
@@ -496,19 +627,21 @@ test('Gemini workspace transport sends one semantic function tool and validates 
           return {
             status:
               'requires_action',
-            steps: [{
-              type:
-                'function_call',
-              name:
-                'submit_workspace_intent',
-              arguments: {
-                kind: 'create',
+            steps: [
+              { type: 'thought' },
+              {
+                type:
+                  'function_call',
+                name:
+                  'workspace_create',
+                arguments: {
                 label: '農田',
                 purpose: 'farm',
                 moxueUsePolicy:
                   'shared'
+                }
               }
-            }]
+            ]
           }
         }
       })
@@ -535,7 +668,7 @@ test('Gemini workspace transport sends one semantic function tool and validates 
   )
   assert.equal(
     requests[0]?.tools.length,
-    1
+    13
   )
   assert.equal(
     requests[0]
@@ -556,51 +689,194 @@ test('Gemini workspace transport sends one semantic function tool and validates 
     input.context?.utterance,
     context().utterance
   )
-})
-
-test('Gemini workspace transport rejects malformed function arguments as generation error', async () => {
-  const transport =
-    new GeminiWorkspaceIntentTransport({
-      resolveCredential:
-        () => 'test-key',
-      createClient: () => ({
-        async create() {
-          return {
-            status:
-              'requires_action',
-            steps: [{
-              type:
-                'function_call',
-              name:
-                'submit_workspace_intent',
-              arguments: {
-                kind: 'create',
-                label: '農田',
-                purpose: 'farm',
-                moxueUsePolicy:
-                  'invented_policy'
-              }
-            }]
-          }
-        }
-      })
-    })
-
-  const result =
-    await transport.execute(
-      transport.prepare(
-        context()
-      ),
-      lease(),
-      new AbortController().signal
-    )
-
   assert.deepEqual(
-    result,
+    result.kind === 'success'
+      ? result.providerResult
+      : result,
     {
-      kind: 'generation_error',
-      code:
-        'workspace_intent_schema_invalid'
+      kind: 'structured',
+      provider: 'gemini',
+      mode: 'function_call',
+      value: {
+        kind: 'create',
+        label: '農田',
+        purpose: 'farm',
+        moxueUsePolicy:
+          'shared'
+      }
     }
   )
+})
+
+test('Gemini workspace transport reconstructs terminal and reference intents from tool names', async () => {
+  const cases = [
+    {
+      name: 'workspace_not_workspace',
+      arguments: {},
+      intent: {
+        kind: 'not_workspace'
+      }
+    },
+    {
+      name: 'workspace_clarify',
+      arguments: {
+        reason: 'missing_selection'
+      },
+      intent: {
+        kind: 'clarify',
+        reason: 'missing_selection'
+      }
+    },
+    {
+      name: 'workspace_show',
+      arguments: {
+        target: {
+          kind: 'explicit',
+          value: 'W5C-LiveFarm-A'
+        }
+      },
+      intent: {
+        kind: 'show',
+        target: {
+          kind: 'explicit',
+          value: 'W5C-LiveFarm-A'
+        }
+      }
+    },
+    {
+      name:
+        'workspace_change_use_policy',
+      arguments: {
+        target: {
+          kind: 'recent'
+        },
+        moxueUsePolicy:
+          'owner_only'
+      },
+      intent: {
+        kind:
+          'change_use_policy',
+        target: {
+          kind: 'recent'
+        },
+        moxueUsePolicy:
+          'owner_only'
+      }
+    },
+    {
+      name:
+        'workspace_change_use_policy',
+      arguments: {
+        target: {
+          kind: 'conversation'
+        },
+        moxueUsePolicy:
+          'moxue_preferred'
+      },
+      intent: {
+        kind:
+          'change_use_policy',
+        target: {
+          kind: 'conversation'
+        },
+        moxueUsePolicy:
+          'moxue_preferred'
+      }
+    }
+  ] as const
+
+  for (const current of cases) {
+    const result = await executeResponse({
+      status: 'requires_action',
+      steps: [{
+        type: 'function_call',
+        name: current.name,
+        arguments:
+          current.arguments
+      }]
+    })
+
+    if (
+      result.kind !== 'success' ||
+      result.providerResult.kind !==
+        'structured'
+    ) {
+      assert.fail(
+        `${current.name} did not return a structured success`
+      )
+    }
+    assert.deepEqual(
+      result.providerResult.value,
+      current.intent,
+      current.name
+    )
+  }
+})
+
+test('Gemini workspace transport rejects missing explicit value, unknown functions, and multiple calls', async () => {
+  const cases = [
+    {
+      response: {
+        status: 'requires_action',
+        steps: [{
+          type: 'function_call',
+          name: 'workspace_show',
+          arguments: {
+            target: {
+              kind: 'explicit'
+            }
+          }
+        }]
+      },
+      code:
+        'workspace_intent_schema_invalid'
+    },
+    {
+      response: {
+        status: 'requires_action',
+        steps: [{
+          type: 'function_call',
+          name: 'workspace_unknown',
+          arguments: {}
+        }]
+      },
+      code:
+        'unexpected_function_call'
+    },
+    {
+      response: {
+        status: 'requires_action',
+        steps: [
+          {
+            type: 'function_call',
+            name:
+              'workspace_not_workspace',
+            arguments: {}
+          },
+          {
+            type: 'function_call',
+            name: 'workspace_list',
+            arguments: {}
+          }
+        ]
+      },
+      code:
+        'function_call_count_invalid'
+    }
+  ] satisfies ReadonlyArray<{
+    response: GeminiInteractionResponse
+    code: string
+  }>
+
+  for (const current of cases) {
+    assert.deepEqual(
+      await executeResponse(
+        current.response
+      ),
+      {
+        kind: 'generation_error',
+        code: current.code
+      }
+    )
+  }
 })

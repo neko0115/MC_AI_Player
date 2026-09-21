@@ -4,7 +4,7 @@
 > Do not rely on chat memory alone. Do not assume another worktree or branch is synchronized.  
 > Before ending a coding session, update the relevant progress section in this file so the next session can continue without reconstructing context from chat history.
 
-**Last continuity update:** 2026-09-20  
+**Last continuity update:** 2026-09-21
 **Current canonical development branch for this copy:** `feature/workspace-planner`  
 **Current accepted modularization code baseline:** `49f3a57` (`refactor: close parallelization extension hotspots`).
 
@@ -1310,6 +1310,65 @@ Next exact action:
 4. capture a fresh trusted selection and validate owner-only create acknowledgement, DB row, semantic `model_route`, semantic `attempt_result`, repeated-show cache proof, and non-Workspace gameplay fallback.
 
 **Merge/readiness:** implementation is automated PASS; do not claim W5C5 FULL PASS until the controlled live checklist passes.
+
+##### W5C5 Gemini Workspace schema compatibility regression — automated PASS, live retest pending
+
+#### Handoff 2026-09-21 +08:00
+
+**Branch:** `feature/workspace-planner`
+**Worktree:** `D:\MC_AI_player-worktrees\workspace-planner`
+**Base / current committed HEAD:** `38addfb` (`feat: add fail-closed workspace live launcher`)
+**Goal:** make the Workspace semantic function declarations compatible with the same Gemini structured-tool subset already used successfully by gameplay routing, without changing Workspace product semantics or trust gates.
+
+Controlled live RED evidence:
+
+- semantic route decision `24c08888-2bc6-4168-a534-a3cd12504d95` reached `gemini-3.5-flash-lite`, low thinking, primary project, with reason `workspace_semantic_interpretation`;
+- its correlated `attempt_result` was `configuration_error` with safe code `invalid_request`;
+- the gameplay fallback Gemini route succeeded afterward, so credentials, project routing and general Gemini transport were operational;
+- the Workspace transport exposed one `submit_workspace_intent` tool whose parameters root was `oneOf`, nested target references also used `oneOf`, and intent discriminators used `const`;
+- therefore failure occurred at Gemini request/schema validation before any semantic function call, Workspace mutation, selection resolution, cache learning or chat reply.
+
+RED automated evidence:
+
+- the new Workspace compatibility test expected 13 exact object-root intent tools and failed against the old implementation because it observed only `submit_workspace_intent`;
+- tool-name extraction tests failed with `unexpected_function_call`, proving the old transport could not consume the compatible per-intent response shape;
+- no production code was changed before these failures were observed.
+
+Changed:
+
+- replaced the single union-shaped tool with 13 exact tools: `workspace_not_workspace`, `workspace_clarify`, `workspace_create`, `workspace_rename`, `workspace_resize`, `workspace_change_purpose`, `workspace_change_use_policy`, `workspace_replace_tags`, `workspace_change_constraints`, `workspace_archive`, `workspace_restore`, `workspace_list`, and `workspace_show`;
+- every function parameters root is `type: object` with `additionalProperties: false` and contains no `oneOf`, `anyOf`, `allOf`, or `const` at any depth;
+- target references now use one ordinary object with bounded `kind` enum and optional bounded `value`; the existing strict Zod intent schema still requires `value` for `explicit` and rejects it for other reference kinds;
+- provider arguments omit `kind`; extraction accepts exactly one advertised function call, maps its name to the intent kind, rejects caller-supplied `kind`, clones arguments, and validates the reconstructed candidate with `WorkspaceChatIntentSchema`;
+- existing thought-step handling, unexpected-step/tool failures, generation-error classification and one repair retry remain unchanged;
+- no router, persistence, identity, selection, learned-cache, chat-output, product behavior or timeout was changed.
+
+Automated verification:
+
+- Workspace transport focused suite: 8 passed, 0 failed;
+- Workspace plus gameplay Gemini schema compatibility suites: 9 passed, 0 failed;
+- `npm run typecheck`: PASS;
+- full suite: 534 tests total, 530 passed, 0 failed, 4 skipped;
+- `git diff --check`: PASS before the continuity update; rerun required for final handoff.
+
+Inspector assessment:
+
+- the current inspector correlates semantic `attempt_result` events by decision id and enforces counts, while raw runtime events retain `result` and `safeCode`;
+- adding a summarized attempt breakdown could improve operator ergonomics, but it is not required to correct or validate this request-schema regression and was intentionally left out of this bounded fix.
+
+Live verification:
+
+- not run in this coding session; a controlled live retest is still required before W5C5 can become FULL PASS.
+
+Next exact action:
+
+1. restart only the Workspace live application with `npm run start:workspace-live` so the changed tool declaration is loaded;
+2. capture a fresh trusted MoxueBridge selection for the same online current-session UUID;
+3. repeat the natural-language owner-only create and require a successful semantic `attempt_result`, visible acknowledgement and durable Workspace row;
+4. prove repeated explicit show uses the learned cache without a second semantic provider route;
+5. prove an ordinary non-Workspace gameplay utterance still falls through to gameplay routing.
+
+**Merge/readiness:** automated PASS; controlled live validation remains pending. Do not claim W5C5 FULL PASS yet.
 
 Full-suite regression note:
 
