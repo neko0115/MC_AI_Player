@@ -43,22 +43,33 @@ const ResolvedWorkstationSchema = z
 
 export const CraftItemArgsSchema = z
   .object({
+    recipeId: NamespacedIdSchema,
     item: NamespacedIdSchema,
-    quantity: z.number().int().min(1).max(2304),
+    batches: z.number().int().min(1).max(2304),
     workstation: ResolvedWorkstationSchema.nullable()
   })
   .strict()
 
 export const ProcessItemArgsSchema = z
   .object({
+    processingId: NamespacedIdSchema,
     kind: ProcessingKindSchema,
     input: NamespacedIdSchema,
     output: NamespacedIdSchema,
-    quantity: z.number().int().min(1).max(2304),
+    batches: z.number().int().min(1).max(2304),
     workstation: ResolvedWorkstationSchema,
-    fuel: NamespacedIdSchema.optional()
+    fuel: NamespacedIdSchema.optional(),
+    fuelQuantity: z.number().int().min(1).max(2304).optional()
   })
   .strict()
+  .superRefine((value, context) => {
+    if ((value.fuel === undefined) !== (value.fuelQuantity === undefined)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'fuel and fuelQuantity must be provided together'
+      })
+    }
+  })
 
 type CraftItemArgs = z.infer<typeof CraftItemArgsSchema>
 type ProcessItemArgs = z.infer<typeof ProcessItemArgsSchema>
@@ -86,8 +97,9 @@ export class CraftItemSkill
 
     return this.runtime.craft(
       {
+        recipeId: parsed.data.recipeId,
         item: parsed.data.item,
-        quantity: parsed.data.quantity,
+        batches: parsed.data.batches,
         workstation:
           parsed.data.workstation as ResolvedWorkstation | null
       },
@@ -119,14 +131,18 @@ export class ProcessItemSkill
 
     return this.runtime.process(
       {
+        processingId: parsed.data.processingId,
         kind: parsed.data.kind,
         input: parsed.data.input,
         output: parsed.data.output,
-        quantity: parsed.data.quantity,
+        batches: parsed.data.batches,
         workstation:
           parsed.data.workstation as ResolvedWorkstation,
         ...(parsed.data.fuel
-          ? { fuel: parsed.data.fuel }
+          ? {
+              fuel: parsed.data.fuel,
+              fuelQuantity: parsed.data.fuelQuantity
+            }
           : {})
       },
       context.signal
