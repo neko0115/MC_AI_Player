@@ -1341,11 +1341,33 @@ Operator timing note:
 - rerunning against the same `sinceMs` after the Minecraft acknowledgement observed the expected 1 route / 1 attempt;
 - this was an evidence-collection timing issue, not a product failure.
 
+Representative moxue_preferred semantics — LIVE PASS:
+
+- natural-language utterance:
+  - `墨雪，這塊叫 W5C-MoxueFarm，以後主要給你用，你優先從這裡拿東西。`;
+- Minecraft visible acknowledgement explicitly reported the region as prioritized for Moxue use;
+- semantic provider evidence:
+  - semanticRouteCount = 1;
+  - semanticAttemptCount = 1;
+  - activeLearnedRecords increased 3 -> 4;
+  - 0 revoked records;
+  - 0 conflicting fingerprints;
+- persistent Workspace row:
+  - label `W5C-MoxueFarm`;
+  - purpose `farm`;
+  - `moxue_use_policy = moxue_preferred`;
+  - status `active`;
+  - canonical hyphenless owner principal;
+  - source selection id present.
+
+Observation:
+
+- this Workspace reused the same source selection id as the preceding shared-region live test. That does not weaken the use-policy semantic proof, but ambiguity tests should create distinct fresh selections so candidate regions are physically distinguishable.
+
 Remaining W5C5 live gates before FULL PASS:
 
-1. representative moxue_preferred semantics;
-2. ambiguity clarification;
-3. archive + restore.
+1. ambiguity clarification;
+2. archive + restore.
 
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
