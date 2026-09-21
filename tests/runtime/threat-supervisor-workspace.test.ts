@@ -97,13 +97,24 @@ function workspace(
   }
 }
 
-function runtime(
-  snapshot: () => {
+interface TestWorkspaceSource {
+  snapshot(): {
     readonly state:
       'current' | 'stale' | 'unavailable'
     readonly workspaces:
       readonly unknown[]
   }
+  subscribe?(
+    listener: () => void
+  ): () => void
+}
+
+function runtime(
+  input:
+    (() => ReturnType<
+      TestWorkspaceSource['snapshot']
+    >) |
+    TestWorkspaceSource
 ) {
   const events = new RuntimeEventBus()
   const state = new WorldStateCache({
@@ -122,9 +133,12 @@ function runtime(
     retryCooldownMs: 0,
     workspaceContext: {
       worldKey: 'test-world',
-      source: {
-        snapshot
-      }
+      source:
+        typeof input === 'function'
+          ? {
+              snapshot: input
+            }
+          : input
     }
   } as ConstructorParameters<
     typeof ThreatSupervisor
@@ -380,5 +394,126 @@ test('archived or kind-mismatched Workspace metadata never suppresses a hostile'
     } finally {
       current.supervisor.dispose()
     }
+  }
+})
+
+
+test('archiving a Workspace invalidates an already-tolerated hostile without waiting for entity movement', async () => {
+  let currentWorkspace =
+    workspace()
+  const listeners =
+    new Set<() => void>()
+  const source: TestWorkspaceSource = {
+    snapshot() {
+      return {
+        state: 'current',
+        workspaces: [
+          currentWorkspace
+        ]
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    }
+  }
+  const current = runtime(source)
+
+  try {
+    await ready(current.events)
+    await current.events.publish({
+      type: 'hostile_seen',
+      at: 3,
+      hostile: {
+        entityId: 21,
+        kind: 'zombie',
+        position: {
+          x: 6,
+          y: 64,
+          z: 5
+        }
+      }
+    })
+    await settle()
+    assert.equal(
+      current.goals.suspendCalls,
+      0
+    )
+
+    currentWorkspace =
+      workspace({
+        status: 'archived'
+      })
+    for (
+      const listener of listeners
+    ) {
+      listener()
+    }
+
+    await waitFor(() =>
+      current.goals.suspendCalls === 1
+    )
+  } finally {
+    current.supervisor.dispose()
+  }
+})
+
+test('a stale Workspace source invalidates an already-tolerated hostile immediately', async () => {
+  let sourceState:
+    'current' | 'stale' =
+      'current'
+  const listeners =
+    new Set<() => void>()
+  const source: TestWorkspaceSource = {
+    snapshot() {
+      return {
+        state: sourceState,
+        workspaces: [workspace()]
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    }
+  }
+  const current = runtime(source)
+
+  try {
+    await ready(current.events)
+    await current.events.publish({
+      type: 'hostile_seen',
+      at: 3,
+      hostile: {
+        entityId: 21,
+        kind: 'zombie',
+        position: {
+          x: 6,
+          y: 64,
+          z: 5
+        }
+      }
+    })
+    await settle()
+    assert.equal(
+      current.goals.suspendCalls,
+      0
+    )
+
+    sourceState = 'stale'
+    for (
+      const listener of listeners
+    ) {
+      listener()
+    }
+
+    await waitFor(() =>
+      current.goals.suspendCalls === 1
+    )
+  } finally {
+    current.supervisor.dispose()
   }
 })
