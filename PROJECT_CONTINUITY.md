@@ -1364,10 +1364,26 @@ Observation:
 
 - this Workspace reused the same source selection id as the preceding shared-region live test. That does not weaken the use-policy semantic proof, but ambiguity tests should create distinct fresh selections so candidate regions are physically distinguishable.
 
+Ambiguity clarification — LIVE PASS:
+
+- two distinct active Workspace rows were created with the same label `W5C-AmbigFarm`;
+- workspace ids differed;
+- source selection ids differed, proving distinct fresh selections/regions;
+- explicit show by ambiguous label did not select either candidate;
+- Minecraft visible reply reported that more than one possible region was found and asked the player to specify which one;
+- no mutation was performed.
+
+Safety requirement is satisfied: ambiguous resolution fails closed rather than using last-write-wins.
+
+UX follow-up observed:
+
+- because both candidates had the exact same label, the current reply formatter de-duplicated the displayed label list and only showed `W5C-AmbigFarm` once;
+- this does not weaken ambiguity safety, but it makes the clarification less actionable;
+- future hardening should suggest reselecting one region with the setting wand or expose another bounded disambiguator instead of repeating identical labels.
+
 Remaining W5C5 live gates before FULL PASS:
 
-1. ambiguity clarification;
-2. archive + restore.
+1. archive + restore.
 
 The next gate is controlled Minecraft live validation before claiming FULL PASS.
 
