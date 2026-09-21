@@ -260,3 +260,110 @@ test('unknown mutation-critical item fails closed instead of inventing a gather 
     code: 'production_route_missing'
   }])
 })
+
+
+test('authoritative accepted tool ids support modded harvest rules without tier-name special cases', () => {
+  const exactPack: GameKnowledgePack = {
+    ...pack(),
+    items: [
+      ...pack().items,
+      { id: 'examplemod:crystal_shard', stackSize: 32 },
+      { id: 'examplemod:precision_drill', stackSize: 1 }
+    ],
+    worldAcquisition: [
+      ...pack().worldAcquisition,
+      {
+        id: 'examplemod:mine_crystal',
+        resource: 'examplemod:crystal_ore',
+        output: {
+          item: 'examplemod:crystal_shard',
+          count: 1
+        },
+        blockIds: ['examplemod:crystal_ore'],
+        minimumOnePerBlock: true,
+        tool: {
+          acceptedItems: ['examplemod:precision_drill'],
+          class: null,
+          minimumTier: null,
+          minimumTierRank: null,
+          requiredEnchantments: [],
+          forbiddenEnchantments: []
+        }
+      }
+    ]
+  }
+
+  const plan = planItemAcquisition(
+    exactPack,
+    'examplemod:crystal_shard',
+    { kind: 'stacks', stacks: 1 },
+    state({
+      tools: [{
+        item: 'examplemod:precision_drill',
+        enchantments: []
+      }]
+    })
+  )
+
+  assert.equal(plan.requestedQuantity, 32)
+  assert.deepEqual(plan.unresolved, [])
+  assert.deepEqual(plan.steps, [{
+    kind: 'gather',
+    routeId: 'examplemod:mine_crystal',
+    resource: 'examplemod:crystal_ore',
+    item: 'examplemod:crystal_shard',
+    quantity: 32,
+    minimumBlocks: 32
+  }])
+})
+
+test('an unaccepted tool cannot satisfy an exact harvest-tool set', () => {
+  const exactPack: GameKnowledgePack = {
+    ...pack(),
+    items: [
+      ...pack().items,
+      { id: 'examplemod:crystal_shard', stackSize: 32 },
+      { id: 'examplemod:precision_drill', stackSize: 1 }
+    ],
+    worldAcquisition: [
+      ...pack().worldAcquisition,
+      {
+        id: 'examplemod:mine_crystal',
+        resource: 'examplemod:crystal_ore',
+        output: {
+          item: 'examplemod:crystal_shard',
+          count: 1
+        },
+        blockIds: ['examplemod:crystal_ore'],
+        minimumOnePerBlock: true,
+        tool: {
+          acceptedItems: ['examplemod:precision_drill'],
+          class: null,
+          minimumTier: null,
+          minimumTierRank: null,
+          requiredEnchantments: [],
+          forbiddenEnchantments: []
+        }
+      }
+    ]
+  }
+
+  const plan = planItemAcquisition(
+    exactPack,
+    'examplemod:crystal_shard',
+    { kind: 'exact', quantity: 1 },
+    state({
+      tools: [{
+        item: 'minecraft:diamond_pickaxe',
+        enchantments: []
+      }]
+    })
+  )
+
+  assert.deepEqual(plan.steps, [])
+  assert.deepEqual(plan.unresolved, [{
+    item: 'examplemod:crystal_shard',
+    quantity: 1,
+    code: 'production_route_missing'
+  }])
+})
