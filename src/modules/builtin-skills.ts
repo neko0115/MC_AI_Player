@@ -10,6 +10,9 @@ import {
   SURVIVAL_INVENTORY_PORT,
   runtimePortRegistry
 } from '../minecraft/runtime-ports.js'
+import {
+  PRODUCTION_RUNTIME_PORT
+} from '../minecraft/production.js'
 import { createResourceSkillModule } from './resource-module.js'
 import { createProductionSkillModule } from './production-module.js'
 import type { SafetyPolicy } from '../safety/policy.js'
@@ -58,11 +61,12 @@ export interface BuiltinSkillModuleDependencies {
 export function createBuiltinSkillModules(
   dependencies: BuiltinSkillModuleDependencies
 ): readonly SkillModule[] {
-  return [
+  const runtimePorts = runtimePortRegistry(dependencies.runtime)
+  const modules: SkillModule[] = [
     createNavigationModule(dependencies),
     createSurvivalModule(dependencies),
     createResourceSkillModule({
-      runtimePorts: runtimePortRegistry(dependencies.runtime),
+      runtimePorts,
       safety: dependencies.safety,
       state: dependencies.state,
       events: dependencies.events,
@@ -76,11 +80,16 @@ export function createBuiltinSkillModules(
         ? { resourceProfiles: dependencies.resourceProfiles }
         : {}),
       treeLeafCleanupSetting: dependencies.treeLeafCleanupSetting
-    }),
-    createProductionSkillModule({
-      runtimePorts: runtimePortRegistry(dependencies.runtime)
     })
   ]
+
+  if (runtimePorts.has(PRODUCTION_RUNTIME_PORT)) {
+    modules.push(
+      createProductionSkillModule({ runtimePorts })
+    )
+  }
+
+  return modules
 }
 
 function createNavigationModule(
