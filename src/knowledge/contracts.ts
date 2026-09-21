@@ -274,6 +274,14 @@ export function validateKnowledgePackReferences(
 
   for (const fact of pack.worldAcquisition) {
     requireItem(fact.output.item, fact.id)
+    if (
+      fact.tool.requiredEnchantments.length > 0 &&
+      fact.tool.class === null
+    ) {
+      throw new Error(
+        `knowledge_invalid_tool_requirement:${fact.id}`
+      )
+    }
   }
 
   for (const fact of pack.recipes) {
@@ -296,6 +304,12 @@ export function validateKnowledgePackReferences(
 
   for (const fact of pack.tools) {
     requireItem(fact.item, `tool:${fact.item}`)
+  }
+
+  for (const fact of pack.workstations) {
+    if (fact.item !== null) {
+      requireItem(fact.item, `workstation:${fact.id}`)
+    }
   }
 }
 
