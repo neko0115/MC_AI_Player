@@ -1,0 +1,10 @@
+[
+  {
+    "id": "minecraft:smelt_stone",
+    "kind": "smelting",
+    "input": { "item": "minecraft:cobblestone", "count": 1 },
+    "output": { "item": "minecraft:stone", "count": 1 },
+    "workstation": "minecraft:furnace",
+    "cookTimeTicks": 200
+  }
+]
