@@ -46,6 +46,9 @@ export interface ThreatWorkspaceSource {
     readonly worldKey: string
     readonly dimension: string
   }): ThreatWorkspaceSnapshot
+  subscribe?(
+    listener: () => void
+  ): () => void
 }
 
 export interface ThreatWorkspaceContext {
@@ -96,6 +99,8 @@ export class ThreatSupervisor {
   private readonly now: () => number
   private readonly retryCooldownMs: number
   private unsubscribe: (() => void) | null = null
+  private workspaceUnsubscribe:
+    (() => void) | null = null
   private mailboxTail: Promise<void> = Promise.resolve()
   private responseActive = false
   private responding = false
@@ -134,13 +139,29 @@ export class ThreatSupervisor {
     if (this.unsubscribe || this.disposed) return
     this.unsubscribe = this.options.events.subscribe(event => {
       if (!isThreatRelevantEvent(event)) return
-      this.mailboxTail = this.mailboxTail
-        .then(() => this.evaluate(event))
-        .catch(() => {
-          // Survival supervision must fail closed without poisoning later
-          // observations or leaking dependency errors.
-        })
+      this.enqueueEvaluation(event)
     })
+
+    try {
+      this.workspaceUnsubscribe =
+        this.options.workspaceContext
+          ?.source.subscribe?.(() => {
+            this.enqueueEvaluation(null)
+          }) ?? null
+    } catch {
+      this.workspaceUnsubscribe = null
+    }
+  }
+
+  private enqueueEvaluation(
+    event: RuntimeEvent | null
+  ): void {
+    this.mailboxTail = this.mailboxTail
+      .then(() => this.evaluate(event))
+      .catch(() => {
+        // Survival supervision must fail closed without poisoning later
+        // observations or leaking dependency errors.
+      })
   }
 
   dispose(): void {
@@ -148,14 +169,18 @@ export class ThreatSupervisor {
     this.disposed = true
     this.unsubscribe?.()
     this.unsubscribe = null
+    this.workspaceUnsubscribe?.()
+    this.workspaceUnsubscribe = null
     this.retreatController?.abort('supervisor_disposed')
     this.retreatController = null
   }
 
-  private async evaluate(event: RuntimeEvent): Promise<void> {
+  private async evaluate(
+    event: RuntimeEvent | null
+  ): Promise<void> {
     if (this.disposed) return
 
-    if (event.type === 'disconnected') {
+    if (event?.type === 'disconnected') {
       this.responseActive = false
       this.responding = false
       this.suspendedGoalId = null
