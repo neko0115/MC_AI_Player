@@ -580,3 +580,66 @@ test('workspace repository rejects malformed transient fields instead of persist
     repo.close()
   }
 })
+
+
+test('workspace mutation subscribers observe committed create update status and delete changes', () => {
+  let nextId = 0
+  const repo = new SqliteWorkspaceRepository(
+    ':memory:',
+    {
+      nextId: () =>
+        `workspace-sub-${++nextId}`,
+      nextAuditId: (() => {
+        let audit = 0
+        return () =>
+          `audit-sub-${++audit}`
+      })()
+    }
+  )
+  let changes = 0
+  const unsubscribe =
+    repo.subscribe(() => {
+      changes += 1
+    })
+
+  try {
+    const created =
+      repo.create(workspace())
+    assert.equal(changes, 1)
+
+    repo.update(
+      created.id,
+      workspace({
+        label: '更新農場'
+      })
+    )
+    assert.equal(changes, 2)
+
+    repo.setStatus(
+      created.id,
+      'archived',
+      {
+        actorPrincipal:
+          'player-1',
+        action: 'archived',
+        safeSummary:
+          'Workspace archived'
+      }
+    )
+    assert.equal(changes, 3)
+
+    assert.equal(
+      repo.delete(created.id),
+      true
+    )
+    assert.equal(changes, 4)
+
+    unsubscribe()
+    repo.create(workspace({
+      label: '不再通知'
+    }))
+    assert.equal(changes, 4)
+  } finally {
+    repo.close()
+  }
+})
