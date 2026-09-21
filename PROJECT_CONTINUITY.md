@@ -400,6 +400,50 @@ Do not guess the root cause from the chat symptom alone.
 - Runtime Reliability owns runtime progress/visibility and Workspace hostile-tolerance;
 - shared contract changes require deliberate integration.
 
+**Implementation status — 2026-09-21: IMPLEMENTED / AUTOMATED VERIFICATION PENDING**
+
+Diagnostic result for the exact no-response utterance:
+
+- RED reproduced `墨雪幫我採一組石頭` at `TriggerClassifier`;
+- root cause was the address parser requiring whitespace/comma/colon after every bot alias, so the CJK direct-prefix form was classified as `state_only` before Workspace routing, task creation, model routing, or gameplay execution;
+- fix is script-aware: CJK `墨雪` may directly prefix an instruction, while ASCII aliases still require an explicit boundary so strings such as `moxuehelper` do not trigger the bot.
+
+Runtime reliability changes now implemented:
+
+- deterministic Minecraft acknowledgement on accepted addressed work plus bounded terminal completion/failure replies;
+- Workspace semantic routing has a finite watchdog and abort release so one hung provider cannot poison the serialized route tail;
+- logical decision routing has a finite outer watchdog above normal provider failover;
+- provider unavailable with no retry time is terminal instead of leaving a permanent `decision_pending` task;
+- bounded replan count prevents endless goal-fail/replan loops;
+- non-continuous gameplay goals have a no-progress watchdog; intentional continuous `stay` / `follow_player` goals are exempt;
+- skill cancellation cleanup is bounded while preserving the single-active-skill invariant; a non-cooperative old skill is never overlapped by a new gameplay skill;
+- watchdog telemetry is best-effort and cannot itself delay the safety action.
+
+Controlled-hostile Workspace policy now implemented as data, not a mob special case:
+
+- `constraints.controlledHostiles = [{ kind, maxCount }]`;
+- active Workspace + exact canonical hostile kind + bounded count only;
+- matching hostile must remain inside the Workspace;
+- over-count, outside-region, archived Workspace, stale/unavailable metadata, malformed metadata, world/dimension mismatch, or repository failure all fail closed to normal `ThreatSupervisor`;
+- Workspace repository mutation notifications trigger immediate threat re-evaluation, so archive/constraint changes do not wait for the hostile to move;
+- Control API maps the contract as `controlled_hostiles: [{ kind, max_count }]`;
+- Workspace Gemini semantic tools expose the same bounded contract;
+- PvP policy is unchanged.
+
+Focused regression coverage added for:
+
+- the exact `墨雪幫我採一組石頭` ingress;
+- ASCII alias false-positive boundaries;
+- hung Workspace route, hung decision, hung skill cleanup, hung non-continuous goal, and replan exhaustion;
+- continuous-goal watchdog exemption;
+- one controlled hostile, count overflow, hostile leaving bounds, archived Workspace, stale source, kind mismatch, malformed/bounded constraint validation, repository mutation invalidation, REST mapping, and semantic tool reconstruction.
+
+Validation note:
+
+- this execution environment cannot access the Windows worktree at `D:\MC_AI_player-worktrees\runtime-reliability`;
+- repository CI only runs for `main` push / PR-to-`main`, and this isolated branch currently has no PR;
+- therefore no full `npm test` / `npm run typecheck` result is claimed yet. Run the requested local/CI validation before marking this workstream PASS.
+
 ---
 
 ### WS-WORKSPACE-PLANNER — active
