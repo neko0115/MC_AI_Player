@@ -1191,7 +1191,7 @@ Additional regression evidence:
 
 W5C4 automated implementation is complete.
 
-##### W5C5 controlled Minecraft live semantic validation — PARTIAL LIVE PASS
+##### W5C5 controlled Minecraft live semantic validation — FULL PASS
 
 Controlled create-path evidence:
 
@@ -1381,11 +1381,71 @@ UX follow-up observed:
 - this does not weaken ambiguity safety, but it makes the clarification less actionable;
 - future hardening should suggest reselecting one region with the setting wand or expose another bounded disambiguator instead of repeating identical labels.
 
-Remaining W5C5 live gates before FULL PASS:
+Archive + restore — LIVE PASS:
 
-1. archive + restore.
+- unique Workspace `W5C-SharedFarm` was targeted by natural-language archive intent;
+- Minecraft visible acknowledgement confirmed the region was archived and would no longer be treated as ordinarily available;
+- SQLite status changed:
+  - `active -> archived`;
+- follow-up natural-language recent-reference utterance:
+  - `墨雪，剛剛那個還是恢復好了。`;
+- resolver restored the same durable Workspace entity;
+- Minecraft visible acknowledgement confirmed restore;
+- SQLite status changed:
+  - `archived -> active`;
+- Workspace id remained unchanged across archive/restore.
 
-The next gate is controlled Minecraft live validation before claiming FULL PASS.
+W5C5 controlled Minecraft live semantic validation is now FULL PASS.
+
+Final live coverage completed:
+
+1. trusted online-mode current-session UUID identity;
+2. fresh MoxueBridge setting-wand selection;
+3. Gemini Workspace semantic routing with routine / low thinking;
+4. provider request schema compatibility;
+5. owner-only natural-language create;
+6. shared natural-language create;
+7. moxue-preferred natural-language create;
+8. deterministic Workspace persistence and audit path;
+9. bounded visible Minecraft acknowledgements;
+10. repeated exact `show` cache proof:
+    - first wording -> Gemini semantic call;
+    - second identical wording -> local learned cache;
+    - 0 additional semantic Gemini calls;
+11. non-Workspace `not_workspace` fallthrough to ordinary gameplay Gemini;
+12. live follow-player execution after fallback;
+13. ambiguity clarification with no arbitrary candidate selection;
+14. archive + recent-reference restore of the same durable Workspace.
+
+Overall W5C architecture validated live:
+
+```text
+addressed natural language
+-> trusted online identity
+-> learned semantic cache
+   -> hit: local validated WorkspaceChatIntent
+   -> miss: Gemini semantic interpreter via shared ProjectPool/quota/failover
+-> strict WorkspaceChatIntent
+-> deterministic resolver
+-> deterministic WorkspaceManagementService/lifecycle
+-> SQLite + audit
+-> successful semantics learned locally
+-> bounded Minecraft acknowledgement
+```
+
+Known non-blocking UX follow-up:
+
+- ambiguity replies for exact duplicate labels de-duplicate the displayed label and are safe but not sufficiently actionable;
+- future hardening should offer a bounded disambiguator or explicitly ask the player to select one candidate with the setting wand.
+
+**W5C5 status:** FULL PASS.
+
+**Next planned work:**
+
+1. explicit encrypted learned-semantic GitHub sync transport, using the existing authenticated AES-256-GCM export/import format;
+2. no implicit runtime push;
+3. keep encryption/master secrets local and gitignored;
+4. optionally harden duplicate-label ambiguity replies before broader multiplayer use.
 
 ##### W5C5 live startup diagnosis + fail-closed launcher — automated PASS, live retest pending
 
