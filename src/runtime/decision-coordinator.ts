@@ -559,13 +559,35 @@ export class DecisionCoordinator {
           let timeout:
             ReturnType<typeof setTimeout> |
             null = null
+          let abortListener:
+            (() => void) | null = null
           try {
+            const cancelled =
+              new Promise<
+                WorkspaceChatRouteResult
+              >(resolve => {
+                abortListener = () => {
+                  resolve({
+                    kind: 'rejected',
+                    code:
+                      'workspace_chat_cancelled'
+                  })
+                }
+                abort.signal
+                  .addEventListener(
+                    'abort',
+                    abortListener,
+                    { once: true }
+                  )
+              })
+
             result =
               await Promise.race([
                 router.route(
                   request,
                   abort.signal
                 ),
+                cancelled,
                 new Promise<
                   WorkspaceChatRouteResult
                 >(resolve => {
@@ -593,14 +615,14 @@ export class DecisionCoordinator {
                         code:
                           'workspace_route_timeout'
                       })
-                      abort.abort(
-                        'workspace_route_timeout'
-                      )
                       resolve({
                         kind: 'rejected',
                         code:
                           'workspace_route_timeout'
                       })
+                      abort.abort(
+                        'workspace_route_timeout'
+                      )
                     },
                     this.workspaceRouteTimeoutMs
                   )
@@ -613,6 +635,15 @@ export class DecisionCoordinator {
           } finally {
             if (timeout !== null) {
               clearTimeout(timeout)
+            }
+            if (
+              abortListener !== null
+            ) {
+              abort.signal
+                .removeEventListener(
+                  'abort',
+                  abortListener
+                )
             }
           }
 
