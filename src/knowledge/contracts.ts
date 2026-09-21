@@ -150,6 +150,7 @@ export interface ToolFact {
 export const WorkstationFactSchema = z
   .object({
     id: NamespacedIdSchema,
+    item: NamespacedIdSchema.nullable(),
     blockIds: z.array(NamespacedIdSchema),
     supportedKinds: z.array(
       z.enum([
@@ -165,6 +166,7 @@ export const WorkstationFactSchema = z
 
 export interface WorkstationFact {
   readonly id: string
+  readonly item: string | null
   readonly blockIds: readonly string[]
   readonly supportedKinds: readonly (
     | 'crafting'
