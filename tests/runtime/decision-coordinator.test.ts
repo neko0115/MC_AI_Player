@@ -758,6 +758,76 @@ test('workspace semantic watchdog breaks a hung serial route and lets the next a
   current.coordinator.dispose()
 })
 
+test('repeated goal failure is bounded and terminates instead of replanning forever', async () => {
+  const chatOutput =
+    new FakeChatOutput()
+  const current = harness({
+    chatOutput
+  })
+  await ready(current.events)
+
+  let goalId =
+    await startGoToGoal(
+      current,
+      '墨雪 去那邊看看'
+    )
+
+  for (
+    let failure = 1;
+    failure <= 6;
+    failure += 1
+  ) {
+    await current.goals.completeGoal(
+      goalId,
+      {
+        status: 'failed',
+        code: 'no_path'
+      }
+    )
+
+    if (failure < 6) {
+      await waitFor(() =>
+        current.logicalExecutor
+          .requests.length ===
+          failure + 1
+      )
+      current.logicalExecutor
+        .resolveNext(goToResult())
+      await waitFor(() =>
+        current.goals.activeGoal()
+          ?.goalId !== goalId &&
+        current.goals.activeGoal()
+          ?.request.kind ===
+          'go_to'
+      )
+      const next =
+        current.goals.activeGoal()
+          ?.goalId
+      assert.ok(next)
+      goalId = next
+    }
+  }
+
+  await waitFor(() =>
+    current.coordinator.status()
+      .activeTaskId === null
+  )
+  assert.equal(
+    current.logicalExecutor
+      .requests.length,
+    6
+  )
+  assert.deepEqual(
+    chatOutput.messages,
+    [
+      '收到，我開始處理。',
+      '這個任務目前無法完成。'
+    ]
+  )
+
+  current.coordinator.dispose()
+})
+
 test('state-only events update latest state during an in-flight decision without starting a second AI call', async () => {
   const current = harness()
   await ready(current.events)
