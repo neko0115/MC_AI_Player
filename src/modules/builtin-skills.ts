@@ -11,6 +11,7 @@ import {
   runtimePortRegistry
 } from '../minecraft/runtime-ports.js'
 import { createResourceSkillModule } from './resource-module.js'
+import { createProductionSkillModule } from './production-module.js'
 import type { SafetyPolicy } from '../safety/policy.js'
 import { createNavigationSkills } from '../skills/navigation.js'
 import { EatSkill, EquipSkill } from '../skills/survival.js'
@@ -75,6 +76,9 @@ export function createBuiltinSkillModules(
         ? { resourceProfiles: dependencies.resourceProfiles }
         : {}),
       treeLeafCleanupSetting: dependencies.treeLeafCleanupSetting
+    }),
+    createProductionSkillModule({
+      runtimePorts: runtimePortRegistry(dependencies.runtime)
     })
   ]
 }
