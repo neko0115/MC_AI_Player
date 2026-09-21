@@ -1532,11 +1532,40 @@ Operational properties now proven:
 - concurrent contributors merge instead of last-write-wins;
 - source branch/worktree/index remain untouched by explicit sync operations.
 
-**Next planned work:**
+##### W5E duplicate-label ambiguity UX hardening — implementation complete, verification pending
 
-1. optional duplicate-label ambiguity UX hardening;
-2. decide whether Workspace Planner W5 should now be consolidated/merged into the integration branch;
-3. keep the dedicated `workspace-semantic-cache` branch as data-only encrypted state.
+Observed live UX issue:
+
+- ambiguity safety already passed live;
+- when multiple candidate Workspaces had the exact same label, the reply formatter de-duplicated labels and showed the repeated name only once;
+- the result was safe but not actionable for the player.
+
+Implemented:
+
+- distinct-label ambiguity behavior is unchanged;
+- when multiple candidates collapse to one unique displayed label, the reply now:
+  - reports the candidate count;
+  - states that the regions share the same name;
+  - instructs the player to use the Moxue setting wand to select one region and then refer to the selected region;
+- no resolver, semantic, identity, lifecycle, persistence, or authority behavior changed.
+
+Relevant commits:
+
+- `bcd4bde` — `fix: make duplicate workspace ambiguity actionable`;
+- `b852cbc` — `test: cover duplicate-label workspace clarification`.
+
+**W5E verification status:** local verification pending.
+
+**Next exact action:**
+
+1. run focused `tests/workspace/chat-reply.test.ts`;
+2. run `npm run typecheck`;
+3. run full `npm test`;
+4. run `git diff --check`;
+5. confirm clean worktree;
+6. if green, optionally repeat one live duplicate-label clarification to confirm the improved wording;
+7. then decide whether Workspace Planner W5 should be consolidated/merged into the integration branch;
+8. keep the dedicated `workspace-semantic-cache` branch as data-only encrypted state.
 
 Automated verification:
 
