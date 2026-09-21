@@ -59,6 +59,8 @@ test('production module registers only internal production skills from its typed
     await executor.execute('craft_item', {
       recipeId: 'minecraft:crafting_table',
       item: 'minecraft:crafting_table',
+      outputCountPerBatch: 1,
+      inputs: [{ item: 'minecraft:oak_planks', count: 4 }],
       batches: 1,
       workstation: null
     }),
@@ -69,6 +71,8 @@ test('production module registers only internal production skills from its typed
   assert.deepEqual(runtime.craftRequests[0], {
     recipeId: 'minecraft:crafting_table',
     item: 'minecraft:crafting_table',
+    outputCountPerBatch: 1,
+    inputs: [{ item: 'minecraft:oak_planks', count: 4 }],
     batches: 1,
     workstation: null
   })
@@ -90,8 +94,11 @@ test('production module delegates exact processing requests without deciding rec
       processingId: 'minecraft:smelt_stone',
       kind: 'smelting',
       input: 'minecraft:cobblestone',
+      inputCountPerBatch: 1,
       output: 'minecraft:stone',
+      outputCountPerBatch: 1,
       batches: 64,
+      cookTimeTicks: 200,
       workstation: {
         id: 'minecraft:furnace',
         kind: 'furnace',
