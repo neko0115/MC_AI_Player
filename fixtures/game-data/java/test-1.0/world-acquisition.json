@@ -1,0 +1,30 @@
+[
+  {
+    "id": "minecraft:mine_cobblestone",
+    "resource": "minecraft:stone",
+    "output": { "item": "minecraft:cobblestone", "count": 1 },
+    "blockIds": ["minecraft:stone"],
+    "minimumOnePerBlock": true,
+    "tool": {
+      "class": "pickaxe",
+      "minimumTier": null,
+      "minimumTierRank": 0,
+      "requiredEnchantments": [],
+      "forbiddenEnchantments": ["silk_touch"]
+    }
+  },
+  {
+    "id": "minecraft:mine_stone_silk_touch",
+    "resource": "minecraft:stone",
+    "output": { "item": "minecraft:stone", "count": 1 },
+    "blockIds": ["minecraft:stone"],
+    "minimumOnePerBlock": true,
+    "tool": {
+      "class": "pickaxe",
+      "minimumTier": null,
+      "minimumTierRank": 0,
+      "requiredEnchantments": ["silk_touch"],
+      "forbiddenEnchantments": []
+    }
+  }
+]
