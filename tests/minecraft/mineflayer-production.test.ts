@@ -365,17 +365,20 @@ test('stonecutting stays fail-closed until a reviewed runtime adapter exists', a
   assert.deepEqual(
     await runtime.process(
       {
-        ...processRequest(),
+        processingId: 'minecraft:cut_stone',
         kind: 'stonecutting',
+        input: 'minecraft:stone',
+        inputCountPerBatch: 1,
+        output: 'minecraft:stone',
+        outputCountPerBatch: 1,
+        batches: 1,
         cookTimeTicks: null,
         workstation: {
           id: 'minecraft:stonecutter',
           kind: 'stonecutter',
           position: { x: 2, y: 64, z: 3 },
           expectedBlockNames: ['minecraft:stonecutter']
-        },
-        fuel: undefined,
-        fuelQuantity: undefined
+        }
       },
       new AbortController().signal
     ),
