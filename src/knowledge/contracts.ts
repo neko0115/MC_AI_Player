@@ -36,6 +36,7 @@ export interface ItemFact {
 
 export const ToolRequirementSchema = z
   .object({
+    acceptedItems: z.array(NamespacedIdSchema).optional(),
     class: z.string().min(1).max(64).nullable(),
     minimumTier: z.string().min(1).max(64).nullable(),
     minimumTierRank: z.number().int().nonnegative().nullable(),
@@ -45,6 +46,7 @@ export const ToolRequirementSchema = z
   .strict()
 
 export interface ToolRequirement {
+  readonly acceptedItems?: readonly string[]
   readonly class: string | null
   readonly minimumTier: string | null
   readonly minimumTierRank: number | null
