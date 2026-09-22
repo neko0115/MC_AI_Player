@@ -543,6 +543,11 @@ New Production commits in this session:
 - `0d916ea` — `test: define versioned vanilla processing import`
 - `b8de52c` — `feat: import exact vanilla processing recipes`
 - `0383321` — `build: accept versioned vanilla recipe summaries`
+- `c9ecf9f` — `fix: carry exact world fact into supply execution`
+- `faefd32` — `refactor: require exact world fact at resource leaf`
+- `51c1634` — `test: pass exact world facts through runtime adapter`
+- `c90d85f` — `test: execute world acquisition from authoritative facts`
+- `a025709` — `test: back supply execution with exact world facts`
 
 Implemented:
 - supply planner now tries deterministic ranked alternatives transactionally:
@@ -568,6 +573,8 @@ Implemented:
   - canonical vanilla IDs such as `minecraft:stone` map to Mineflayer runtime names such as `stone` only at the semantic boundary;
   - non-vanilla namespaced IDs remain namespaced;
   - Resource acquisition is injected as a narrow leaf capability instead of nested `SkillExecutor` execution;
+  - the leaf receives the complete authoritative `WorldAcquisitionFact`, not only a resource string;
+  - exact output/tool/enchantment constraints therefore remain available at the mutation boundary; a future shared Resource binding must reject unsupported constraints before block mutation.
   - storage/workstation resolution is authorization-driven and fails closed if no resolver exists.
 - generator normal-drop safety:
   - if a block has an item identity and its deterministic ordinary drop is a different item, generated ordinary route now forbids `silk_touch`;
@@ -599,6 +606,7 @@ Still intentionally unresolved / fail-closed:
 - authorized storage resolver is not yet supplied by builtin composition.
 - live tool/enchantment snapshot is not yet exposed as a Production planning-state source; therefore direct Silk Touch selection is not yet live-wired.
 - the Resource module currently constructs `AcquireResourceSkill` internally; Production still needs a deliberately shared narrow resource-acquisition semantic port/binding before builtin live registration. Do **not** reimplement Resource search/memory/excavation.
+- specifically, the existing Resource execution path may prepare tools from its own `ResourceProfile`; it cannot yet be assumed to preserve a Production-selected required enchantment such as Silk Touch. The shared leaf must prove/guarantee the passed world fact before mutation, or fail closed.
 - real generated `game-data/java/1.21.1/*` is not committed yet.
 - `acquire_item` is in the trusted contract catalog but is only AI-visible if actually registered; current builtin wiring does not register it yet.
 
