@@ -147,7 +147,7 @@ test('world acquisition only emits deterministic minimum-one drops and exact har
       minimumTier: null,
       minimumTierRank: null,
       requiredEnchantments: [],
-      forbiddenEnchantments: []
+      forbiddenEnchantments: ['silk_touch']
     }
   }])
 })
