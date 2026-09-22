@@ -221,6 +221,9 @@ export function normalizeWorldAcquisition(
   itemNames: ReadonlyMap<number, string>
 ): WorldAcquisitionFact[] {
   const facts: WorldAcquisitionFact[] = []
+  const itemIds = new Set(
+    [...itemNames.values()].map(namespaced)
+  )
 
   for (const block of blocks) {
     if (
@@ -244,6 +247,11 @@ export function normalizeWorldAcquisition(
       .sort()
 
     const toolClass = toolClassFromMaterial(block.material)
+    const blockItem = namespaced(block.name)
+    const forbiddenEnchantments =
+      itemIds.has(blockItem) && drop.item !== blockItem
+        ? ['silk_touch']
+        : []
 
     facts.push({
       id:
@@ -260,7 +268,7 @@ export function normalizeWorldAcquisition(
         minimumTier: null,
         minimumTierRank: null,
         requiredEnchantments: [],
-        forbiddenEnchantments: []
+        forbiddenEnchantments
       }
     })
   }
