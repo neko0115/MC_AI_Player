@@ -340,58 +340,19 @@ The extensibility rules in this continuity document are a program-wide requireme
 
 ## 9. Current Workstreams
 
-### WS-RUNTIME-RELIABILITY — ready / isolated
+### WS-RUNTIME-RELIABILITY — Suite PASS / Live validation active
 
-**Planned branch:** `feature/runtime-reliability`  
-**Planned worktree:** `D:\MC_AI_player-worktrees\runtime-reliability`  
-**Base:** current `integration/m7-workstreams` after Workspace Planner consolidation.
+**Branch:** `feature/runtime-reliability`  
+**Worktree:** `D:\\MC_AI_player-worktrees\\runtime-reliability`  
+**Base branch:** `integration/m7-workstreams`  
+**Base SHA:** `766e66cddf5334fb0c9c9f614f2b2ac7ea805104`  
+**Implementation HEAD before this handoff update:** `4b0ae3c24f2bf75e02fb1a0ccb6640cd00ff4323`
 
-**Observed issues / goals (2026-09-21):**
+**Exact goal:**
 
-1. Long-running task stability:
-   - no silent hangs or permanently stuck mailbox/goal state;
-   - bounded progress/watchdog evidence;
-   - robust suspend/resume around threats and transient path/provider failures;
-   - controlled soak tests;
-   - process-restart durability is NOT implied unless explicitly designed and tested.
-2. Gameplay command visibility:
-   - live utterance `墨雪幫我採一組石頭` produced no visible reaction;
-   - reproduce from runtime events before changing behavior;
-   - distinguish Workspace semantic `not_workspace` fallthrough, gameplay model routing, decision acceptance/rejection, goal start, skill progress, and final failure;
-   - consider bounded deterministic gameplay acknowledgement/failure replies so accepted work is not silent.
-3. Generic direct-resource reliability:
-   - do not add per-resource control-flow branches;
-   - current fallback ResourceProfile assumption `blockNames=[resource]`, `collectedItemNames=[resource]`, `toolKind=null` is not authoritative for transformed drops such as stone;
-   - Production owns crafting/smelting/dependency planning; Runtime Reliability may harden direct-resource/profile contracts but must not duplicate Production.
-4. Workspace-aware controlled-hostile tolerance:
-   - iron-golem farms may intentionally contain a zombie;
-   - current ThreatSupervisor evaluates nearby hostiles without Workspace context and therefore may suspend/retreat around an intentionally contained farm zombie;
-   - add a deterministic, owner-authorized, fail-closed Workspace safety constraint rather than a global mob exception;
-   - target semantics:
-     - active Workspace only;
-     - exact hostile kind, e.g. `zombie`;
-     - bounded authorized count, e.g. `maxCount=1`;
-     - tolerance applies only while matching hostiles remain inside the authorized Workspace;
-     - if count exceeds the authorized bound, the hostile exits the region, the Workspace is archived, or metadata is invalid/stale, normal threat policy resumes;
-     - never globally ignore zombies or other hostiles;
-     - PvP policy remains unchanged.
-
-**First diagnostic gate:**
-
-Capture the failed/no-response stone utterance with a timestamp and inspect:
-
-```text
-workspace semantic route/attempt
--> not_workspace?
--> gameplay model_route / attempt_result
--> task_started
--> decision_accepted or decision_rejected
--> goal_started
--> skill_started / acquisition phases
--> skill_failed / goal_failed / completion
-```
-
-Do not guess the root cause from the chat symptom alone.
+1. Prevent long-running gameplay work from silently hanging.
+2. Reproduce and fix the no-response ingress bug for the exact utterance `墨雪幫我採一組石頭`.
+3. Add fail-closed Workspace-scoped controlled-hostile tolerance without any global mob exception.
 
 **Concurrency boundary:**
 
@@ -400,7 +361,7 @@ Do not guess the root cause from the chat symptom alone.
 - Runtime Reliability owns runtime progress/visibility and Workspace hostile-tolerance;
 - shared contract changes require deliberate integration.
 
-**Implementation status — 2026-09-21: IMPLEMENTED / AUTOMATED VERIFICATION PENDING**
+#### Implemented behavior
 
 Diagnostic result for the exact no-response utterance:
 
@@ -408,7 +369,7 @@ Diagnostic result for the exact no-response utterance:
 - root cause was the address parser requiring whitespace/comma/colon after every bot alias, so the CJK direct-prefix form was classified as `state_only` before Workspace routing, task creation, model routing, or gameplay execution;
 - fix is script-aware: CJK `墨雪` may directly prefix an instruction, while ASCII aliases still require an explicit boundary so strings such as `moxuehelper` do not trigger the bot.
 
-Runtime reliability changes now implemented:
+Runtime reliability changes:
 
 - deterministic Minecraft acknowledgement on accepted addressed work plus bounded terminal completion/failure replies;
 - Workspace semantic routing has a finite watchdog and abort release so one hung provider cannot poison the serialized route tail;
@@ -419,7 +380,7 @@ Runtime reliability changes now implemented:
 - skill cancellation cleanup is bounded while preserving the single-active-skill invariant; a non-cooperative old skill is never overlapped by a new gameplay skill;
 - watchdog telemetry is best-effort and cannot itself delay the safety action.
 
-Controlled-hostile Workspace policy now implemented as data, not a mob special case:
+Controlled-hostile Workspace policy is data-driven, not a mob special case:
 
 - `constraints.controlledHostiles = [{ kind, maxCount }]`;
 - active Workspace + exact canonical hostile kind + bounded count only;
@@ -430,19 +391,80 @@ Controlled-hostile Workspace policy now implemented as data, not a mob special c
 - Workspace Gemini semantic tools expose the same bounded contract;
 - PvP policy is unchanged.
 
-Focused regression coverage added for:
+Focused regression coverage includes:
 
-- the exact `墨雪幫我採一組石頭` ingress;
+- exact `墨雪幫我採一組石頭` ingress;
 - ASCII alias false-positive boundaries;
 - hung Workspace route, hung decision, hung skill cleanup, hung non-continuous goal, and replan exhaustion;
 - continuous-goal watchdog exemption;
 - one controlled hostile, count overflow, hostile leaving bounds, archived Workspace, stale source, kind mismatch, malformed/bounded constraint validation, repository mutation invalidation, REST mapping, and semantic tool reconstruction.
 
-Validation note:
+#### Automated verification — PASS 2026-09-22
 
-- this execution environment cannot access the Windows worktree at `D:\MC_AI_player-worktrees\runtime-reliability`;
-- repository CI only runs for `main` push / PR-to-`main`, and this isolated branch currently has no PR;
-- therefore no full `npm test` / `npm run typecheck` result is claimed yet. Run the requested local/CI validation before marking this workstream PASS.
+Local verification from `D:\\MC_AI_player-worktrees\\runtime-reliability`:
+
+- `npm test`: **561 tests / 557 passed / 0 failed / 4 skipped**;
+- `npm run typecheck`: **PASS** (`tsc -p tsconfig.json --noEmit`);
+- working tree was clean before this continuity update;
+- local branch and remote were aligned at `4b0ae3c`.
+
+Validation level reached: **Suite PASS**.
+
+#### Live startup / environment evidence — PASS 2026-09-22
+
+A new Runtime Reliability worktree did not initially contain local runtime-only configuration. The live startup investigation established:
+
+- `.env` is local/untracked and must be supplied per worktree;
+- `data/ai-routing.json` is also required for Gemini routing and was absent in the new worktree;
+- do **not** copy the whole `data` directory just to bootstrap a worktree, because it may contain runtime state such as memory/workspace/quota/telemetry SQLite/JSONL files;
+- the copied Workspace Planner `.env` used the wrong Minecraft identity for this validation (`MC_USERNAME=Moxue_Test`);
+- Runtime Reliability was corrected to use the intended Microsoft Minecraft account setting `MC_USERNAME=moxueneko@gmail.com`, `MC_AUTH=microsoft`.
+
+A separate live configuration defect was also found:
+
+- MoxueBridge HTTP API defaults to TCP `8766`;
+- MC_AI_Player Control API also defaults to TCP `8766`;
+- running both on the same host causes a deterministic bind collision:
+  - MoxueBridge: `java.net.BindException: Address already in use`;
+  - MC_AI_Player: `listen EACCES ... 127.0.0.1:8766`;
+- the live environment was resolved by keeping MoxueBridge on `8766` and moving MC_AI_Player Control API to a distinct port (current recommended local assignment: `MC_CONTROL_PORT=8768`; Admin remains `8767` when enabled);
+- after correcting the local runtime configuration, MC_AI_Player successfully entered the Minecraft server.
+
+This port conflict is a runtime configuration/integration issue; no claim is made that the Runtime Reliability code itself caused the bind failure.
+
+#### Live validation still pending
+
+Startup/login is now proven, but the workstream is **not FULL PASS yet**. Remaining live gates:
+
+1. Re-run exact addressed utterance `墨雪幫我採一組石頭` and capture:
+   - acknowledgement;
+   - Workspace route/fallback;
+   - gameplay task acceptance;
+   - decision/goal/skill progress;
+   - bounded terminal success/failure/watchdog behavior.
+   Runtime Reliability owns non-silence/progress; Production owns the generalized legal supply plan for obtaining actual `minecraft:stone`.
+2. Controlled-hostile live matrix:
+   - active Workspace + exactly 1 authorized zombie inside bounds -> no threat suspend/retreat;
+   - second matching zombie -> normal ThreatSupervisor resumes immediately;
+   - authorized zombie leaves Workspace -> normal ThreatSupervisor resumes immediately;
+   - Workspace archived while zombie remains -> repository mutation causes immediate threat re-evaluation;
+   - non-matching hostile kind remains a normal threat.
+3. Controlled soak / long-running reliability validation.
+
+#### Known issue / uncertainty
+
+- `npm start` currently executes `tsx src/main.ts` and therefore does not load a local `.env` automatically; live runs that depend on file-based environment configuration must use Node's `--env-file` (or an equivalent deliberate launcher) unless the startup script is separately changed.
+- The MoxueBridge/MC_AI_Player default `8766` collision is now documented, but changing global/default port policy is not part of this Runtime Reliability implementation unless separately approved.
+
+#### Next exact action
+
+1. Keep Paper + MoxueBridge running with non-conflicting ports and the intended Minecraft bot identity.
+2. Execute the exact stone utterance live and capture runtime evidence.
+3. Execute the controlled-hostile live matrix.
+4. Run a bounded soak test.
+5. Only after those gates pass, mark this workstream **FULL PASS / safe to PR/merge**.
+
+**PR/merge status:** code is **Suite PASS**, but **not yet FULL PASS / not yet ready to declare final merge gate complete** because the required gameplay ingress, controlled-hostile, and soak live validations remain pending.
 
 ---
 
