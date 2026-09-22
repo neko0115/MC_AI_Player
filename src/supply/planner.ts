@@ -197,8 +197,7 @@ function satisfyItem(
     normalizedItem,
     state
   )
-  const route = routes[0]
-  if (!route) {
+  if (routes.length === 0) {
     unresolved.push({
       item: normalizedItem,
       quantity: remaining,
@@ -210,6 +209,58 @@ function satisfyItem(
   const nextPath = new Set(path)
   nextPath.add(normalizedItem)
 
+  let firstFailure: readonly UnresolvedSupply[] | null = null
+
+  for (const route of routes) {
+    const candidateState = cloneMutableState(state)
+    const candidateSteps: SupplyStep[] = []
+    const candidateUnresolved: UnresolvedSupply[] = []
+
+    if (satisfyProductionRoute(
+      pack,
+      route,
+      normalizedItem,
+      remaining,
+      candidateState,
+      candidateSteps,
+      candidateUnresolved,
+      budget,
+      nextPath,
+      depth
+    )) {
+      commitMutableState(state, candidateState)
+      steps.push(...candidateSteps)
+      return true
+    }
+
+    firstFailure ??= [...candidateUnresolved]
+    if (budget.nodes > MAX_PLAN_NODES) break
+  }
+
+  if (firstFailure && firstFailure.length > 0) {
+    unresolved.push(...firstFailure)
+  } else {
+    unresolved.push({
+      item: normalizedItem,
+      quantity: remaining,
+      code: 'production_route_unresolved'
+    })
+  }
+  return false
+}
+
+function satisfyProductionRoute(
+  pack: GameKnowledgePack,
+  route: ProductionRoute,
+  normalizedItem: string,
+  remaining: number,
+  state: MutablePlannerState,
+  steps: SupplyStep[],
+  unresolved: UnresolvedSupply[],
+  budget: PlannerBudget,
+  nextPath: ReadonlySet<string>,
+  depth: number
+): boolean {
   if (route.kind === 'world') {
     return satisfyWorldRoute(
       pack,
@@ -753,6 +804,56 @@ function rememberOverproduction(
     item,
     (state.inventory.get(item) ?? 0) + quantity
   )
+}
+
+function cloneMutableState(
+  state: MutablePlannerState
+): MutablePlannerState {
+  return {
+    inventory: new Map(state.inventory),
+    storages: state.storages.map(storage => ({
+      id: storage.id,
+      items: new Map(storage.items)
+    })),
+    tools: state.tools.map(tool => ({
+      item: tool.item,
+      enchantments: [...tool.enchantments]
+    })),
+    workstations: new Set(state.workstations)
+  }
+}
+
+function commitMutableState(
+  target: MutablePlannerState,
+  source: MutablePlannerState
+): void {
+  target.inventory.clear()
+  for (const [item, quantity] of source.inventory) {
+    target.inventory.set(item, quantity)
+  }
+
+  target.storages.splice(
+    0,
+    target.storages.length,
+    ...source.storages.map(storage => ({
+      id: storage.id,
+      items: new Map(storage.items)
+    }))
+  )
+
+  target.tools.splice(
+    0,
+    target.tools.length,
+    ...source.tools.map(tool => ({
+      item: tool.item,
+      enchantments: [...tool.enchantments]
+    }))
+  )
+
+  target.workstations.clear()
+  for (const workstation of source.workstations) {
+    target.workstations.add(workstation)
+  }
 }
 
 function createMutableState(
