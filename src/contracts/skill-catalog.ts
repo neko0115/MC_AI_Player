@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  AcquireItemArgsSchema,
   AcquireResourceArgsSchema,
   DepositItemArgsSchema,
   EatArgsSchema,
@@ -168,6 +169,17 @@ export const SKILL_CONTRACTS = [
       capabilities: Object.freeze(['break_blocks']),
       mutationAuthority: 'resource_break'
     }
+  }),
+  contract({
+    name: 'acquire_item',
+    argsSchema: AcquireItemArgsSchema,
+    goal: true,
+    decision: true,
+    ai: {
+      exposed: true,
+      description: 'Acquire an exact item identity through deterministic inventory, authorized storage, world acquisition, crafting, processing, tool, fuel, and workstation dependencies; stack requests use that item\'s authoritative max stack size.'
+    },
+    safety: { capabilities: NONE, mutationAuthority: 'none' }
   }),
   contract({
     name: 'acquire_resource',
