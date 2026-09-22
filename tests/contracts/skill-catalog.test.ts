@@ -50,6 +50,10 @@ test('AI exposure preserves the existing high-level decision catalog', () => {
         description: 'Equip one exact inventory item to an approved destination.'
       },
       {
+        name: 'acquire_item',
+        description: 'Acquire an exact item identity through deterministic inventory, authorized storage, world acquisition, crafting, processing, tool, fuel, and workstation dependencies; stack requests use that item\'s authoritative max stack size.'
+      },
+      {
         name: 'acquire_resource',
         description: 'Acquire at least a bounded quantity of one resource through visible search, known resource memory, no-dig exploration, bounded excavation, and deterministic gathering.'
       },
