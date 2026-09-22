@@ -7,10 +7,15 @@ import {
   CraftItemSkill,
   ProcessItemSkill
 } from '../skills/production.js'
+import {
+  AcquireItemSkill,
+  type ItemAcquisitionDependencies
+} from '../skills/item-acquisition.js'
 import type { SkillModule } from './skill-module.js'
 
 export interface ProductionSkillModuleDependencies {
   readonly runtimePorts: RuntimePortRegistry
+  readonly itemAcquisition?: ItemAcquisitionDependencies
 }
 
 export function createProductionSkillModule(
@@ -24,6 +29,11 @@ export function createProductionSkillModule(
 
       registry.register(new CraftItemSkill(runtime))
       registry.register(new ProcessItemSkill(runtime))
+      if (dependencies.itemAcquisition) {
+        registry.register(
+          new AcquireItemSkill(dependencies.itemAcquisition)
+        )
+      }
     }
   }
 }
