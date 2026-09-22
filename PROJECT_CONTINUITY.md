@@ -432,9 +432,17 @@ A separate live configuration defect was also found:
 
 This port conflict is a runtime configuration/integration issue; no claim is made that the Runtime Reliability code itself caused the bind failure.
 
-#### Live validation still pending
+#### Live validation evidence / remaining work
 
-Startup/login is now proven, but this conversation/worktree is **not FULL PASS yet**. The remaining live responsibility here is the Workspace controlled-hostile / ThreatSupervisor path only.
+Startup/login is proven. Workspace selection live behavior was also exercised:
+
+- the player successfully completed a MoxueBridge wand selection in-game;
+- an immediate Workspace create utterance still returned `missing_selection`;
+- after waiting beyond the current MoxueBridge selection polling interval (~30 s), the same utterance succeeded and created the Workspace;
+- this confirms a live freshness/UX gap: in-game selection state is available before MC_AI_Player's polled WorkspaceSelectionSource observes it;
+- do not treat a ~30 s wait as acceptable final UX. Prefer a dedicated fast/on-demand selection refresh or event-driven selection invalidation/update rather than globally increasing polling load for unrelated capability/resource snapshots.
+
+This conversation/worktree is **not FULL PASS yet**. The remaining live responsibility here is the Workspace controlled-hostile / ThreatSupervisor path only.
 
 The exact addressed utterance `墨雪幫我採一組石頭` remains relevant regression coverage in this branch, but its live ingress validation is owned by a separate active conversation/workstream. Do not duplicate that live test here and do not modify Production/item-supply behavior from this worktree.
 
