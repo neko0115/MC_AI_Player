@@ -441,6 +441,7 @@ Startup/login is proven. Workspace selection live behavior was also exercised:
 - after waiting beyond the current MoxueBridge selection polling interval (~30 s), the same utterance succeeded and created the Workspace;
 - this confirms a live freshness/UX gap: in-game selection state is available before MC_AI_Player's polled WorkspaceSelectionSource observes it;
 - do not treat a ~30 s wait as acceptable final UX. Prefer a dedicated fast/on-demand selection refresh or event-driven selection invalidation/update rather than globally increasing polling load for unrelated capability/resource snapshots.
+- a second live integration inconsistency was found while querying the created Workspace: `/v1/status` exposes nearby player UUIDs in hyphenated Minecraft form, while `MinecraftIdentityRegistry.resolveObservedPlayerId()` normalizes Workspace actor principals to lowercase 32-hex UUIDs without hyphens; using the status UUID verbatim as `actor_principal` therefore returns an empty Workspace list even though the Workspace exists. For current live validation, normalize the UUID by removing hyphens before Workspace API calls. This should be treated as an API consistency/ergonomics defect, not as missing Workspace data.
 
 This conversation/worktree is **not FULL PASS yet**. The remaining live responsibility here is the Workspace controlled-hostile / ThreatSupervisor path only.
 
