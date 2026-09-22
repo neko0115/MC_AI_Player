@@ -434,37 +434,34 @@ This port conflict is a runtime configuration/integration issue; no claim is mad
 
 #### Live validation still pending
 
-Startup/login is now proven, but the workstream is **not FULL PASS yet**. Remaining live gates:
+Startup/login is now proven, but this conversation/worktree is **not FULL PASS yet**. The remaining live responsibility here is the Workspace controlled-hostile / ThreatSupervisor path only.
 
-1. Re-run exact addressed utterance `墨雪幫我採一組石頭` and capture:
-   - acknowledgement;
-   - Workspace route/fallback;
-   - gameplay task acceptance;
-   - decision/goal/skill progress;
-   - bounded terminal success/failure/watchdog behavior.
-   Runtime Reliability owns non-silence/progress; Production owns the generalized legal supply plan for obtaining actual `minecraft:stone`.
-2. Controlled-hostile live matrix:
-   - active Workspace + exactly 1 authorized zombie inside bounds -> no threat suspend/retreat;
-   - second matching zombie -> normal ThreatSupervisor resumes immediately;
-   - authorized zombie leaves Workspace -> normal ThreatSupervisor resumes immediately;
-   - Workspace archived while zombie remains -> repository mutation causes immediate threat re-evaluation;
-   - non-matching hostile kind remains a normal threat.
-3. Controlled soak / long-running reliability validation.
+The exact addressed utterance `墨雪幫我採一組石頭` remains relevant regression coverage in this branch, but its live ingress validation is owned by a separate active conversation/workstream. Do not duplicate that live test here and do not modify Production/item-supply behavior from this worktree.
+
+Controlled-hostile live matrix owned by this worktree:
+
+1. active Workspace + exactly 1 authorized `zombie` inside bounds -> no threat suspend/retreat;
+2. second matching zombie inside the Workspace -> normal ThreatSupervisor resumes immediately;
+3. authorized zombie leaves Workspace bounds -> normal ThreatSupervisor resumes immediately;
+4. Workspace is archived while the zombie remains -> repository mutation causes immediate threat re-evaluation and normal ThreatSupervisor resumes;
+5. a non-matching hostile kind (for example `skeleton`) remains a normal threat;
+6. after the matrix passes, run a bounded controlled-hostile soak test to confirm no intermittent suspend/resume loop or stale exemption.
 
 #### Known issue / uncertainty
 
 - `npm start` currently executes `tsx src/main.ts` and therefore does not load a local `.env` automatically; live runs that depend on file-based environment configuration must use Node's `--env-file` (or an equivalent deliberate launcher) unless the startup script is separately changed.
 - The MoxueBridge/MC_AI_Player default `8766` collision is now documented, but changing global/default port policy is not part of this Runtime Reliability implementation unless separately approved.
+- Live ingress validation for `墨雪幫我採一組石頭` is intentionally delegated to another active conversation; this worktree must not duplicate or interfere with that validation.
 
 #### Next exact action
 
-1. Keep Paper + MoxueBridge running with non-conflicting ports and the intended Minecraft bot identity.
-2. Execute the exact stone utterance live and capture runtime evidence.
-3. Execute the controlled-hostile live matrix.
-4. Run a bounded soak test.
-5. Only after those gates pass, mark this workstream **FULL PASS / safe to PR/merge**.
+1. Keep Paper + MoxueBridge + MC_AI_Player running with non-conflicting ports and the intended Minecraft bot identity.
+2. Create or select an **active Workspace** around the controlled-zombie fixture and set `constraints.controlledHostiles = [{ kind: "zombie", maxCount: 1 }]`.
+3. Execute the controlled-hostile live matrix above and capture evidence for each transition.
+4. Run a bounded controlled-hostile soak test.
+5. Only after those gates pass, mark the controlled-hostile Runtime Reliability portion **FULL PASS / safe to integrate**; do not wait on or duplicate the stone-ingress conversation's separate live gate.
 
-**PR/merge status:** code is **Suite PASS**, but **not yet FULL PASS / not yet ready to declare final merge gate complete** because the required gameplay ingress, controlled-hostile, and soak live validations remain pending.
+**PR/merge status:** code is **Suite PASS**. This worktree's remaining merge gate is the controlled-hostile live matrix + bounded soak; stone-ingress live validation is tracked separately by another active conversation.
 
 ---
 
