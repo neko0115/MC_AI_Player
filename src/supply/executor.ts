@@ -3,7 +3,8 @@ import type {
 } from '../contracts/skills.js'
 import type {
   GameKnowledgePack,
-  WorkstationFact
+  WorkstationFact,
+  WorldAcquisitionFact
 } from '../knowledge/contracts.js'
 import type {
   ProductionRuntime,
@@ -25,7 +26,7 @@ export interface SupplyExecutionPorts {
   ): Promise<SkillResult>
 
   acquireResource(
-    resource: string,
+    fact: WorldAcquisitionFact,
     quantity: number,
     signal: AbortSignal,
     executionId?: string
@@ -124,9 +125,23 @@ async function executeStep(
       return ports.equipTool(step.item, signal)
 
     case 'gather': {
+      const fact = pack.worldAcquisition.find(
+        candidate => candidate.id === step.routeId
+      )
+      if (
+        !fact ||
+        fact.resource !== step.resource ||
+        fact.output.item !== step.item
+      ) {
+        return {
+          status: 'failed',
+          code: 'world_acquisition_fact_mismatch'
+        }
+      }
+
       const before = ports.inventoryCount(step.item)
       const result = await ports.acquireResource(
-        step.resource,
+        fact,
         step.quantity,
         signal,
         executionId
