@@ -367,3 +367,68 @@ test('an unaccepted tool cannot satisfy an exact harvest-tool set', () => {
     code: 'production_route_missing'
   }])
 })
+
+
+test('planner falls back to the next authoritative route when a preferred route dependency is unavailable', () => {
+  const fallbackPack: GameKnowledgePack = {
+    ...pack(),
+    items: [
+      ...pack().items,
+      { id: 'examplemod:component', stackSize: 64 },
+      { id: 'examplemod:unobtainable_input', stackSize: 64 }
+    ],
+    recipes: [
+      {
+        id: 'examplemod:craft/component/0_preferred_but_blocked',
+        output: { item: 'examplemod:component', count: 1 },
+        inputs: [{ item: 'examplemod:unobtainable_input', count: 1 }],
+        workstation: 'minecraft:inventory_crafting'
+      },
+      {
+        id: 'examplemod:craft/component/1_fallback',
+        output: { item: 'examplemod:component', count: 1 },
+        inputs: [{ item: 'minecraft:cobblestone', count: 1 }],
+        workstation: 'minecraft:inventory_crafting'
+      }
+    ],
+    workstations: [
+      ...pack().workstations,
+      {
+        id: 'minecraft:inventory_crafting',
+        item: null,
+        blockIds: [],
+        supportedKinds: ['crafting']
+      }
+    ]
+  }
+
+  const plan = planItemAcquisition(
+    fallbackPack,
+    'examplemod:component',
+    { kind: 'exact', quantity: 1 },
+    state({
+      inventory: {
+        'minecraft:cobblestone': 1,
+        'minecraft:coal': 64
+      },
+      workstations: [
+        'minecraft:furnace',
+        'minecraft:inventory_crafting'
+      ]
+    })
+  )
+
+  assert.deepEqual(plan.unresolved, [])
+  assert.deepEqual(plan.steps, [
+    {
+      kind: 'use_inventory',
+      item: 'minecraft:cobblestone',
+      quantity: 1
+    },
+    {
+      kind: 'craft',
+      recipeId: 'examplemod:craft/component/1_fallback',
+      batches: 1
+    }
+  ])
+})
