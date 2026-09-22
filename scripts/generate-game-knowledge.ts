@@ -732,6 +732,77 @@ function namespacePath(id: string): string {
   return separator >= 0 ? id.slice(separator + 1) : id
 }
 
+function loadVanillaSummary(
+  root: string | undefined
+): ProductionKnowledgeOverlay {
+  if (!root) return {}
+
+  const recipePath = join(
+    root,
+    'data',
+    'recipe',
+    'data.json'
+  )
+  const itemTagPath = join(
+    root,
+    'data',
+    'tag',
+    'item',
+    'data.json'
+  )
+
+  if (!existsSync(recipePath)) {
+    throw new Error(
+      `vanilla_recipe_summary_missing:${recipePath}`
+    )
+  }
+  if (!existsSync(itemTagPath)) {
+    throw new Error(
+      `vanilla_item_tag_summary_missing:${itemTagPath}`
+    )
+  }
+
+  const recipes = JSON.parse(
+    readFileSync(recipePath, 'utf8')
+  ) as VanillaRecipeSummary
+  const itemTags = JSON.parse(
+    readFileSync(itemTagPath, 'utf8')
+  ) as VanillaItemTagSummary
+
+  return {
+    processing:
+      normalizeVanillaProcessingRecipes(
+        recipes,
+        itemTags
+      )
+  }
+}
+
+function mergeProductionKnowledgeOverlays(
+  ...overlays: readonly ProductionKnowledgeOverlay[]
+): ProductionKnowledgeOverlay {
+  return {
+    worldAcquisition: overlays.flatMap(
+      overlay => overlay.worldAcquisition ?? []
+    ),
+    recipes: overlays.flatMap(
+      overlay => overlay.recipes ?? []
+    ),
+    processing: overlays.flatMap(
+      overlay => overlay.processing ?? []
+    ),
+    fuels: overlays.flatMap(
+      overlay => overlay.fuels ?? []
+    ),
+    tools: overlays.flatMap(
+      overlay => overlay.tools ?? []
+    ),
+    workstations: overlays.flatMap(
+      overlay => overlay.workstations ?? []
+    )
+  }
+}
+
 function loadOverlay(
   root: string | undefined,
   version: string
@@ -790,10 +861,12 @@ function parseCli(
   readonly version: string
   readonly output: string
   readonly overlay?: string
+  readonly vanillaSummary?: string
 } {
   let version: string | undefined
   let output: string | undefined
   let overlay: string | undefined
+  let vanillaSummary: string | undefined
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index]
@@ -803,6 +876,8 @@ function parseCli(
       output = argv[++index]
     } else if (value === '--overlay') {
       overlay = argv[++index]
+    } else if (value === '--vanilla-summary') {
+      vanillaSummary = argv[++index]
     } else {
       throw new Error(`unknown_argument:${value}`)
     }
@@ -814,7 +889,10 @@ function parseCli(
   return {
     version,
     output,
-    ...(overlay ? { overlay } : {})
+    ...(overlay ? { overlay } : {}),
+    ...(vanillaSummary
+      ? { vanillaSummary }
+      : {})
   }
 }
 
@@ -830,7 +908,10 @@ function main(): void {
   const pack = generateProductionKnowledge(
     cli.version,
     data as unknown as ProductionMinecraftData,
-    loadOverlay(cli.overlay, cli.version)
+    mergeProductionKnowledgeOverlays(
+      loadVanillaSummary(cli.vanillaSummary),
+      loadOverlay(cli.overlay, cli.version)
+    )
   )
   writePack(cli.output, pack)
 }
