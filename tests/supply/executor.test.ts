@@ -113,11 +113,8 @@ function ports(
     async withdrawStorage() {
       return { status: 'failed', code: 'unexpected_storage' }
     },
-    async acquireResource(resource, quantity) {
-      const item =
-        resource === 'minecraft:stone'
-          ? 'minecraft:cobblestone'
-          : resource
+    async acquireResource(fact, quantity) {
+      const item = fact.output.item
       inventory.set(
         item,
         (inventory.get(item) ?? 0) + quantity
