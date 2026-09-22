@@ -449,8 +449,18 @@ The exact addressed utterance `墨雪幫我採一組石頭` remains relevant reg
 
 Controlled-hostile live matrix owned by this worktree:
 
-1. active Workspace + exactly 1 authorized `zombie` inside bounds -> no threat suspend/retreat;
-2. second matching zombie inside the Workspace -> normal ThreatSupervisor resumes immediately;
+1. **PASS** — active Workspace + exactly 1 authorized `zombie` inside bounds:
+   - Workspace `27bb25f2-9b91-49ab-8d3a-69b397a7537b`, bounds x=-238..-218, y=63..66, z=277..295;
+   - constraint `controlledHostiles=[{ kind: "zombie", maxCount: 1 }]`;
+   - controlled zombie at approximately (-228.69, 63.43, 286.52);
+   - bot-to-zombie distance measured 6.13 blocks while health=10, so ordinary threat trigger distance was 16 blocks;
+   - a repository constraint mutation was used to force immediate ThreatSupervisor re-evaluation;
+   - `stay` goal `a8b2bb08-e7d1-48a6-bb7e-c725014e6205` remained running with no threat suspension.
+2. **PASS** — second matching zombie caused bounded-count fail-closed behavior:
+   - second zombie entity 1381 was observed inside the authorized Workspace;
+   - the same `stay` goal emitted `goal_suspended` with code `threat_suspended`;
+   - after retreat/clearance, `goal_resumed` was emitted and the goal returned to running, which is expected ThreatSupervisor suspend/retreat/resume behavior;
+   - this validates that exceeding `maxCount=1` restores normal threat handling rather than globally ignoring zombies.
 3. authorized zombie leaves Workspace bounds -> normal ThreatSupervisor resumes immediately;
 4. Workspace is archived while the zombie remains -> repository mutation causes immediate threat re-evaluation and normal ThreatSupervisor resumes;
 5. a non-matching hostile kind (for example `skeleton`) remains a normal threat;
