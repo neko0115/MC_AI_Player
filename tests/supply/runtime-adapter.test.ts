@@ -93,7 +93,7 @@ test('runtime adapter converts vanilla canonical ids without item-specific cases
     expectedBlockNames: ['chest']
   }
   const resourceCalls: Array<{
-    resource: string
+    routeId: string
     quantity: number
   }> = []
 
@@ -102,7 +102,10 @@ test('runtime adapter converts vanilla canonical ids without item-specific cases
     production: new NoopProduction(),
     resourceAcquisition: {
       async execute(_context, args) {
-        resourceCalls.push(args)
+        resourceCalls.push({
+          routeId: args.fact.id,
+          quantity: args.quantity
+        })
         return { status: 'succeeded', code: 'acquired' }
       }
     },
@@ -149,13 +152,29 @@ test('runtime adapter converts vanilla canonical ids without item-specific cases
   )
 
   await adapter.acquireResource(
-    'minecraft:stone',
+    {
+      id: 'minecraft:mine/stone/cobblestone',
+      resource: 'minecraft:stone',
+      output: {
+        item: 'minecraft:cobblestone',
+        count: 1
+      },
+      blockIds: ['minecraft:stone'],
+      minimumOnePerBlock: true,
+      tool: {
+        class: 'pickaxe',
+        minimumTier: null,
+        minimumTierRank: null,
+        requiredEnchantments: [],
+        forbiddenEnchantments: ['silk_touch']
+      }
+    },
     4,
     new AbortController().signal,
     'exec-1'
   )
   assert.deepEqual(resourceCalls, [{
-    resource: 'minecraft:stone',
+    routeId: 'minecraft:mine/stone/cobblestone',
     quantity: 4
   }])
 })
