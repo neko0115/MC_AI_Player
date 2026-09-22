@@ -3,7 +3,8 @@ import test from 'node:test'
 import type {
   ResolvedStorageTarget,
   SurvivalInventoryAdapter,
-  ContainerTransactionAdapter
+  ContainerTransactionAdapter,
+  EquipmentSlot
 } from '../../src/minecraft/adapter.js'
 import type {
   CraftItemRequest,
@@ -37,13 +38,17 @@ implements SurvivalInventoryAdapter, ContainerTransactionAdapter {
     ]
   }
 
-  async consumeInventoryItem(): Promise<SkillResult> {
+  async consumeInventoryItem(
+    _item: string,
+    _signal: AbortSignal
+  ): Promise<SkillResult> {
     return { status: 'failed', code: 'unexpected_consume' }
   }
 
   async equipInventoryItem(
     item: string,
-    destination: any
+    destination: EquipmentSlot | undefined,
+    _signal: AbortSignal
   ): Promise<SkillResult> {
     this.equips.push({ item, destination })
     return { status: 'succeeded', code: 'equipped' }
@@ -53,7 +58,8 @@ implements SurvivalInventoryAdapter, ContainerTransactionAdapter {
     target: ResolvedStorageTarget,
     direction: 'deposit' | 'withdraw',
     item: string,
-    quantity: number
+    quantity: number,
+    _signal: AbortSignal
   ): Promise<SkillResult> {
     assert.equal(direction, 'withdraw')
     this.transfers.push({
