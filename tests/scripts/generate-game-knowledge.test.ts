@@ -4,6 +4,7 @@ import {
   generateProductionKnowledge,
   normalizeItems,
   normalizeRecipes,
+  normalizeVanillaProcessingRecipes,
   normalizeWorldAcquisition,
   type ProductionMinecraftData
 } from '../../scripts/generate-game-knowledge.js'
@@ -242,5 +243,147 @@ test('overlay ids cannot silently replace generated facts', () => {
       }
     ),
     /knowledge_overlay_duplicate_world_acquisition/
+  )
+})
+
+
+test('mcmeta-style processing summary expands item tags into exact routes', () => {
+  const facts = normalizeVanillaProcessingRecipes(
+    {
+      stone: {
+        type: 'minecraft:smelting',
+        cookingtime: 200,
+        ingredient: {
+          item: 'minecraft:cobblestone'
+        },
+        result: {
+          id: 'minecraft:stone'
+        }
+      },
+      smooth_stone: {
+        type: 'minecraft:stonecutting',
+        ingredient: {
+          tag: 'minecraft:test_stones'
+        },
+        result: {
+          id: 'minecraft:smooth_stone',
+          count: 2
+        }
+      }
+    },
+    {
+      test_stones: {
+        values: [
+          'minecraft:stone',
+          '#minecraft:nested_stones'
+        ]
+      },
+      nested_stones: {
+        values: [
+          'minecraft:andesite'
+        ]
+      }
+    }
+  )
+
+  assert.deepEqual(facts, [
+    {
+      id: 'minecraft:process/smooth_stone/0',
+      kind: 'stonecutting',
+      input: {
+        item: 'minecraft:andesite',
+        count: 1
+      },
+      output: {
+        item: 'minecraft:smooth_stone',
+        count: 2
+      },
+      workstation: 'minecraft:stonecutter',
+      cookTimeTicks: null
+    },
+    {
+      id: 'minecraft:process/smooth_stone/1',
+      kind: 'stonecutting',
+      input: {
+        item: 'minecraft:stone',
+        count: 1
+      },
+      output: {
+        item: 'minecraft:smooth_stone',
+        count: 2
+      },
+      workstation: 'minecraft:stonecutter',
+      cookTimeTicks: null
+    },
+    {
+      id: 'minecraft:process/stone/0',
+      kind: 'smelting',
+      input: {
+        item: 'minecraft:cobblestone',
+        count: 1
+      },
+      output: {
+        item: 'minecraft:stone',
+        count: 1
+      },
+      workstation: 'minecraft:furnace',
+      cookTimeTicks: 200
+    }
+  ])
+})
+
+test('processing import rejects unresolved or cyclic item tags instead of inventing inputs', () => {
+  assert.throws(
+    () => normalizeVanillaProcessingRecipes(
+      {
+        unsafe: {
+          type: 'minecraft:smelting',
+          ingredient: {
+            tag: 'minecraft:a'
+          },
+          result: {
+            id: 'minecraft:stone'
+          }
+        }
+      },
+      {
+        a: { values: ['#minecraft:b'] },
+        b: { values: ['#minecraft:a'] }
+      }
+    ),
+    /vanilla_item_tag_cycle/
+  )
+})
+
+test('default workstations include supported physical production blocks when their items exist', () => {
+  const extended: ProductionMinecraftData = {
+    ...data,
+    itemsArray: [
+      ...data.itemsArray,
+      { id: 8, name: 'furnace', stackSize: 64 },
+      { id: 9, name: 'blast_furnace', stackSize: 64 },
+      { id: 10, name: 'smoker', stackSize: 64 },
+      { id: 11, name: 'stonecutter', stackSize: 64 }
+    ]
+  }
+
+  const pack = generateProductionKnowledge(
+    'test-1.0',
+    extended
+  )
+
+  assert.deepEqual(
+    pack.workstations
+      .filter(fact =>
+        fact.id !== 'minecraft:inventory_crafting' &&
+        fact.id !== 'minecraft:crafting_table'
+      )
+      .map(fact => fact.id),
+    [
+      'minecraft:blast_furnace',
+      'minecraft:furnace',
+      'minecraft:smoker',
+      'minecraft:stonecutter'
+    ]
   )
 })
