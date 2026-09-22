@@ -74,6 +74,14 @@ export const AcquireResourceArgsSchema = z
   })
   .strict()
 
+export const AcquireItemArgsSchema = z
+  .object({
+    item: IdentifierSchema,
+    quantity: QuantitySchema,
+    unit: z.enum(['items', 'stacks'])
+  })
+  .strict()
+
 export const DepositItemArgsSchema = z
   .object({
     item: IdentifierSchema,
