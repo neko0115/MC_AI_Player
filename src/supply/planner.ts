@@ -233,8 +233,15 @@ function satisfyItem(
       return true
     }
 
+    if (budget.nodes > MAX_PLAN_NODES) {
+      unresolved.push({
+        item: normalizedItem,
+        quantity: remaining,
+        code: 'production_max_nodes_exceeded'
+      })
+      return false
+    }
     firstFailure ??= [...candidateUnresolved]
-    if (budget.nodes > MAX_PLAN_NODES) break
   }
 
   if (firstFailure && firstFailure.length > 0) {
