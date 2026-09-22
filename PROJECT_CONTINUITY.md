@@ -499,6 +499,142 @@ Do not:
 - edit Runtime Reliability or Workspace threat internals;
 - expose Production internal leaf skills directly to AI.
 
+
+#### Handoff 2026-09-22 15:xx +08:00 — Generic item acquisition orchestration / exact processing source
+
+Branch: `feature/skill-production`  
+User worktree: `D:\\MC_AI_player-worktrees\\production`  
+Remote branch was edited through the connected GitHub repository in this session; the user-owned Windows worktree was not inspected or mutated directly.
+
+Scope boundary preserved:
+- Modular M7 was audited and **not** reimplemented;
+- Runtime Reliability watchdog / acknowledgement internals were not edited;
+- Workspace threat / hostile-tolerance internals were not edited;
+- Resource search/gather algorithms were not duplicated or modified;
+- Production only added the generic item/supply orchestration layer and typed semantic boundaries.
+
+Audit findings:
+- continuity handoff was stale: the branch already contained later Mineflayer Production runtime and 1.21.1-oriented generator work before this session;
+- `planItemAcquisition()` already modeled exact item identity, per-item stack size, inventory/storage/tool/workstation/fuel dependencies, but it only attempted the first ranked route for an output;
+- high-level item acquisition did not exist;
+- calling `SkillExecutor.execute()` recursively from a composite Production skill is invalid because the executor is single-active and would return `executor_busy`;
+- knowledge uses canonical IDs such as `minecraft:stone`, while Mineflayer inventory uses runtime names such as `stone`; this namespace boundary must be adapted generically;
+- `minecraft-data@3.116.0` 1.21.1 provides items/blocks/crafting data but does not provide the complete furnace/processing graph needed for exact stone -> cobblestone -> smelting -> stone planning;
+- generated normal world-drop facts did not previously forbid Silk Touch when Silk would change the observed drop identity.
+
+New Production commits in this session:
+- `4f2149d` — `test: require deterministic supply route fallback`
+- `e412908` — `fix: backtrack across authoritative supply routes`
+- `231bc63` — `feat: execute deterministic supply plans`
+- `3186453` — `test: cover exact supply plan execution`
+- `39618e4` — `feat: define generic item acquisition arguments`
+- `f2052a2` — `feat: export item acquisition goal schema`
+- `5a183c9` — `feat: register generic item acquisition contract`
+- `b8d5304` — `feat: coordinate generic exact item acquisition`
+- `63ebe52` — `test: cover generic item acquisition quantities`
+- `ee66719` — `test: include generic item acquisition contract`
+- `c3fe1cf` — `feat: allow production module to register item acquisition`
+- `0509546` — `fix: preserve planner node budget failure`
+- `9cc8de2` — `test: forbid silk touch on changed normal drops`
+- `17a98ea` — `fix: keep generated normal drops silk-safe`
+- `6ea0d7a` — `feat: bridge canonical supply ids to runtime ports`
+- `9e7b673` — `test: cover generic supply runtime boundary`
+- `a8266d9` — `test: type supply runtime adapter fakes exactly`
+- `0d916ea` — `test: define versioned vanilla processing import`
+- `b8de52c` — `feat: import exact vanilla processing recipes`
+- `0383321` — `build: accept versioned vanilla recipe summaries`
+
+Implemented:
+- supply planner now tries deterministic ranked alternatives transactionally:
+  - each candidate route runs against cloned inventory/storage/tool/workstation planner state;
+  - only a successful candidate commits state/steps;
+  - failed candidates cannot leak partial steps/unresolved state;
+  - existing depth/node budgets remain shared and bounded;
+  - node-budget exhaustion remains authoritative instead of being hidden by an earlier route failure.
+- added `src/supply/executor.ts`:
+  - refuses unresolved plans before mutation;
+  - executes authorized storage withdrawal, tool equip, Resource acquisition leaf, workstation resolution, craft, and process steps;
+  - verifies exact world-acquisition output by inventory delta;
+  - verifies final requested item identity/count;
+  - never silently treats cobblestone as stone.
+- added high-level `acquire_item` contract/skill:
+  - args are `item + quantity + unit(items|stacks)`;
+  - `stacks` resolves through authoritative `ItemFact.stackSize`;
+  - tests cover 64-stack stone semantics, 16-stack ender pearl semantics, and 1-stack unstackable tool semantics without a global 64 assumption;
+  - unknown item facts fail closed;
+  - resolved item count remains bounded.
+- `createProductionSkillModule()` can optionally register `AcquireItemSkill`; builtin composition intentionally does **not** register it yet until exact-version knowledge + semantic leaf/resolver dependencies are supplied.
+- added `src/supply/runtime-adapter.ts`:
+  - canonical vanilla IDs such as `minecraft:stone` map to Mineflayer runtime names such as `stone` only at the semantic boundary;
+  - non-vanilla namespaced IDs remain namespaced;
+  - Resource acquisition is injected as a narrow leaf capability instead of nested `SkillExecutor` execution;
+  - storage/workstation resolution is authorization-driven and fails closed if no resolver exists.
+- generator normal-drop safety:
+  - if a block has an item identity and its deterministic ordinary drop is a different item, generated ordinary route now forbids `silk_touch`;
+  - this is generic/data-driven, not a stone special case;
+  - positive Silk Touch self-drop routes are **not** invented and still require reviewed authoritative facts.
+- added versioned vanilla processing import:
+  - `normalizeVanillaProcessingRecipes()` converts exact datapack `smelting / blasting / smoking / stonecutting` recipes into Production processing facts;
+  - vanilla item tags are recursively expanded into separate exact routes;
+  - missing/cyclic tags fail closed;
+  - workstation facts for crafting table/furnace/blast furnace/smoker/stonecutter are generated only when those items exist in the exact-version item set;
+  - generator CLI now accepts `--vanilla-summary <root>`, expecting versioned summary files:
+    - `data/recipe/data.json`
+    - `data/tag/item/data.json`
+  - reviewed overlay input remains additive and duplicate IDs remain fail-closed.
+
+Version-data source decision:
+- for complete vanilla processing recipes, use a versioned build-time datapack/data-generator source rather than item-specific code;
+- `misode/mcmeta` was audited as a practical source because its per-version `<version>-summary` / `<version>-data-json` tags are generated from Mojang server/data-generator output;
+- 1.21.1 examples verified from that source include:
+  - `minecraft:stone`: cobblestone -> stone smelting;
+  - raw iron -> iron ingot smelting;
+  - versioned smoking/blasting/stonecutting entries;
+- this external source is a build-time knowledge input, **not** a runtime network dependency.
+
+Still intentionally unresolved / fail-closed:
+- **fuel burn-time facts** are not supplied by the vanilla datapack recipe summary; do not invent them in code. They still require a reviewed exact-version overlay or a future authoritative server capability source.
+- a positive Silk Touch acquisition route requires authoritative reviewed knowledge; the generator only prevents the wrong ordinary-drop route from using Silk Touch.
+- authorized workstation resolver is not yet supplied by builtin composition; Production executor will return workstation unavailable rather than use arbitrary nearby blocks.
+- authorized storage resolver is not yet supplied by builtin composition.
+- live tool/enchantment snapshot is not yet exposed as a Production planning-state source; therefore direct Silk Touch selection is not yet live-wired.
+- the Resource module currently constructs `AcquireResourceSkill` internally; Production still needs a deliberately shared narrow resource-acquisition semantic port/binding before builtin live registration. Do **not** reimplement Resource search/memory/excavation.
+- real generated `game-data/java/1.21.1/*` is not committed yet.
+- `acquire_item` is in the trusted contract catalog but is only AI-visible if actually registered; current builtin wiring does not register it yet.
+
+Validation status in this session:
+- RED intent was encoded in new focused tests before the corresponding planner/generator changes where practical.
+- **Automated tests/typecheck: NOT RUN.**
+- reason: this chat session does not have direct access to `D:\\MC_AI_player-worktrees\\production`, and branch pushes do not trigger the repository CI workflow (CI is main-push / PR-to-main).
+- **Minecraft live validation: NOT RUN.**
+- do not treat these commits as PASS until local focused tests + full suite + typecheck run.
+
+Next exact actions:
+1. In `D:\\MC_AI_player-worktrees\\production`, inspect status first, fetch remote, and only fast-forward/rebase if there are no unpublished local changes.
+2. Run focused:
+   - `npm test -- tests/supply/planner.test.ts tests/supply/executor.test.ts tests/supply/runtime-adapter.test.ts tests/skills/item-acquisition.test.ts tests/scripts/generate-game-knowledge.test.ts tests/contracts/skill-catalog.test.ts tests/modules/production-module.test.ts`
+   - `npm run typecheck`
+3. Fix all RED/type failures before adding more live wiring.
+4. Add a narrow shared Resource acquisition leaf/binding so Production can delegate exact world acquisition without nested executor calls or copied Resource logic.
+5. Add Production planning-state source for canonical inventory + owned tools/enchantments + explicitly authorized storage/workstations.
+6. Prepare exact 1.21.1 build-time inputs:
+   - minecraft-data item/block/crafting facts;
+   - versioned vanilla recipe/tag summary for processing;
+   - reviewed exact-version fuel facts and any reviewed Silk Touch/world-acquisition overlays.
+7. Generate and commit `game-data/java/1.21.1/*`; run loader/reference validation.
+8. Only then supply `itemAcquisition` dependencies to builtin Production module so `acquire_item` becomes AI-visible.
+9. Controlled live validation:
+   - `墨雪幫我採一組石頭`;
+   - assert requested quantity = authoritative `minecraft:stone.stackSize`;
+   - assert exact final inventory delta is `minecraft:stone`, not cobblestone;
+   - test both available legal routes where fixture/environment permits: reviewed Silk Touch route and cobblestone -> legal fuel -> furnace -> stone route.
+10. After focused PASS, run full `npm test` + `npm run typecheck` and only then consider PR/merge readiness.
+
+PR / merge status:
+- **NOT SAFE TO PR/MERGE YET.**
+- generic core is materially further along, but local automated verification, exact 1.21.1 generated pack, shared Resource leaf wiring, authorized workstation/storage state, fuel knowledge, and live validation remain gates.
+
+
 ---
 
 ### WS-MODULAR-EXTENSION-CORE — active / primary gate
