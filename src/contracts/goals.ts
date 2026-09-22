@@ -5,6 +5,7 @@ import {
 } from './skill-catalog.js'
 
 export {
+  AcquireItemArgsSchema,
   AcquireResourceArgsSchema,
   DepositItemArgsSchema,
   EatArgsSchema,
