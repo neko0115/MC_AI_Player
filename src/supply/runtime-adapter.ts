@@ -3,7 +3,8 @@ import type {
   SkillResult
 } from '../contracts/skills.js'
 import type {
-  WorkstationFact
+  WorkstationFact,
+  WorldAcquisitionFact
 } from '../knowledge/contracts.js'
 import type {
   ContainerTransactionAdapter,
@@ -22,7 +23,7 @@ export interface ResourceAcquisitionLeaf {
   execute(
     context: SkillContext,
     args: {
-      readonly resource: string
+      readonly fact: WorldAcquisitionFact
       readonly quantity: number
     }
   ): Promise<SkillResult>
@@ -110,7 +111,7 @@ implements SupplyExecutionPorts {
   }
 
   async acquireResource(
-    resource: string,
+    fact: WorldAcquisitionFact,
     quantity: number,
     signal: AbortSignal,
     executionId?: string
@@ -122,7 +123,7 @@ implements SupplyExecutionPorts {
         ...(executionId ? { executionId } : {})
       },
       {
-        resource,
+        fact,
         quantity
       }
     )
