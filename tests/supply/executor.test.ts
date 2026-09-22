@@ -27,7 +27,42 @@ function pack(): GameKnowledgePack {
       { id: 'minecraft:cobblestone', stackSize: 64 },
       { id: 'minecraft:coal', stackSize: 64 }
     ],
-    worldAcquisition: [],
+    worldAcquisition: [
+      {
+        id: 'minecraft:mine_cobblestone',
+        resource: 'minecraft:stone',
+        output: {
+          item: 'minecraft:cobblestone',
+          count: 1
+        },
+        blockIds: ['minecraft:stone'],
+        minimumOnePerBlock: true,
+        tool: {
+          class: 'pickaxe',
+          minimumTier: null,
+          minimumTierRank: null,
+          requiredEnchantments: [],
+          forbiddenEnchantments: ['silk_touch']
+        }
+      },
+      {
+        id: 'minecraft:mine_stone_silk_touch',
+        resource: 'minecraft:stone',
+        output: {
+          item: 'minecraft:stone',
+          count: 1
+        },
+        blockIds: ['minecraft:stone'],
+        minimumOnePerBlock: true,
+        tool: {
+          class: 'pickaxe',
+          minimumTier: null,
+          minimumTierRank: null,
+          requiredEnchantments: ['silk_touch'],
+          forbiddenEnchantments: []
+        }
+      }
+    ],
     recipes: [],
     processing: [{
       id: 'minecraft:smelt_stone',
