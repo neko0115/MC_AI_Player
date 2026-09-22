@@ -73,6 +73,37 @@ export interface ProductionKnowledgeOverlay {
   readonly workstations?: readonly WorkstationFact[]
 }
 
+export interface VanillaProcessingIngredient {
+  readonly item?: string
+  readonly tag?: string
+}
+
+export interface VanillaProcessingRecipe {
+  readonly type: string
+  readonly cookingtime?: number
+  readonly ingredient?: VanillaProcessingIngredient
+  readonly result?: {
+    readonly id: string
+    readonly count?: number
+  }
+}
+
+export interface VanillaItemTag {
+  readonly values: readonly (
+    | string
+    | {
+        readonly id: string
+        readonly required?: boolean
+      }
+  )[]
+}
+
+export type VanillaRecipeSummary =
+  Readonly<Record<string, VanillaProcessingRecipe>>
+
+export type VanillaItemTagSummary =
+  Readonly<Record<string, VanillaItemTag>>
+
 export function generateProductionKnowledge(
   version: string,
   data: ProductionMinecraftData,
@@ -278,6 +309,181 @@ export function normalizeWorldAcquisition(
   )
 }
 
+export function normalizeVanillaProcessingRecipes(
+  recipes: VanillaRecipeSummary,
+  itemTags: VanillaItemTagSummary
+): ProcessingFact[] {
+  const facts: ProcessingFact[] = []
+
+  for (const [recipeId, recipe] of Object.entries(recipes)) {
+    const descriptor =
+      processingDescriptor(recipe.type)
+    if (!descriptor) continue
+    if (!recipe.ingredient || !recipe.result?.id) continue
+
+    const inputs =
+      resolveVanillaIngredient(recipe.ingredient, itemTags)
+    if (inputs.length === 0) {
+      throw new Error(
+        `vanilla_processing_input_unresolved:${recipeId}`
+      )
+    }
+
+    const outputCount =
+      recipe.result.count ?? 1
+    if (
+      !Number.isInteger(outputCount) ||
+      outputCount < 1
+    ) {
+      throw new Error(
+        `vanilla_processing_output_count_invalid:${recipeId}`
+      )
+    }
+
+    const cookTimeTicks =
+      descriptor.kind === 'stonecutting'
+        ? null
+        : (
+            Number.isInteger(recipe.cookingtime) &&
+            (recipe.cookingtime ?? 0) > 0
+              ? recipe.cookingtime!
+              : null
+          )
+
+    inputs
+      .map(namespaced)
+      .sort()
+      .forEach((item, index) => {
+        facts.push({
+          id:
+            `minecraft:process/${namespacePath(recipeId)}/${index}`,
+          kind: descriptor.kind,
+          input: {
+            item,
+            count: 1
+          },
+          output: {
+            item: namespaced(recipe.result!.id),
+            count: outputCount
+          },
+          workstation: descriptor.workstation,
+          cookTimeTicks
+        })
+      })
+  }
+
+  return facts.sort((left, right) =>
+    left.id.localeCompare(right.id)
+  )
+}
+
+function processingDescriptor(
+  type: string
+): {
+  readonly kind:
+    | 'smelting'
+    | 'blasting'
+    | 'smoking'
+    | 'stonecutting'
+  readonly workstation: string
+} | null {
+  switch (type.trim().toLowerCase()) {
+    case 'minecraft:smelting':
+      return {
+        kind: 'smelting',
+        workstation: 'minecraft:furnace'
+      }
+    case 'minecraft:blasting':
+      return {
+        kind: 'blasting',
+        workstation: 'minecraft:blast_furnace'
+      }
+    case 'minecraft:smoking':
+      return {
+        kind: 'smoking',
+        workstation: 'minecraft:smoker'
+      }
+    case 'minecraft:stonecutting':
+      return {
+        kind: 'stonecutting',
+        workstation: 'minecraft:stonecutter'
+      }
+    default:
+      return null
+  }
+}
+
+function resolveVanillaIngredient(
+  ingredient: VanillaProcessingIngredient,
+  itemTags: VanillaItemTagSummary
+): string[] {
+  if (ingredient.item) {
+    return [namespaced(ingredient.item)]
+  }
+  if (!ingredient.tag) return []
+
+  return expandVanillaItemTag(
+    normalizeTagId(ingredient.tag),
+    itemTags,
+    new Set()
+  )
+}
+
+function expandVanillaItemTag(
+  tagId: string,
+  itemTags: VanillaItemTagSummary,
+  path: ReadonlySet<string>
+): string[] {
+  if (path.has(tagId)) {
+    throw new Error(
+      `vanilla_item_tag_cycle:${tagId}`
+    )
+  }
+
+  const tag = itemTags[namespacePath(tagId)]
+  if (!tag) {
+    throw new Error(
+      `vanilla_item_tag_missing:${tagId}`
+    )
+  }
+
+  const nextPath = new Set(path)
+  nextPath.add(tagId)
+  const items = new Set<string>()
+
+  for (const raw of tag.values) {
+    const value =
+      typeof raw === 'string'
+        ? raw
+        : raw.id
+    if (!value) continue
+
+    if (value.startsWith('#')) {
+      const nested = expandVanillaItemTag(
+        normalizeTagId(value.slice(1)),
+        itemTags,
+        nextPath
+      )
+      for (const item of nested) items.add(item)
+      continue
+    }
+
+    items.add(namespaced(value))
+  }
+
+  return [...items].sort()
+}
+
+function normalizeTagId(
+  value: string
+): string {
+  return namespaced(
+    value.startsWith('#')
+      ? value.slice(1)
+      : value
+  )
+}
+
 export function normalizeTools(
   items: readonly SourceItem[]
 ): ToolFact[] {
@@ -322,16 +528,48 @@ function defaultWorkstations(
     supportedKinds: ['crafting']
   }]
 
-  if (itemIds.has('minecraft:crafting_table')) {
-    facts.push({
+  const physical: readonly WorkstationFact[] = [
+    {
       id: 'minecraft:crafting_table',
       item: 'minecraft:crafting_table',
       blockIds: ['minecraft:crafting_table'],
       supportedKinds: ['crafting']
-    })
+    },
+    {
+      id: 'minecraft:furnace',
+      item: 'minecraft:furnace',
+      blockIds: ['minecraft:furnace'],
+      supportedKinds: ['smelting']
+    },
+    {
+      id: 'minecraft:blast_furnace',
+      item: 'minecraft:blast_furnace',
+      blockIds: ['minecraft:blast_furnace'],
+      supportedKinds: ['blasting']
+    },
+    {
+      id: 'minecraft:smoker',
+      item: 'minecraft:smoker',
+      blockIds: ['minecraft:smoker'],
+      supportedKinds: ['smoking']
+    },
+    {
+      id: 'minecraft:stonecutter',
+      item: 'minecraft:stonecutter',
+      blockIds: ['minecraft:stonecutter'],
+      supportedKinds: ['stonecutting']
+    }
+  ]
+
+  for (const fact of physical) {
+    if (fact.item && itemIds.has(fact.item)) {
+      facts.push(fact)
+    }
   }
 
-  return facts
+  return facts.sort((left, right) =>
+    left.id.localeCompare(right.id)
+  )
 }
 
 function deterministicDrop(
